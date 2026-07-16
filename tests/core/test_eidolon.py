@@ -40,6 +40,9 @@ class MockStorage:
             self.topics[topic_id]["summary"] = summary
             self.closed_topics.append(topic_id)
 
+    def update_topic_embedding(self, topic_id: int, embedding: list[float]) -> None:
+        pass
+
     def search_topics(self, query_embedding=None, tags=None, peer_id=None, limit=5):
         return [t for t in self.topics.values() if t["status"] == "closed"][:limit]
 
@@ -49,6 +52,9 @@ class MockStorage:
 
     def search_memory_items(self, query_embedding=None, peer_id=None, limit=5):
         return self.memory_items[:limit]
+
+    def store_message(self, turn_id, role, content, peer_id, topic_id=None):
+        return 1  # dummy id
 
 
 class MockLLM:

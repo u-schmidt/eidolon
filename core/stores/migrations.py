@@ -48,6 +48,19 @@ MIGRATIONS: dict[int, str] = {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """,
+    2: """
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        turn_id INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        peer_id TEXT NOT NULL,
+        topic_id INTEGER REFERENCES topics(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    ALTER TABLE memory_items ADD COLUMN message_id INTEGER REFERENCES messages(id);
+    """,
 }
 
 

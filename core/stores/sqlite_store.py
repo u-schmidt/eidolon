@@ -138,6 +138,16 @@ class SqliteStore:
         )
         self._conn.commit()
 
+    def update_topic_embedding(
+        self, topic_id: int, embedding: list[float]
+    ) -> None:
+        embed_blob = _serialize_embedding(embedding)
+        self._conn.execute(
+            "UPDATE topics SET embedding = ? WHERE id = ?",
+            (embed_blob, topic_id),
+        )
+        self._conn.commit()
+
     def search_topics(
         self,
         query_embedding: list[float] | None = None,
@@ -197,9 +207,9 @@ class SqliteStore:
         embed_blob = _serialize_embedding(item.embedding) if item.embedding else None
         cur = self._conn.execute(
             "INSERT INTO memory_items (content, item_type, source_peer, subject_peer, "
-            "attribution_type, topic_id, embedding) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "attribution_type, topic_id, message_id, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (item.content, item.item_type, item.source_peer, item.subject_peer,
-             item.attribution_type, item.topic_id, embed_blob),
+             item.attribution_type, item.topic_id, item.message_id, embed_blob),
         )
         self._conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
@@ -212,7 +222,7 @@ class SqliteStore:
     ) -> list[MemoryItem]:
         rows = self._conn.execute(
             "SELECT id, content, item_type, source_peer, subject_peer, "
-            "attribution_type, topic_id, created_at, embedding "
+            "attribution_type, topic_id, message_id, embedding, created_at "
             "FROM memory_items"
         ).fetchall()
 
@@ -227,7 +237,8 @@ class SqliteStore:
                 subject_peer=row[4],
                 attribution_type=row[5],
                 topic_id=row[6],
-                timestamp=row[7],
+                message_id=row[7],
+                timestamp=row[9],
             )
             score = 0.0
 
@@ -245,3 +256,21 @@ class SqliteStore:
 
         results.sort(key=lambda x: x[0], reverse=True)
         return [item for _, item in results[:limit]]
+
+    # ── Messages ───────────────────────────────────────────
+
+    def store_message(
+        self,
+        turn_id: int,
+        role: str,
+        content: str,
+        peer_id: str,
+        topic_id: int | None = None,
+    ) -> int:
+        cur = self._conn.execute(
+            "INSERT INTO messages (turn_id, role, content, peer_id, topic_id) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (turn_id, role, content, peer_id, topic_id),
+        )
+        self._conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]

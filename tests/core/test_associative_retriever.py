@@ -43,6 +43,9 @@ class MockStorage:
     def close_topic(self, topic_id: int, summary: str) -> None:
         pass
 
+    def update_topic_embedding(self, topic_id: int, embedding: list[float]) -> None:
+        pass
+
     def search_topics(
         self,
         query_embedding: list[float] | None = None,

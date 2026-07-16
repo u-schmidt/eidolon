@@ -49,6 +49,7 @@ class MemoryItem:
     attribution_type: str = ""
     id: int | None = None
     topic_id: int | None = None
+    message_id: int | None = None
     embedding: list[float] | None = None
     timestamp: datetime | None = None
     context: EnvironmentSnapshot | None = None  # V2

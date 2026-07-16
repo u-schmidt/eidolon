@@ -66,6 +66,7 @@ class Eidolon:
         self._detector = TopicDetector(llm)
         self._retriever = AssociativeRetriever(storage, embedder, retrieval_weights, language)
         self._extractor = FragmentaryExtractor(llm, language)
+        self._embedder = embedder
         self._language = language
 
     # ── Public API ─────────────────────────────────────────
@@ -179,9 +180,10 @@ class Eidolon:
         ai_response: str,
         peer_id: str,
         environment: EnvironmentSnapshot,
+        turn_id: int | None = None,
         old_topic_id: int | None = None,
         new_topic_label: str | None = None,
-    ) -> None:
+    ) -> int | None:
         """Store a conversation turn after the LLM has responded.
 
         Called AFTER the LLM responds (async, does not block the turn).
@@ -189,9 +191,10 @@ class Eidolon:
         Performs:
         1. Close old topic (if topic changed)
         2. Create new topic (if topic changed)
-        3. Extract memory fragments from the turn
-        4. Store memory items with perspective attribution
-        5. Generate embedding for the new topic
+        3. Store user message and AI response as messages
+        4. Extract memory fragments from the turn
+        5. Store memory items with perspective attribution + message reference
+        6. Generate embedding for the new topic
 
         Parameters
         ----------
@@ -203,10 +206,17 @@ class Eidolon:
             Who is speaking (the user).
         environment : EnvironmentSnapshot
             The environment context at the time of this turn.
+        turn_id : int | None
+            Turn counter for grouping user+ai messages. Managed by the adapter.
         old_topic_id : int | None
             The topic ID to close (if a topic change occurred).
         new_topic_label : str | None
             The label for the new topic (if a topic change occurred).
+
+        Returns
+        -------
+        int | None
+            The new topic ID if a topic was created, None otherwise.
         """
         # 1. Close old topic if topic changed
         if old_topic_id is not None and new_topic_label is not None:
@@ -220,7 +230,28 @@ class Eidolon:
                 peer_id=peer_id,
             )
 
-        # 3. Extract memory fragments
+        # 3. Store messages
+        resolved_topic_id = new_topic_id or old_topic_id
+        tid = turn_id or 0
+
+        user_msg_id = self._storage.store_message(
+            turn_id=tid, role="user", content=user_message,
+            peer_id=peer_id, topic_id=resolved_topic_id,
+        )
+        ai_msg_id = self._storage.store_message(
+            turn_id=tid, role="ai", content=ai_response,
+            peer_id="ai", topic_id=resolved_topic_id,
+        )
+
+        # 4. Generate embedding for the new topic
+        if new_topic_id is not None and new_topic_label:
+            try:
+                topic_embedding = self._embedder.embed(new_topic_label)
+                self._storage.update_topic_embedding(new_topic_id, topic_embedding)
+            except Exception:
+                pass  # Embedding failure is non-critical
+
+        # 5. Extract memory fragments
         items = self._extractor.extract(
             user_message=user_message,
             ai_response=ai_response,
@@ -229,11 +260,24 @@ class Eidolon:
             environment=environment,
         )
 
-        # 4. Store memory items with topic association
+        # 6. Store memory items with topic + message association + embeddings
         for item in items:
             if new_topic_id is not None:
                 item.topic_id = new_topic_id
+            # Link items to the message they were extracted from
+            if item.source_peer == "ai":
+                item.message_id = ai_msg_id
+            else:
+                item.message_id = user_msg_id
+            # Generate embedding for the item content
+            if item.content:
+                try:
+                    item.embedding = self._embedder.embed(item.content)
+                except Exception:
+                    pass  # Embedding failure is non-critical
             self._storage.store_memory_item(item)
+
+        return new_topic_id
 
     # ── Internal Helpers ────────────────────────────────────
 

@@ -301,28 +301,23 @@ def main() -> None:
             max_tokens=200,
         )
 
-        # Step 4: Store the turn
+        # Step 4: Store the turn — store_turn returns the new topic ID
         old_topic_id = active_topic_id if is_new else None
         new_topic_label = topic_change.label if is_new else None
 
-        eidolon.store_turn(
+        new_topic_id = eidolon.store_turn(
             user_message=text,
             ai_response=ai_response,
             peer_id="user",
             environment=env,
+            turn_id=turn_count,
             old_topic_id=old_topic_id,
             new_topic_label=new_topic_label,
         )
 
-        # Update session state
-        if is_new and topic_change.label:
-            for tid in range(1, 100):
-                t = store.get_topic(tid)
-                if t is None:
-                    break
-                if t["label"] == topic_change.label and t["status"] == "active":
-                    active_topic_id = t["id"]
-                    break
+        # Update session state with the returned topic ID
+        if new_topic_id is not None:
+            active_topic_id = new_topic_id
 
         print(f"  AI  > {ai_response}")
         print()

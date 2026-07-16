@@ -57,6 +57,12 @@ class StorageProvider(Protocol):
         """Mark a topic as closed and set its final summary."""
         ...
 
+    def update_topic_embedding(
+        self, topic_id: int, embedding: list[float]
+    ) -> None:
+        """Store or update the embedding vector for a topic."""
+        ...
+
     def search_topics(
         self,
         query_embedding: list[float] | None = None,
@@ -83,6 +89,19 @@ class StorageProvider(Protocol):
         limit: int = 5,
     ) -> list[MemoryItem]:
         """Search memory items by embedding similarity and/or peer."""
+        ...
+
+    # ── Messages ───────────────────────────────────────────
+
+    def store_message(
+        self,
+        turn_id: int,
+        role: str,
+        content: str,
+        peer_id: str,
+        topic_id: int | None = None,
+    ) -> int:
+        """Store a single message and return its id."""
         ...
 
 
