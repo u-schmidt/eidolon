@@ -35,10 +35,10 @@ except ImportError:
 
 # Eidolon core
 from core import Eidolon
+from core.interfaces import LLMProvider
 from core.models import EnvironmentSnapshot
 from core.stores.sqlite_store import SqliteStore
-from providers.embedder.lm_studio import LMStudioEmbedder
-from providers.llm.hermes_llm import HermesLLM
+from providers.lm_studio import LMStudio
 
 
 class EidolonMemoryProvider(MemoryProvider):
@@ -73,14 +73,22 @@ class EidolonMemoryProvider(MemoryProvider):
         self._store = SqliteStore(db_path)
         self._store.connect()
 
-        # LLM — wraps Hermes' completion function
+        # LLM — wraps Hermes' completion function as an LLMProvider
         # The actual Hermes LLM function is injected by the plugin system
-        llm = HermesLLM(self._get_hermes_completion())
+        hermes_complete = self._get_hermes_completion()
+
+        class _AdapterLLM:
+            """Thin wrapper: Hermes completion → LLMProvider protocol."""
+
+            def complete(self, prompt, system_prompt=None, max_tokens=100):
+                return hermes_complete(prompt, system=system_prompt, max_tokens=max_tokens)
+
+        llm = _AdapterLLM()
 
         # Embedder — LM Studio by default
-        embedder = LMStudioEmbedder(
+        embedder = LMStudio(
             base_url=self._config.get("embedder_base_url", "http://localhost:1234"),
-            model=self._config.get("embedder_model", "text-embedding-bge-m3"),
+            embedder_model=self._config.get("embedder_model", "text-embedding-bge-m3"),
         )
 
         # Retrieval weights

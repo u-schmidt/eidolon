@@ -14,8 +14,7 @@ from typing import Any
 from core import Eidolon
 from core.models import EnvironmentSnapshot
 from core.stores.sqlite_store import SqliteStore
-from providers.embedder.lm_studio import LMStudioEmbedder
-from providers.llm.hermes_llm import HermesLLM
+from providers.lm_studio import LMStudio
 
 
 class EidolonTopicHook:
@@ -44,11 +43,18 @@ class EidolonTopicHook:
         self._store = SqliteStore(db_path)
         self._store.connect()
 
-        llm = HermesLLM(self._get_hermes_completion())
+        # LLM — inline wrapper: Hermes completion → LLMProvider protocol
+        hermes_complete = self._get_hermes_completion()
 
-        embedder = LMStudioEmbedder(
+        class _HookLLM:
+            def complete(self, prompt, system_prompt=None, max_tokens=100):
+                return hermes_complete(prompt, system=system_prompt, max_tokens=max_tokens)
+
+        llm = _HookLLM()
+
+        embedder = LMStudio(
             base_url=self._config.get("embedder_base_url", "http://localhost:1234"),
-            model=self._config.get("embedder_model", "text-embedding-bge-m3"),
+            embedder_model=self._config.get("embedder_model", "text-embedding-bge-m3"),
         )
 
         weights = self._config.get("retrieval_weights")

@@ -195,6 +195,7 @@ name = "eidolon"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "pyyaml" },
     { name = "requests" },
 ]
 
@@ -211,6 +212,7 @@ sentence-transformers = [
 requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.32" },
     { name = "sentence-transformers", marker = "extra == 'sentence-transformers'", specifier = ">=3" },
 ]

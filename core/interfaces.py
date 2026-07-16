@@ -89,7 +89,7 @@ class StorageProvider(Protocol):
 class LLMProvider(Protocol):
     """Abstract LLM backend.
 
-    V1: wraps Hermes' existing provider via ``providers/llm/hermes_llm.py``.
+    V1: wraps Hermes' existing provider via a callable passed by the adapter.
     """
 
     def complete(

@@ -49,14 +49,16 @@ class SqliteStore:
     """
 
     def __init__(self, path: str) -> None:
-        self._path = str(Path(path).expanduser().resolve())
+        self._path = Path(path).expanduser().resolve()
         self._db: sqlite3.Connection | None = None
 
     # ── Lifecycle ──────────────────────────────────────────
 
     def connect(self) -> None:
         """Open the database and run pending migrations."""
-        self._db = sqlite3.connect(self._path)
+        # Ensure the parent directory exists
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._db = sqlite3.connect(str(self._path))
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA foreign_keys=ON")
         migrate(self._db)

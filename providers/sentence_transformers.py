@@ -1,4 +1,4 @@
-"""Sentence-transformers embedder provider for Eidolon.
+"""Sentence-transformers embedder for Eidolon.
 
 Local PyTorch-based embedding as a fallback when no external provider is available.
 Requires the ``sentence-transformers`` package (optional dependency).
@@ -11,7 +11,7 @@ class SentenceTransformersEmbedder:
     """Generates embeddings locally via sentence-transformers.
 
     Falls back to this when no external embedding API is available
-    (e.g., standalone CLI usage without LM Studio).
+    (e.g., standalone CLI usage without LM Studio or Ollama).
 
     Parameters
     ----------
@@ -28,7 +28,6 @@ class SentenceTransformersEmbedder:
         """Lazy-load the sentence-transformers model."""
         if self._model is None:
             from sentence_transformers import SentenceTransformer
-
             self._model = SentenceTransformer(self._model_name)
 
     def embed(self, text: str) -> list[float]:

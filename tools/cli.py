@@ -2,19 +2,27 @@
 """Eidolon CLI — standalone test tool for the core library.
 
 Run without Hermes to test topic detection, context retrieval, and memory storage.
-Uses SQLite for storage and sentence-transformers for embeddings (no external API needed).
+Uses ConfigLoader + ProviderFactory for flexible provider selection.
 
 Usage:
-    python -m tools.cli
-    python -m tools.cli --db /tmp/eidolon_test.db
-    python -m tools.cli --language de
+    # Quick test with simulated providers (no external dependencies):
+    python tools/cli.py
+
+    # With a YAML config file:
+    python tools/cli.py --config ~/.eidolon/config.yaml
+
+    # With specific LLM and embedder providers:
+    python tools/cli.py --llm-provider ollama --llm-model deepseek-v4 \\
+                       --embedder-provider lm_studio --embedder-model text-embedding-bge-m3
+
+    # With environment variables:
+    EIDOLON_LLM_PROVIDER=ollama EIDOLON_LLM_MODEL=deepseek-v4 python tools/cli.py
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-import tempfile
 from pathlib import Path
 
 # Ensure the project root is on sys.path for direct execution
@@ -23,108 +31,62 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from core import Eidolon
+from core.config_loader import ConfigLoader
 from core.models import EnvironmentSnapshot
-from core.stores.sqlite_store import SqliteStore
+from core.provider_factory import ProviderFactory
 
 
-class CliLLM:
-    """A mock LLM that reads responses from a simple text file or uses defaults.
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Build the argument parser with all available options."""
+    parser = argparse.ArgumentParser(
+        description="Eidolon CLI — test the core library",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Examples:
+  python tools/cli.py
+  python tools/cli.py --config ~/.eidolon/config.yaml
+  python tools/cli.py --llm-provider ollama --llm-model deepseek-v4 --embedder-provider lm_studio
+  EIDOLON_LLM_PROVIDER=ollama python tools/cli.py
+        """,
+    )
 
-    For testing without a real LLM, this simulates topic detection and extraction.
-    """
+    # Config file
+    parser.add_argument("--config", default=None, help="Path to YAML config file")
 
-    def __init__(self, mode: str = "interactive") -> None:
-        self._mode = mode
-        self._turn_count = 0
+    # Storage
+    parser.add_argument("--storage-provider", default=None, choices=["sqlite"], help="Storage provider")
+    parser.add_argument("--storage-path", default=None, help="Database path")
 
-    def complete(
-        self,
-        prompt: str,
-        system_prompt: str | None = None,
-        max_tokens: int = 100,
-    ) -> str:
-        self._turn_count += 1
+    # LLM
+    parser.add_argument("--llm-provider", default=None,
+                        choices=["simulated", "lm_studio", "ollama"],
+                        help="LLM provider name (must match a key in providers config)")
+    parser.add_argument("--llm-model", default=None, help="LLM model name")
+    parser.add_argument("--llm-max-tokens", type=int, default=None, help="LLM max tokens")
+    parser.add_argument("--llm-timeout", type=int, default=None, help="LLM timeout")
 
-        # Simulate topic detection
-        if system_prompt and "topic detection" in system_prompt.lower():
-            return self._simulate_detection(prompt)
+    # Embedder
+    parser.add_argument("--embedder-provider", default=None,
+                        choices=["simulated", "lm_studio", "ollama", "sentence_transformers"],
+                        help="Embedder provider name (must match a key in providers config)")
+    parser.add_argument("--embedder-model", default=None, help="Embedder model name")
+    parser.add_argument("--embedder-timeout", type=int, default=None, help="Embedder timeout")
+    parser.add_argument("--embedder-dimension", type=int, default=None, help="Embedder vector dimension")
 
-        # Simulate extraction
-        if system_prompt and "memory extraction" in system_prompt.lower():
-            return self._simulate_extraction(prompt)
+    # Retrieval weights
+    parser.add_argument("--retrieval-semantic", type=float, default=None, help="Semantic weight (0-1)")
+    parser.add_argument("--retrieval-tag-overlap", type=float, default=None, help="Tag overlap weight (0-1)")
+    parser.add_argument("--retrieval-person", type=float, default=None, help="Person weight (0-1)")
+    parser.add_argument("--retrieval-temporal", type=float, default=None, help="Temporal weight (0-1)")
 
-        return ""
+    # General
+    parser.add_argument("--language", default=None, help="Language code (default: en)")
+    parser.add_argument("--db", "--db-path", dest="db_path", default=None, help="Database path (overrides storage.path)")
 
-    def _simulate_detection(self, prompt: str) -> str:
-        """Simulate topic detection based on keywords in the message."""
-        # Extract the user message from the prompt
-        lines = prompt.strip().split("\n")
-        user_line = next((l for l in lines if l.startswith("User:")), "")
-        message = user_line[5:].strip().lower() if user_line else ""
-
-        # Check for topic change signals
-        change_signals = [
-            "lass uns", "übrigens", "ach ja", "was mich noch interessiert",
-            "neues thema", "wechseln", "sprechen wir über", "erzähl mir von",
-            "let's", "by the way", "speaking of", "what about",
-            "change topic", "new topic", "talk about",
-        ]
-        for signal in change_signals:
-            if signal in message:
-                # Extract a label from the message
-                words = message.split()
-                # Find the first meaningful word after the signal
-                for i, w in enumerate(words):
-                    if w in ("über", "von", "about", "of") and i + 1 < len(words):
-                        label = " ".join(words[i+1:i+4]).strip(".,!?")
-                        if label:
-                            return f"NEW_TOPIC:{label.title()}"
-                # Fallback: use the last 2-3 words
-                label = " ".join(words[-3:]).strip(".,!?")
-                if label:
-                    return f"NEW_TOPIC:{label.title()}"
-                return "NEW_TOPIC:New Topic"
-
-        # Default: CONTINUE for everything else
-        return "CONTINUE"
-
-    def _simulate_extraction(self, prompt: str) -> str:
-        """Simulate fragmentary extraction."""
-        lines = prompt.strip().split("\n")
-        user_line = next((l for l in lines if l.startswith("User:")), "")
-        message = user_line[5:].strip() if user_line else ""
-
-        if not message or len(message) < 5:
-            return "[]"
-
-        # Create a simple essence extraction
-        return (
-            '[{"content": "User said: ' + message[:80] + '", '
-            '"item_type": "essence", '
-            '"source_peer": "user", '
-            '"subject_peer": "user", '
-            '"attribution_type": "self_statement"}]'
-        )
-
-
-class CliEmbedder:
-    """A simple mock embedder that returns a fixed vector.
-
-    Good enough for testing the CLI without loading a real model.
-    """
-
-    def __init__(self, dimension: int = 4) -> None:
-        self._dimension = dimension
-
-    def embed(self, text: str) -> list[float]:
-        """Return a deterministic vector based on text length."""
-        # Simple hash-based vector for reproducibility
-        h = hash(text) % 1000
-        return [float((h + i) % 10) / 10.0 for i in range(self._dimension)]
+    return parser
 
 
 def print_banner() -> None:
-    """Print the Eidolon CLI banner."""
     print()
     print("  ╔══════════════════════════════════════╗")
     print("  ║         Eidolon CLI  v0.1.0          ║")
@@ -134,7 +96,6 @@ def print_banner() -> None:
 
 
 def print_help() -> None:
-    """Print available commands."""
     print("  Commands:")
     print("    <message>     Send a message (topic detection + context retrieval)")
     print("    /topic        Show the current active topic")
@@ -148,27 +109,40 @@ def print_help() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Eidolon CLI — test the core library")
-    parser.add_argument("--db", default="", help="Path to SQLite database (default: temp file)")
-    parser.add_argument("--language", default="en", help="Language code (default: en)")
+    parser = build_arg_parser()
     args = parser.parse_args()
 
-    # Database
-    db_path = args.db or str(Path(tempfile.mkdtemp()) / "eidolon_cli.db")
-    print(f"  Database: {db_path}")
+    # Load configuration (YAML → env → CLI)
+    loader = ConfigLoader(config_path=args.config, cli_args=args)
+    config = loader.load()
 
-    # Initialize components
-    store = SqliteStore(db_path)
-    store.connect()
+    # Print configuration summary
+    print(f"  Config: {args.config or '(defaults + env + CLI)'}")
+    print(f"  Storage: {config.storage.provider} ({config.storage.path})")
+    print(f"  LLM: {config.llm.provider} / {config.llm.model}")
+    print(f"  Embedder: {config.embedder.provider} / {config.embedder.model}")
+    print(f"  Language: {config.language}")
+    for name, ep in config.providers.items():
+        print(f"  Provider '{name}': {ep.base_url}")
 
-    llm = CliLLM()
-    embedder = CliEmbedder()
+    # Create providers via factory
+    factory = ProviderFactory(config)
+    store = factory.create_storage()
+    llm = factory.create_llm()
+    embedder = factory.create_embedder()
 
+    # Initialize Eidolon core
     eidolon = Eidolon(
         storage=store,
         llm=llm,
         embedder=embedder,
-        language=args.language,
+        language=config.language,
+        retrieval_weights={
+            "semantic": config.retrieval.semantic,
+            "tag_overlap": config.retrieval.tag_overlap,
+            "person": config.retrieval.person,
+            "temporal": config.retrieval.temporal,
+        },
     )
 
     # Session state (managed by the CLI, not by the Core)
@@ -228,7 +202,6 @@ def main() -> None:
                 continue
 
             if cmd == "topics":
-                # List all topics
                 topics = []
                 for tid in range(1, 100):
                     t = store.get_topic(tid)
@@ -245,7 +218,6 @@ def main() -> None:
                 continue
 
             if cmd == "items":
-                # Get all items directly from the store
                 conn = store._conn
                 rows = conn.execute(
                     "SELECT id, content, item_type, source_peer, subject_peer, "
@@ -299,8 +271,35 @@ def main() -> None:
         if bundle.memory_items:
             print(f"  Memory items: {len(bundle.memory_items)}")
 
-        # Step 3: Simulate an AI response (we don't have a real LLM here)
-        ai_response = f"[AI response to: {text[:60]}]"
+        # Step 3: Generate AI response using the LLM provider
+        context_prompt = ""
+        if bundle.current_topic_label:
+            context_prompt += f"Current topic: {bundle.current_topic_label}\n"
+        if bundle.facts:
+            context_prompt += "Facts:\n"
+            for f in bundle.facts:
+                context_prompt += f"- {f.key}: {f.value}\n"
+        if bundle.related_topics:
+            context_prompt += "Related topics (from memory):\n"
+            for rt in bundle.related_topics:
+                context_prompt += f"- {rt.summary[:100]}\n"
+        if bundle.memory_items:
+            context_prompt += "Memory items:\n"
+            for mi in bundle.memory_items:
+                context_prompt += f"- {mi.content[:100]}\n"
+
+        system_prompt = (
+            "You are Eidolon CLI, a test interface for the Eidolon topic memory system. "
+            "Respond naturally to the user's message. Use the provided context if relevant, "
+            "but don't mention the memory system unless asked. Keep responses concise."
+        )
+
+        full_prompt = f"{context_prompt}\nUser: {text}\nAI:"
+        ai_response = llm.complete(
+            prompt=full_prompt,
+            system_prompt=system_prompt,
+            max_tokens=200,
+        )
 
         # Step 4: Store the turn
         old_topic_id = active_topic_id if is_new else None
@@ -317,7 +316,6 @@ def main() -> None:
 
         # Update session state
         if is_new and topic_change.label:
-            # Find the newly created topic (it's the last one)
             for tid in range(1, 100):
                 t = store.get_topic(tid)
                 if t is None:
