@@ -1,0 +1,50 @@
+name: eidolon
+description: "Eidolon — a topic memory system with associative retrieval and perspective attribution"
+version: "0.1.0"
+author: "Udo Schmidt"
+
+# Memory provider plugin — replaces Honcho in Full Mode
+memory_provider: eidolon
+
+# Hooks for Topic-Only Mode (runs alongside Honcho)
+hooks:
+  - pre_llm_call
+
+# Configuration reference
+config:
+  db_path:
+    type: string
+    default: "~/.eidolon/memory.db"
+    description: "Path to the SQLite database file"
+
+  language:
+    type: string
+    default: "en"
+    description: "Language code for stop word filtering (prompts stay English)"
+
+  embedder_base_url:
+    type: string
+    default: "http://localhost:1234"
+    description: "Base URL for LM Studio embedding API"
+
+  embedder_model:
+    type: string
+    default: "text-embedding-bge-m3"
+    description: "Model name for embeddings"
+
+  retrieval_weights:
+    type: object
+    description: "Optional weight overrides for retrieval dimensions"
+    properties:
+      semantic:
+        type: number
+        default: 0.4
+      tag_overlap:
+        type: number
+        default: 0.3
+      person:
+        type: number
+        default: 0.2
+      temporal:
+        type: number
+        default: 0.1
