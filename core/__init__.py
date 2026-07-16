@@ -32,7 +32,7 @@ from __future__ import annotations
 from core.detection.topic_detector import TopicDetector
 from core.extraction.fragmentary_extractor import FragmentaryExtractor
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider
-from core.models import ContextBundle, EnvironmentSnapshot, TopicChange
+from core.models import ContextBundle, EnvironmentSnapshot, MemoryItem, TopicChange
 from core.retrieval.associative_retriever import AssociativeRetriever
 
 
@@ -67,6 +67,7 @@ class Eidolon:
         self._retriever = AssociativeRetriever(storage, embedder, retrieval_weights, language)
         self._extractor = FragmentaryExtractor(llm, language)
         self._embedder = embedder
+        self._llm = llm
         self._language = language
 
     # ── Public API ─────────────────────────────────────────
@@ -218,8 +219,9 @@ class Eidolon:
         int | None
             The new topic ID if a topic was created, None otherwise.
         """
-        # 1. Close old topic if topic changed
+        # 1. Close old topic if topic changed — and generate summary + tags
         if old_topic_id is not None and new_topic_label is not None:
+            self._summarize_topic(old_topic_id)
             self._storage.close_topic(old_topic_id, f"Continued to: {new_topic_label}")
 
         # 2. Create new topic if topic changed
@@ -261,6 +263,7 @@ class Eidolon:
         )
 
         # 6. Store memory items with topic + message association + embeddings
+        fact_items: list[MemoryItem] = []
         for item in items:
             if new_topic_id is not None:
                 item.topic_id = new_topic_id
@@ -276,10 +279,166 @@ class Eidolon:
                 except Exception:
                     pass  # Embedding failure is non-critical
             self._storage.store_memory_item(item)
+            # Collect fact-type items for structured fact extraction
+            if item.item_type == "fact":
+                fact_items.append(item)
+
+        # 7. Extract structured facts from fact-type memory items
+        if fact_items:
+            self._extract_facts(fact_items, peer_id)
 
         return new_topic_id
 
     # ── Internal Helpers ────────────────────────────────────
+
+    def _extract_facts(
+        self, fact_items: list[MemoryItem], peer_id: str
+    ) -> None:
+        """Extract structured facts from fact-type memory items.
+
+        Takes memory items with item_type="fact" and asks the LLM to
+        convert them into structured (category, key, value) triples
+        that are stored in the facts table.
+
+        Called async after fragmentary extraction.
+
+        Parameters
+        ----------
+        fact_items : list[MemoryItem]
+            Memory items with item_type="fact" from the current turn.
+        peer_id : str
+            The peer these facts are about.
+        """
+        if not fact_items:
+            return
+
+        try:
+            # Build a list of fact statements
+            statements = "\n".join(
+                f"- {item.content}" for item in fact_items
+            )
+
+            prompt = (
+                "Convert these facts about a user into structured (category, key, value) triples.\n\n"
+                f"Facts:\n{statements}\n\n"
+                "Rules:\n"
+                "- category: a broad domain like 'preferences', 'health', 'work', 'fitness', 'lifestyle'\n"
+                "- key: a specific, concise identifier (snake_case, 2-4 words)\n"
+                "- value: the fact itself (1 sentence)\n\n"
+                "Respond with a JSON array only. Example:\n"
+                '[\n'
+                '  {\n'
+                '    "category": "fitness",\n'
+                '    "key": "cardio_clothing_preference",\n'
+                '    "value": "dislikes heavy cotton shirts during cardio"\n'
+                '  }\n'
+                ']\n\n'
+                "If nothing to extract, respond with: []"
+            )
+
+            response = self._llm.complete(
+                prompt=prompt,
+                system_prompt=(
+                    "You extract structured facts from conversation fragments. "
+                    "Output JSON only."
+                ),
+                max_tokens=300,
+            )
+
+            # Parse JSON response
+            import json
+            text = response.strip()
+            if text.startswith("```"):
+                start = text.find("[")
+                if start != -1:
+                    text = text[start:]
+                end = text.rfind("```")
+                if end != -1:
+                    text = text[:end]
+                text = text.strip()
+
+            structured = json.loads(text)
+            if not isinstance(structured, list):
+                return
+
+            for fact in structured:
+                category = fact.get("category", "").strip()
+                key = fact.get("key", "").strip()
+                value = fact.get("value", "").strip()
+                if category and key and value:
+                    self._storage.set_fact(
+                        peer_id=peer_id,
+                        category=category,
+                        key=key,
+                        value=value,
+                        source="ai",
+                    )
+        except Exception:
+            pass  # Fact extraction failure is non-critical
+
+    def _summarize_topic(self, topic_id: int) -> None:
+        """Generate a summary and tags for a topic based on its messages.
+
+        Called async when a topic is closed. Loads all messages for the topic,
+        asks the LLM for a concise summary and relevant tags, then updates
+        the topic in storage.
+
+        Parameters
+        ----------
+        topic_id : int
+            The topic ID to summarize.
+        """
+        try:
+            messages = self._storage.get_messages_by_topic(topic_id)
+            if not messages:
+                return
+
+            # Build a compact conversation transcript
+            transcript = "\n".join(
+                f"{m['role']}: {m['content'][:200]}"
+                for m in messages
+            )
+
+            prompt = (
+                f"Summarize this conversation topic in 1-2 sentences "
+                f"and extract 3-5 key tags (comma-separated, lowercase).\n\n"
+                f"{transcript}\n\n"
+                f"Format:\n"
+                f"Summary: <1-2 sentences>\n"
+                f"Tags: <tag1, tag2, tag3>"
+            )
+
+            response = self._llm.complete(
+                prompt=prompt,
+                system_prompt=(
+                    "You are a conversation summarizer. "
+                    "Output a concise summary and relevant tags only."
+                ),
+                max_tokens=200,
+            )
+
+            # Parse response
+            summary = ""
+            tags: list[str] = []
+            for line in response.strip().split("\n"):
+                if line.lower().startswith("summary:"):
+                    summary = line[len("summary:"):].strip()
+                elif line.lower().startswith("tags:"):
+                    raw_tags = line[len("tags:"):].strip()
+                    tags = [t.strip().lower() for t in raw_tags.split(",") if t.strip()]
+
+            if summary:
+                self._storage.close_topic(topic_id, summary)
+                if tags:
+                    # Update tags via raw SQL (no dedicated method yet)
+                    import json
+                    self._storage._conn.execute(
+                        "UPDATE topics SET tags = ? WHERE id = ?",
+                        (json.dumps(tags), topic_id),
+                    )
+                    self._storage._conn.commit()
+        except Exception:
+            pass  # Summarization failure is non-critical
 
     def _get_topic_summary(self, topic_id: int | None) -> str | None:
         """Get the summary of a topic by its ID.

@@ -148,6 +148,7 @@ def main() -> None:
     # Session state (managed by the CLI, not by the Core)
     active_topic_id: int | None = None
     turn_count = 0
+    chat_history: list[dict[str, str]] = []  # rolling history of last 5 turns
 
     print_banner()
     print_help()
@@ -288,21 +289,36 @@ def main() -> None:
             for mi in bundle.memory_items:
                 context_prompt += f"- {mi.content[:100]}\n"
 
+        # Build chat history into the prompt (last 5 turns)
+        history_text = ""
+        if chat_history:
+            history_text = "Recent conversation:\n"
+            for turn in chat_history:
+                history_text += f"User: {turn['user']}\nAI: {turn['ai']}\n"
+            history_text += "\n"
+
         system_prompt = (
             "You are Eidolon CLI, a test interface for the Eidolon topic memory system. "
             "Respond naturally to the user's message. Use the provided context if relevant, "
             "but don't mention the memory system unless asked. Keep responses concise."
         )
 
-        full_prompt = f"{context_prompt}\nUser: {text}\nAI:"
+        full_prompt = f"{context_prompt}\n{history_text}User: {text}\nAI:"
         ai_response = llm.complete(
             prompt=full_prompt,
             system_prompt=system_prompt,
             max_tokens=200,
         )
 
+        # Update rolling chat history (keep last 5 turns)
+        chat_history.append({"user": text, "ai": ai_response})
+        if len(chat_history) > 5:
+            chat_history.pop(0)
+
         # Step 4: Store the turn — store_turn returns the new topic ID
-        old_topic_id = active_topic_id if is_new else None
+        # Always pass active_topic_id so messages are linked to the current topic.
+        # store_turn only closes the topic when new_topic_label is also set.
+        old_topic_id = active_topic_id
         new_topic_label = topic_change.label if is_new else None
 
         new_topic_id = eidolon.store_turn(

@@ -104,6 +104,10 @@ class StorageProvider(Protocol):
         """Store a single message and return its id."""
         ...
 
+    def get_messages_by_topic(self, topic_id: int) -> list[dict]:
+        """Return all messages for a given topic, ordered by turn_id."""
+        ...
+
 
 class LLMProvider(Protocol):
     """Abstract LLM backend.

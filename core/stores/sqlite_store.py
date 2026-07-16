@@ -274,3 +274,21 @@ class SqliteStore:
         )
         self._conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
+
+    def get_messages_by_topic(self, topic_id: int) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, turn_id, role, content, peer_id, created_at "
+            "FROM messages WHERE topic_id = ? ORDER BY turn_id, id",
+            (topic_id,),
+        ).fetchall()
+        return [
+            {
+                "id": r[0],
+                "turn_id": r[1],
+                "role": r[2],
+                "content": r[3],
+                "peer_id": r[4],
+                "created_at": r[5],
+            }
+            for r in rows
+        ]

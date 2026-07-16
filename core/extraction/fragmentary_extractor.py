@@ -28,19 +28,16 @@ _EXTRACTION_SYSTEM_PROMPT = """You are a memory extraction system for a conversa
 Your job is to extract meaningful fragments from a conversation turn — not the full transcript.
 
 Analyze the user message and AI response, then extract 0-3 memory items.
-Each item must be one of these types:
 
-- essence: What was this turn about? (1-2 sentence summary)
-- fact: A specific, notable piece of information revealed
-- surprise: Something unexpected or unusual
-- feeling: The emotional tone or feeling (optional)
+Each item has two separate fields:
 
-For each item, determine:
-1. content: The extracted fragment (1 sentence, concise)
-2. item_type: One of: essence, fact, surprise, feeling
-3. source_peer: Who said/contributed this? ("user" or "ai")
-4. subject_peer: Who is this about? ("user" or "ai" or "other")
-5. attribution_type: The relationship between source and subject:
+1. **item_type** — what kind of fragment this is (MUST be one of):
+   - "essence" — What was this turn about? (1-2 sentence summary)
+   - "fact" — A specific, notable piece of information revealed
+   - "surprise" — Something unexpected or unusual
+   - "feeling" — The emotional tone or feeling (optional)
+
+2. **attribution_type** — who said what about whom (MUST be one of):
    - "self_statement" — user stated something about themselves
    - "observation" — AI observed something about the user
    - "inference" — AI inferred something about the user
@@ -48,6 +45,17 @@ For each item, determine:
    - "user_about_other" — user stated something about a third party
    - "ai_about_self" — AI stated something about itself
    - "system" — system-level information
+
+IMPORTANT: "inference" is ONLY valid as attribution_type, NEVER as item_type.
+If the AI makes an inference about the user, use item_type="essence" or item_type="fact"
+with attribution_type="inference".
+
+For each item, provide:
+- content: The extracted fragment (1 sentence, concise)
+- item_type: One of: essence, fact, surprise, feeling
+- source_peer: Who said/contributed this? ("user" or "ai")
+- subject_peer: Who is this about? ("user" or "ai" or "other")
+- attribution_type: One of: self_statement, observation, inference, user_about_ai, user_about_other, ai_about_self, system
 
 Respond with a JSON array only. Example:
 [
