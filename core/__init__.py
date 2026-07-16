@@ -1,0 +1,258 @@
+"""Eidolon core facade.
+
+The main entry point for the Eidolon topic memory system.
+Wires together all core components and exposes the public API.
+
+Usage:
+    from core import Eidolon
+
+    eidolon = Eidolon(storage=store, llm=llm, embedder=embedder)
+
+    # Before LLM responds (sync):
+    bundle = eidolon.prepare_context(
+        message="Lass uns über Bello sprechen",
+        peer_id="user",
+        environment=env,
+        active_topic_id=42,
+    )
+
+    # After LLM responds (async):
+    eidolon.store_turn(
+        user_message="Lass uns über Bello sprechen",
+        ai_response="Gerne! Was möchtest du wissen?",
+        peer_id="user",
+        environment=env,
+        old_topic_id=42,
+        new_topic_label="Bello Features",
+    )
+"""
+
+from __future__ import annotations
+
+from core.detection.topic_detector import TopicDetector
+from core.extraction.fragmentary_extractor import FragmentaryExtractor
+from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider
+from core.models import ContextBundle, EnvironmentSnapshot, TopicChange
+from core.retrieval.associative_retriever import AssociativeRetriever
+
+
+class Eidolon:
+    """Eidolon topic memory system — main facade.
+
+    Parameters
+    ----------
+    storage : StorageProvider
+        Backend for persisting facts, topics, and memory items.
+    llm : LLMProvider
+        Provider for LLM calls (detection, extraction, summarization).
+    embedder : EmbedderProvider
+        Provider for generating text embeddings.
+    language : str
+        Language code for stop word filtering (default: "en").
+        Prompts to the LLM are always in English regardless of this setting.
+    retrieval_weights : dict | None
+        Optional weight overrides for associative retrieval dimensions.
+    """
+
+    def __init__(
+        self,
+        storage: StorageProvider,
+        llm: LLMProvider,
+        embedder: EmbedderProvider,
+        language: str = "en",
+        retrieval_weights: dict[str, float] | None = None,
+    ) -> None:
+        self._storage = storage
+        self._detector = TopicDetector(llm)
+        self._retriever = AssociativeRetriever(storage, embedder, retrieval_weights, language)
+        self._extractor = FragmentaryExtractor(llm, language)
+        self._language = language
+
+    # ── Public API ─────────────────────────────────────────
+
+    def prepare_context(
+        self,
+        message: str,
+        peer_id: str,
+        environment: EnvironmentSnapshot,
+        active_topic_id: int | None = None,
+    ) -> ContextBundle:
+        """Prepare context for an LLM call.
+
+        Combines topic detection and context retrieval into a single sync call.
+        Called BEFORE the LLM responds.
+
+        Parameters
+        ----------
+        message : str
+            The user's message.
+        peer_id : str
+            Who is speaking (e.g. "user", "ai:neuromancer").
+        environment : EnvironmentSnapshot
+            Current situational context.
+        active_topic_id : int | None
+            The current active topic ID from the adapter's state, if any.
+
+        Returns
+        -------
+        ContextBundle
+            Facts, environment, topic info, related topics, and memory items
+            for prompt injection.
+        """
+        # 1. Detect topic change
+        current_topic_summary = self._get_topic_summary(active_topic_id)
+        topic_change = self._detector.detect(message, current_topic_summary)
+
+        # 2. Retrieve context
+        is_new_topic = topic_change.type == "NEW_TOPIC"
+        bundle = self._retriever.retrieve(
+            message=message,
+            peer_id=peer_id,
+            environment=environment,
+            topic_label=topic_change.label,
+            is_new_topic=is_new_topic,
+        )
+
+        return bundle
+
+    def detect_topic(
+        self,
+        message: str,
+        active_topic_id: int | None = None,
+    ) -> TopicChange:
+        """Detect whether a message continues or changes the topic.
+
+        Parameters
+        ----------
+        message : str
+            The user's message.
+        active_topic_id : int | None
+            The current active topic ID, if any.
+
+        Returns
+        -------
+        TopicChange
+            CONTINUE or NEW_TOPIC with a label.
+        """
+        current_topic_summary = self._get_topic_summary(active_topic_id)
+        return self._detector.detect(message, current_topic_summary)
+
+    def retrieve_context(
+        self,
+        message: str,
+        peer_id: str,
+        environment: EnvironmentSnapshot,
+        topic_label: str | None = None,
+        is_new_topic: bool = False,
+    ) -> ContextBundle:
+        """Retrieve relevant context for a message.
+
+        Parameters
+        ----------
+        message : str
+            The user's message.
+        peer_id : str
+            Who is speaking.
+        environment : EnvironmentSnapshot
+            Current situational context.
+        topic_label : str | None
+            Detected topic label, if any.
+        is_new_topic : bool
+            True if this is a NEW_TOPIC, False if CONTINUE.
+
+        Returns
+        -------
+        ContextBundle
+            Facts, related topics, and memory items.
+        """
+        return self._retriever.retrieve(
+            message=message,
+            peer_id=peer_id,
+            environment=environment,
+            topic_label=topic_label,
+            is_new_topic=is_new_topic,
+        )
+
+    def store_turn(
+        self,
+        user_message: str,
+        ai_response: str,
+        peer_id: str,
+        environment: EnvironmentSnapshot,
+        old_topic_id: int | None = None,
+        new_topic_label: str | None = None,
+    ) -> None:
+        """Store a conversation turn after the LLM has responded.
+
+        Called AFTER the LLM responds (async, does not block the turn).
+
+        Performs:
+        1. Close old topic (if topic changed)
+        2. Create new topic (if topic changed)
+        3. Extract memory fragments from the turn
+        4. Store memory items with perspective attribution
+        5. Generate embedding for the new topic
+
+        Parameters
+        ----------
+        user_message : str
+            The user's message from this turn.
+        ai_response : str
+            The AI's response from this turn.
+        peer_id : str
+            Who is speaking (the user).
+        environment : EnvironmentSnapshot
+            The environment context at the time of this turn.
+        old_topic_id : int | None
+            The topic ID to close (if a topic change occurred).
+        new_topic_label : str | None
+            The label for the new topic (if a topic change occurred).
+        """
+        # 1. Close old topic if topic changed
+        if old_topic_id is not None and new_topic_label is not None:
+            self._storage.close_topic(old_topic_id, f"Continued to: {new_topic_label}")
+
+        # 2. Create new topic if topic changed
+        new_topic_id: int | None = None
+        if new_topic_label is not None:
+            new_topic_id = self._storage.create_topic(
+                label=new_topic_label,
+                peer_id=peer_id,
+            )
+
+        # 3. Extract memory fragments
+        items = self._extractor.extract(
+            user_message=user_message,
+            ai_response=ai_response,
+            source_peer=peer_id,
+            topic_label=new_topic_label,
+            environment=environment,
+        )
+
+        # 4. Store memory items with topic association
+        for item in items:
+            if new_topic_id is not None:
+                item.topic_id = new_topic_id
+            self._storage.store_memory_item(item)
+
+    # ── Internal Helpers ────────────────────────────────────
+
+    def _get_topic_summary(self, topic_id: int | None) -> str | None:
+        """Get the summary of a topic by its ID.
+
+        Parameters
+        ----------
+        topic_id : int | None
+            The topic ID to look up.
+
+        Returns
+        -------
+        str | None
+            The topic summary, or None if not found.
+        """
+        if topic_id is None:
+            return None
+        topic = self._storage.get_topic(topic_id)
+        if topic is None:
+            return None
+        return topic.get("summary") or topic.get("label")
