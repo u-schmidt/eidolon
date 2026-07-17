@@ -10,41 +10,12 @@ memory_provider: eidolon
 hooks:
   - pre_llm_call
 
-# Configuration reference
-config:
-  db_path:
-    type: string
-    default: "~/.eidolon/memory.db"
-    description: "Path to the SQLite database file"
-
-  language:
-    type: string
-    default: "en"
-    description: "Language code for stop word filtering (prompts stay English)"
-
-  embedder_base_url:
-    type: string
-    default: "http://localhost:1234"
-    description: "Base URL for LM Studio embedding API"
-
-  embedder_model:
-    type: string
-    default: "text-embedding-bge-m3"
-    description: "Model name for embeddings"
-
-  retrieval_weights:
-    type: object
-    description: "Optional weight overrides for retrieval dimensions"
-    properties:
-      semantic:
-        type: number
-        default: 0.4
-      tag_overlap:
-        type: number
-        default: 0.3
-      person:
-        type: number
-        default: 0.2
-      temporal:
-        type: number
-        default: 0.1
+# Configuration
+# Eidolon loads its configuration from ~/.eidolon/config.yaml
+# See eidolon.example.yaml in the project root for all available options.
+#
+# Key settings to customize:
+# - providers: define your LLM and embedder services (LM Studio, Ollama, etc.)
+# - llm.provider: which provider to use for topic detection + extraction
+# - embedder.provider: which provider to use for embeddings
+# - storage.path: where to store the SQLite database

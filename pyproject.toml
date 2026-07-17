@@ -19,3 +19,7 @@ sentence-transformers = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["core*", "providers*", "adapters*", "tools*"]
+exclude = ["data*", "tests*"]

@@ -24,6 +24,7 @@ Thumbs.db
 *.db
 *.sqlite3
 .env
+*.egg-info/
 
 # Testing
 .coverage

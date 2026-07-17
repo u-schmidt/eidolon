@@ -1,44 +1,41 @@
 """Eidolon Hermes Memory Provider Plugin.
 
 Full Mode: Replaces Honcho as the active memory provider.
-Provides facts, environment, topics, and memory items via the MemoryProvider interface.
-
-Topic-Only Mode: Runs alongside Honcho via pre_llm_call hook.
-Provides only topic summaries and associations.
+Provides topic-based, associative memory with perspective attribution.
 
 Directory structure (inside Hermes plugins/):
-    plugins/memory/eidolon/
-    ├── __init__.py      # MemoryProvider implementation + register()
+    plugins/eidolon/
+    ├── __init__.py      # MemoryProvider implementation + register() entry point
     ├── plugin.yaml      # Metadata
     └── README.md        # Setup instructions
 """
 
 from __future__ import annotations
 
+import logging
+import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional
 
-# Hermes plugin system imports
-# These are resolved at runtime when Hermes loads the plugin
+# Ensure the plugin root is on sys.path so core/, providers/ etc. are importable
+_plugin_root = str(Path(__file__).resolve().parent)
+if _plugin_root not in sys.path:
+    sys.path.insert(0, _plugin_root)
+
+# Hermes plugin system imports — resolved at runtime
 try:
-    from hermes.agent.memory_provider import MemoryProvider
-    from hermes.agent.memory_manager import MemoryManager
-    from hermes.core.context import ContextBundle as HermesContextBundle
-    from hermes.plugin_system import register_memory_provider, register_hook
+    from agent.memory_provider import MemoryProvider
 except ImportError:
-    # Standalone development — Hermes is not installed in this venv
-    MemoryProvider = object  # type: ignore[assignment, misc]
-    MemoryManager = object  # type: ignore[assignment, misc]
-    HermesContextBundle = object  # type: ignore[assignment, misc]
-    register_memory_provider = lambda x: None  # type: ignore[assignment]
-    register_hook = lambda x: None  # type: ignore[assignment]
+    MemoryProvider = object
 
 # Eidolon core
 from core import Eidolon
-from core.interfaces import LLMProvider
+from core.config import EidolonConfig
+from core.config_loader import ConfigLoader
 from core.models import EnvironmentSnapshot
-from core.stores.sqlite_store import SqliteStore
-from providers.lm_studio import LMStudio
+from core.provider_factory import ProviderFactory
+
+logger = logging.getLogger(__name__)
 
 
 class EidolonMemoryProvider(MemoryProvider):
@@ -46,272 +43,329 @@ class EidolonMemoryProvider(MemoryProvider):
 
     Implements the MemoryProvider interface to provide topic-based,
     associative memory with perspective attribution.
-
-    Parameters
-    ----------
-    config : dict
-        Plugin configuration from plugin.yaml.
     """
 
-    def __init__(self, config: dict[str, Any] | None = None) -> None:
-        self._config = config or {}
+    def __init__(self) -> None:
         self._eidolon: Eidolon | None = None
-        self._store: SqliteStore | None = None
+        self._store = None
         self._active_topic_id: int | None = None
+        self._hermes_home: str = ""
+        self._initialized = False
 
-    # ── Lifecycle ─────────────────────────────────────────
+    @property
+    def name(self) -> str:
+        return "eidolon"
 
-    def initialize(self) -> None:
+    def is_available(self) -> bool:
+        """Check if eidolon.yaml exists in the profile directory.
+
+        No network calls — just checks for the config file.
+        """
+        try:
+            from hermes_constants import get_hermes_home
+            config_path = Path(get_hermes_home()) / "eidolon.yaml"
+            return config_path.exists()
+        except Exception:
+            return False
+
+    # ── Core Lifecycle ───────────────────────────────────
+
+    def initialize(self, session_id: str, **kwargs) -> None:
         """Initialize the Eidolon core and connect to storage.
 
         Called once when Hermes loads the plugin.
+        Loads configuration from eidolon.yaml in the profile directory.
         """
-        db_path = self._config.get("db_path", "~/.eidolon/memory.db")
-        language = self._config.get("language", "en")
+        hermes_home = kwargs.get("hermes_home", "")
+        self._hermes_home = hermes_home
 
-        # Storage
-        self._store = SqliteStore(db_path)
-        self._store.connect()
+        # Resolve config path — look for eidolon.yaml in HERMES_HOME
+        config_path = Path(hermes_home) / "eidolon.yaml"
 
-        # LLM — wraps Hermes' completion function as an LLMProvider
-        # The actual Hermes LLM function is injected by the plugin system
-        hermes_complete = self._get_hermes_completion()
+        if not config_path.exists():
+            raise RuntimeError(
+                f"Eidolon config not found at {config_path}. "
+                f"Copy eidolon.example.yaml to {config_path} and adjust."
+            )
 
-        class _AdapterLLM:
-            """Thin wrapper: Hermes completion → LLMProvider protocol."""
+        # Load configuration
+        loader = ConfigLoader(config_path=str(config_path))
+        config: EidolonConfig = loader.load()
 
-            def complete(self, prompt, system_prompt=None, max_tokens=100):
-                return hermes_complete(prompt, system=system_prompt, max_tokens=max_tokens)
+        # Create providers via factory
+        factory = ProviderFactory(config)
+        store = factory.create_storage()
+        llm = factory.create_llm()
+        embedder = factory.create_embedder()
 
-        llm = _AdapterLLM()
-
-        # Embedder — LM Studio by default
-        embedder = LMStudio(
-            base_url=self._config.get("embedder_base_url", "http://localhost:1234"),
-            embedder_model=self._config.get("embedder_model", "text-embedding-bge-m3"),
-        )
-
-        # Retrieval weights
-        weights = self._config.get("retrieval_weights")
+        # Store reference for shutdown
+        self._store = store
 
         # Eidolon core
         self._eidolon = Eidolon(
-            storage=self._store,
+            storage=store,
             llm=llm,
             embedder=embedder,
-            language=language,
-            retrieval_weights=weights,
+            language=config.language,
+            retrieval_weights={
+                "semantic": config.retrieval.semantic,
+                "tag_overlap": config.retrieval.tag_overlap,
+                "person": config.retrieval.person,
+                "temporal": config.retrieval.temporal,
+            },
         )
+
+        self._initialized = True
 
     def shutdown(self) -> None:
         """Clean up resources when the plugin is unloaded."""
         if self._store is not None:
             self._store.close()
+        self._eidolon = None
+        self._store = None
+        self._initialized = False
 
-    # ── MemoryProvider Interface ──────────────────────────
+    # ── Prefetch (called SYNC before each LLM call) ──────
 
-    def prefetch(self, session_id: str, peer_id: str) -> dict[str, Any]:
-        """Load initial context for a session.
+    def prefetch(self, query: str, *, session_id: str = "") -> str:
+        """Recall relevant context for the upcoming turn.
 
-        Called when a new session starts.
-        Returns facts and environment info for prompt injection.
+        Called before each API call. Performs topic detection and
+        context retrieval, returning formatted text for prompt injection.
+
+        Returns empty string if nothing relevant is found.
         """
-        if self._eidolon is None:
-            return {}
+        if not self._eidolon or not self._initialized:
+            return ""
 
-        # Reset active topic for new session
-        self._active_topic_id = None
+        try:
+            # Detect topic
+            topic_change = self._eidolon.detect_topic(
+                message=query,
+                active_topic_id=self._active_topic_id,
+            )
 
-        # Load facts
-        facts = self._store.get_facts(peer_id) if self._store else []
+            # Retrieve context
+            is_new = topic_change.type == "NEW_TOPIC"
+            bundle = self._eidolon.retrieve_context(
+                message=query,
+                peer_id="user",
+                environment=EnvironmentSnapshot(situation="conversation"),
+                topic_label=topic_change.label,
+                is_new_topic=is_new,
+            )
 
-        return {
-            "facts": [{"category": f.category, "key": f.key, "value": f.value} for f in facts],
-            "eidolon_ready": True,
-        }
+            # Build formatted context string
+            parts: list[str] = []
+
+            if bundle.current_topic_label:
+                parts.append(f"[Current topic: {bundle.current_topic_label}]")
+
+            if bundle.facts:
+                fact_lines = []
+                for f in bundle.facts:
+                    fact_lines.append(f"- {f.category}: {f.key} = {f.value}")
+                parts.append("[Known facts]\n" + "\n".join(fact_lines))
+
+            if bundle.related_topics:
+                topic_lines = []
+                for rt in bundle.related_topics:
+                    tags = ", ".join(rt.tags) if rt.tags else ""
+                    tag_str = f" ({tags})" if tags else ""
+                    topic_lines.append(f"- {rt.summary}{tag_str}")
+                parts.append("[Related topics]\n" + "\n".join(topic_lines))
+
+            if bundle.memory_items:
+                item_lines = []
+                for mi in bundle.memory_items:
+                    item_lines.append(
+                        f"- [{mi.item_type}] ({mi.source_peer} about {mi.subject_peer}): {mi.content}"
+                    )
+                parts.append("[Memory fragments]\n" + "\n".join(item_lines))
+
+            return "\n\n".join(parts)
+
+        except Exception as e:
+            logger.debug("Eidolon prefetch failed (non-fatal): %s", e)
+            return ""
+
+    def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
+        """Queue a background recall for the NEXT turn.
+
+        Eidolon's prefetch is lightweight (topic detection + retrieval),
+        so there's no need for a separate background queue. The actual
+        work happens inline in prefetch() on the next turn.
+        """
+        pass
+
+    # ── Sync Turn (called ASYNC after each LLM response) ─
 
     def sync_turn(
         self,
-        user_message: str,
-        session_id: str,
-        peer_id: str,
-        environment: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Process a user message before the LLM responds.
-
-        Called synchronously before each LLM call.
-        Returns context for prompt injection.
-
-        Parameters
-        ----------
-        user_message : str
-            The user's message.
-        session_id : str
-            Current Hermes session ID.
-        peer_id : str
-            Who is speaking (e.g. "user").
-        environment : dict | None
-            Optional environment context.
-
-        Returns
-        -------
-        dict
-            Context to inject into the prompt.
-        """
-        if self._eidolon is None:
-            return {}
-
-        env = self._build_environment(environment)
-
-        # Prepare context (detect topic + retrieve)
-        bundle = self._eidolon.prepare_context(
-            message=user_message,
-            peer_id=peer_id,
-            environment=env,
-            active_topic_id=self._active_topic_id,
-        )
-
-        # Store the topic label for store_turn
-        self._last_topic_label = bundle.current_topic_label
-
-        # Build context dict for prompt injection
-        context = self._bundle_to_dict(bundle)
-
-        return context
-
-    def store_turn(
-        self,
-        user_message: str,
-        ai_response: str,
-        session_id: str,
-        peer_id: str,
-        environment: dict[str, Any] | None = None,
+        user_content: str,
+        assistant_content: str,
+        *,
+        session_id: str = "",
+        messages: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
-        """Store a conversation turn after the LLM responds.
+        """Persist a completed turn to Eidolon's memory.
 
-        Called asynchronously after each LLM call.
-        Extracts memory fragments and updates topics.
+        Called after each turn. Performs fragmentary extraction,
+        fact extraction, and topic management.
         """
-        if self._eidolon is None:
+        if not self._eidolon or not self._initialized:
             return
 
-        env = self._build_environment(environment)
+        try:
+            # Detect topic to determine if we need to close/create
+            topic_change = self._eidolon.detect_topic(
+                message=user_content,
+                active_topic_id=self._active_topic_id,
+            )
 
-        # Determine if topic changed
-        old_topic_id = None
-        new_topic_label = None
-
-        if hasattr(self, "_last_topic_label") and self._last_topic_label:
-            # Topic changed — close old, create new
+            is_new = topic_change.type == "NEW_TOPIC"
             old_topic_id = self._active_topic_id
-            new_topic_label = self._last_topic_label
+            new_topic_label = topic_change.label if is_new else None
 
-        # Store the turn
-        self._eidolon.store_turn(
-            user_message=user_message,
-            ai_response=ai_response,
-            peer_id=peer_id,
-            environment=env,
-            old_topic_id=old_topic_id,
-            new_topic_label=new_topic_label,
-        )
+            # Store the turn — returns new topic ID if created
+            new_topic_id = self._eidolon.store_turn(
+                user_message=user_content,
+                ai_response=assistant_content,
+                peer_id="user",
+                environment=EnvironmentSnapshot(situation="conversation"),
+                old_topic_id=old_topic_id,
+                new_topic_label=new_topic_label,
+            )
 
-        # Update active topic if new one was created
-        if new_topic_label:
-            # The new topic is the most recent active one
-            # In a real implementation, store_turn would return the new topic ID
-            self._active_topic_id = None  # Will be set by next sync_turn
+            # Update active topic
+            if new_topic_id is not None:
+                self._active_topic_id = new_topic_id
 
-    def get_tool_schemas(self) -> list[dict[str, Any]]:
+        except Exception as e:
+            logger.warning("Eidolon sync_turn failed: %s", e)
+
+    # ── Tools ────────────────────────────────────────────
+
+    def get_tool_schemas(self) -> List[Dict[str, Any]]:
         """Return tool schemas for memory-related tools.
 
-        Optional: expose memory search as a tool the LLM can call.
+        These tools are exposed to the LLM for explicit memory operations.
         """
         return [
             {
-                "name": "search_memory",
-                "description": "Search past topics and memory items by query",
+                "name": "eidolon_search",
+                "description": (
+                    "Search the Eidolon topic memory system for related topics "
+                    "and memory items. Use this to explicitly recall past "
+                    "conversation topics and extracted memory fragments."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search query",
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Max results (default: 5)",
-                            "default": 5,
+                            "description": "Search query for associative retrieval",
                         },
                     },
                     "required": ["query"],
                 },
-            }
+            },
         ]
 
-    # ── Internal Helpers ──────────────────────────────────
-
-    def _build_environment(self, env: dict[str, Any] | None) -> EnvironmentSnapshot:
-        """Build an EnvironmentSnapshot from a Hermes environment dict."""
-        if env is None:
-            return EnvironmentSnapshot()
-        return EnvironmentSnapshot(
-            location=env.get("location"),
-            time=env.get("time"),
-            day_of_week=env.get("day_of_week"),
-            situation=env.get("situation"),
-            rules=env.get("rules", []),
+    def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
+        """Handle a tool call for one of this provider's tools."""
+        if tool_name == "eidolon_search":
+            return self._handle_search(args)
+        raise NotImplementedError(
+            f"Eidolon provider does not handle tool {tool_name}"
         )
 
-    def _bundle_to_dict(self, bundle: Any) -> dict[str, Any]:
-        """Convert an Eidolon ContextBundle to a dict for prompt injection."""
-        return {
-            "eidolon_context": {
-                "current_topic": bundle.current_topic_label,
+    def _handle_search(self, args: Dict[str, Any]) -> str:
+        """Handle eidolon_search tool call."""
+        if not self._eidolon or not self._initialized:
+            return '{"error": "Eidolon not initialized"}'
+
+        query = args.get("query", "")
+        if not query:
+            return '{"error": "query is required"}'
+
+        try:
+            bundle = self._eidolon.retrieve_context(
+                message=query,
+                peer_id="user",
+                environment=EnvironmentSnapshot(situation="search"),
+                topic_label=None,
+                is_new_topic=True,
+            )
+
+            results = {
                 "facts": [
                     {"category": f.category, "key": f.key, "value": f.value}
-                    for f in bundle.facts
+                    for f in (bundle.facts or [])
                 ],
                 "related_topics": [
                     {
-                        "id": rt.topic_id,
+                        "topic_id": rt.topic_id,
                         "summary": rt.summary,
                         "tags": rt.tags,
                     }
-                    for rt in bundle.related_topics
+                    for rt in (bundle.related_topics or [])
                 ],
                 "memory_items": [
                     {
                         "content": mi.content,
-                        "type": mi.item_type,
-                        "source": mi.source_peer,
-                        "subject": mi.subject_peer,
+                        "item_type": mi.item_type,
+                        "source_peer": mi.source_peer,
+                        "subject_peer": mi.subject_peer,
                     }
-                    for mi in bundle.memory_items
+                    for mi in (bundle.memory_items or [])
                 ],
             }
-        }
 
-    def _get_hermes_completion(self):
-        """Get the Hermes LLM completion function.
+            import json
+            return json.dumps(results, ensure_ascii=False)
 
-        This is injected by the plugin system at runtime.
-        For now, returns a placeholder that raises if called without Hermes.
+        except Exception as e:
+            return f'{{"error": "Search failed: {e}"}}'
+
+    # ── Session Lifecycle Hooks ─────────────────────────
+
+    def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
+        """Called when a session ends.
+
+        Ensures the current topic is properly closed.
         """
-        # In production, this would be provided by the Hermes plugin system
-        # For development/testing, we use the CLI mock
-        try:
-            from hermes.llm import complete
-            return complete
-        except ImportError:
-            # Return a mock for development
-            def _mock_complete(prompt, system=None, max_tokens=100):
-                return f"[Mock response for: {prompt[:50]}]"
-            return _mock_complete
+        if not self._eidolon or not self._initialized:
+            return
+
+        # The active topic will be closed by store_turn() when a new
+        # topic is created. If the session ends without a new topic,
+        # the current topic remains open — that's fine, it will be
+        # resumed or closed on the next session.
+        pass
+
+    def on_session_switch(
+        self,
+        new_session_id: str,
+        *,
+        parent_session_id: str = "",
+        reset: bool = False,
+        rewound: bool = False,
+        **kwargs,
+    ) -> None:
+        """Called when the agent switches session_id.
+
+        Reset active topic on /reset or /new, keep it on /resume.
+        """
+        if reset:
+            self._active_topic_id = None
 
 
-# ── Plugin Entry Point ────────────────────────────────────
+# ── Plugin Entry Point ──────────────────────────────────
 
-def register() -> None:
-    """Register the Eidolon memory provider plugin with Hermes."""
-    register_memory_provider("eidolon", EidolonMemoryProvider)
+def register(ctx) -> None:
+    """Register the Eidolon memory provider with Hermes.
+
+    Called by the Hermes plugin system when the plugin is loaded.
+    """
+    ctx.register_memory_provider(EidolonMemoryProvider())

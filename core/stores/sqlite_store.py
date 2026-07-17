@@ -58,7 +58,7 @@ class SqliteStore:
         """Open the database and run pending migrations."""
         # Ensure the parent directory exists
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(str(self._path))
+        self._db = sqlite3.connect(str(self._path), check_same_thread=False)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA foreign_keys=ON")
         migrate(self._db)
