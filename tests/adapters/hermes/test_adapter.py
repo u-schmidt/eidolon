@@ -1,4 +1,4 @@
-"""Tests for the Eidolon Hermes adapter."""
+"""Tests for the Eidolon Hermes adapter (updated for new API)."""
 
 from __future__ import annotations
 
@@ -10,45 +10,24 @@ from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, Re
 
 
 class MockEidolon:
-    """Mock Eidolon core for adapter testing."""
+    """Mock Eidolon core for adapter testing (new API)."""
 
     def __init__(self) -> None:
+        self.detect_topic_calls = 0
+        self.retrieve_context_calls = 0
+        self.store_turn_calls = 0
         self.last_message: str | None = None
-        self.last_peer_id: str | None = None
-        self.last_environment: EnvironmentSnapshot | None = None
-        self.last_active_topic_id: int | None = None
         self.last_ai_response: str | None = None
+        self.last_peer_id: str | None = None
+        self.last_active_topic_id: int | None = None
         self.last_old_topic_id: int | None = None
         self.last_new_topic_label: str | None = None
-        self.prepare_context_calls = 0
-        self.store_turn_calls = 0
-
-    def prepare_context(
-        self,
-        message: str,
-        peer_id: str,
-        environment: EnvironmentSnapshot,
-        active_topic_id: int | None = None,
-    ) -> ContextBundle:
-        self.prepare_context_calls += 1
-        self.last_message = message
-        self.last_peer_id = peer_id
-        self.last_environment = environment
-        self.last_active_topic_id = active_topic_id
-        return ContextBundle(
-            current_topic_label="Test Topic",
-            facts=[Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")],
-            related_topics=[
-                RelatedTopic(topic_id=1, summary="Previous conversation", tags=["test"])
-            ],
-            memory_items=[
-                MemoryItem(content="User said something", item_type="essence",
-                          source_peer="user", subject_peer="user", attribution_type="self_statement")
-            ],
-        )
 
     def detect_topic(self, message: str, active_topic_id: int | None = None):
         from core.models import TopicChange
+        self.detect_topic_calls += 1
+        self.last_message = message
+        self.last_active_topic_id = active_topic_id
         return TopicChange(type="NEW_TOPIC", label="Test Topic")
 
     def retrieve_context(
@@ -59,7 +38,18 @@ class MockEidolon:
         topic_label: str | None = None,
         is_new_topic: bool = False,
     ) -> ContextBundle:
-        return ContextBundle(current_topic_label=topic_label)
+        self.retrieve_context_calls += 1
+        return ContextBundle(
+            current_topic_label=topic_label or "Test Topic",
+            facts=[Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")],
+            related_topics=[
+                RelatedTopic(topic_id=1, summary="Previous conversation", tags=["test"])
+            ],
+            memory_items=[
+                MemoryItem(content="User said something", item_type="essence",
+                          source_peer="user", subject_peer="user", attribution_type="self_statement")
+            ],
+        )
 
     def store_turn(
         self,
@@ -69,7 +59,7 @@ class MockEidolon:
         environment: EnvironmentSnapshot,
         old_topic_id: int | None = None,
         new_topic_label: str | None = None,
-    ) -> None:
+    ) -> int | None:
         self.store_turn_calls += 1
         self.last_message = user_message
         self.last_ai_response = ai_response
@@ -77,6 +67,7 @@ class MockEidolon:
         self.last_environment = environment
         self.last_old_topic_id = old_topic_id
         self.last_new_topic_label = new_topic_label
+        return 42  # new topic id
 
 
 class MockStore:
@@ -97,160 +88,104 @@ class MockStore:
 
 
 class TestEidolonMemoryProvider:
-    """Tests for the EidolonMemoryProvider (Full Mode)."""
+    """Tests for the EidolonMemoryProvider (new API)."""
 
     @pytest.fixture
     def provider(self):
         from adapters.hermes import EidolonMemoryProvider
-        p = EidolonMemoryProvider(config={
-            "db_path": "/tmp/test_eidolon.db",
-            "language": "en",
-        })
-        # Inject mock Eidolon core
+        p = EidolonMemoryProvider()
+        # Inject mock Eidolon core + store (skip real initialize)
         p._eidolon = MockEidolon()
         p._store = MockStore()
+        p._initialized = True
         return p
 
-    def test_initialize(self):
+    def test_name(self, provider):
+        assert provider.name == "eidolon"
+
+    def test_is_available(self, provider):
+        # Without Hermes installed, is_available returns False
+        assert provider.is_available() is False
+
+    def test_prefetch_returns_string(self, provider):
+        result = provider.prefetch("hello", session_id="sess_1")
+        assert isinstance(result, str)
+        assert "Test Topic" in result
+        assert "Alex" in result
+
+    def test_prefetch_empty_when_not_initialized(self):
         from adapters.hermes import EidolonMemoryProvider
         p = EidolonMemoryProvider()
-        # Without Hermes installed, initialize should not crash
-        # but Eidolon won't be set up (Hermes imports fail)
-        # This just tests the code path doesn't throw
-        assert p._eidolon is None
+        result = p.prefetch("hello", session_id="sess_1")
+        assert result == ""
 
-    def test_prefetch_returns_facts(self, provider):
-        provider._store.facts = [
-            Fact(peer_id="user", category="basic", key="name", value="Alex", source="user"),
-        ]
-        result = provider.prefetch(session_id="sess_1", peer_id="user")
-        assert result["eidolon_ready"] is True
-        assert len(result["facts"]) == 1
-        assert result["facts"][0]["key"] == "name"
-        assert result["facts"][0]["value"] == "Alex"
+    def test_prefetch_detects_topic(self, provider):
+        provider.prefetch("hello", session_id="sess_1")
+        assert provider._eidolon.detect_topic_calls >= 1
 
-    def test_prefetch_resets_active_topic(self, provider):
-        provider._active_topic_id = 42
-        provider.prefetch(session_id="sess_1", peer_id="user")
-        assert provider._active_topic_id is None
+    def test_prefetch_retrieves_context(self, provider):
+        provider.prefetch("hello", session_id="sess_1")
+        assert provider._eidolon.retrieve_context_calls >= 1
 
-    def test_sync_turn_calls_prepare_context(self, provider):
-        result = provider.sync_turn(
-            user_message="Lass uns über Bello sprechen",
-            session_id="sess_1",
-            peer_id="user",
-        )
-        assert provider._eidolon.prepare_context_calls == 1
-        assert provider._eidolon.last_message == "Lass uns über Bello sprechen"
-        assert provider._eidolon.last_peer_id == "user"
-        assert "eidolon_context" in result
-        assert result["eidolon_context"]["current_topic"] == "Test Topic"
-
-    def test_sync_turn_with_environment(self, provider):
-        result = provider.sync_turn(
-            user_message="Hello",
-            session_id="sess_1",
-            peer_id="user",
-            environment={"location": "home", "situation": "morning"},
-        )
-        env = provider._eidolon.last_environment
-        assert env is not None
-        assert env.location == "home"
-        assert env.situation == "morning"
-
-    def test_sync_turn_with_active_topic(self, provider):
-        provider._active_topic_id = 42
+    def test_sync_turn_stores_turn(self, provider):
         provider.sync_turn(
-            user_message="Hello",
+            user_content="Lass uns über Bello sprechen",
+            assistant_content="Gerne!",
             session_id="sess_1",
-            peer_id="user",
-        )
-        assert provider._eidolon.last_active_topic_id == 42
-
-    def test_sync_turn_sets_last_topic_label(self, provider):
-        provider.sync_turn(
-            user_message="Hello",
-            session_id="sess_1",
-            peer_id="user",
-        )
-        assert provider._last_topic_label == "Test Topic"
-
-    def test_store_turn_called_after_sync(self, provider):
-        # Simulate a full turn cycle
-        provider.sync_turn(
-            user_message="Lass uns über Bello sprechen",
-            session_id="sess_1",
-            peer_id="user",
-        )
-        provider.store_turn(
-            user_message="Lass uns über Bello sprechen",
-            ai_response="Gerne! Was möchtest du wissen?",
-            session_id="sess_1",
-            peer_id="user",
         )
         assert provider._eidolon.store_turn_calls == 1
-        assert provider._eidolon.last_ai_response == "Gerne! Was möchtest du wissen?"
+        assert provider._eidolon.last_message == "Lass uns über Bello sprechen"
+        assert provider._eidolon.last_ai_response == "Gerne!"
 
-    def test_store_turn_with_topic_change(self, provider):
-        provider._active_topic_id = 1
-        provider._last_topic_label = "New Topic"
-        provider.store_turn(
-            user_message="Lass uns über was neues sprechen",
-            ai_response="Klar!",
+    def test_sync_turn_updates_active_topic(self, provider):
+        provider.sync_turn(
+            user_content="Hello",
+            assistant_content="Hi!",
             session_id="sess_1",
-            peer_id="user",
         )
-        assert provider._eidolon.last_old_topic_id == 1
-        assert provider._eidolon.last_new_topic_label == "New Topic"
+        # store_turn returns 42, so active_topic_id should be 42
+        assert provider._active_topic_id == 42
 
-    def test_store_turn_without_topic_change(self, provider):
-        provider._active_topic_id = 1
-        # No _last_topic_label set = no topic change
-        provider.store_turn(
-            user_message="jep",
-            ai_response="ok",
-            session_id="sess_1",
-            peer_id="user",
-        )
-        assert provider._eidolon.last_old_topic_id is None
-        assert provider._eidolon.last_new_topic_label is None
+    def test_sync_turn_skips_when_not_initialized(self):
+        from adapters.hermes import EidolonMemoryProvider
+        p = EidolonMemoryProvider()
+        # Should not crash
+        p.sync_turn(user_content="Hello", assistant_content="Hi", session_id="sess_1")
+
+    def test_queue_prefetch_is_noop(self, provider):
+        # Should not crash
+        provider.queue_prefetch("hello", session_id="sess_1")
 
     def test_get_tool_schemas(self, provider):
         schemas = provider.get_tool_schemas()
         assert len(schemas) == 1
-        assert schemas[0]["name"] == "search_memory"
+        assert schemas[0]["name"] == "eidolon_search"
         assert "query" in schemas[0]["parameters"]["properties"]
 
-    def test_build_environment_empty(self, provider):
-        env = provider._build_environment(None)
-        assert env.location is None
-        assert env.situation is None
+    def test_handle_tool_call_search(self, provider):
+        result = provider.handle_tool_call("eidolon_search", {"query": "test"})
+        assert "related_topics" in result
+        assert "memory_items" in result
 
-    def test_build_environment_with_data(self, provider):
-        env = provider._build_environment({
-            "location": "kitchen",
-            "time": "morning",
-            "situation": "cooking",
-            "rules": ["no phone"],
-        })
-        assert env.location == "kitchen"
-        assert env.situation == "cooking"
-        assert env.rules == ["no phone"]
+    def test_handle_tool_call_unknown_raises(self, provider):
+        with pytest.raises(NotImplementedError):
+            provider.handle_tool_call("unknown_tool", {})
 
-    def test_bundle_to_dict(self, provider):
-        bundle = ContextBundle(
-            current_topic_label="Test",
-            facts=[Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")],
-            related_topics=[RelatedTopic(topic_id=1, summary="Old topic", tags=["old"])],
-            memory_items=[MemoryItem(content="Remember this", item_type="essence",
-                                    source_peer="user", subject_peer="user",
-                                    attribution_type="self_statement")],
-        )
-        result = provider._bundle_to_dict(bundle)
-        assert result["eidolon_context"]["current_topic"] == "Test"
-        assert len(result["eidolon_context"]["facts"]) == 1
-        assert len(result["eidolon_context"]["related_topics"]) == 1
-        assert len(result["eidolon_context"]["memory_items"]) == 1
+    def test_on_session_switch_resets_topic(self, provider):
+        provider._active_topic_id = 42
+        provider.on_session_switch("new_sess", reset=True)
+        assert provider._active_topic_id is None
+
+    def test_on_session_switch_keeps_topic(self, provider):
+        provider._active_topic_id = 42
+        provider.on_session_switch("new_sess", reset=False)
+        assert provider._active_topic_id == 42
+
+    def test_shutdown_cleans_up(self, provider):
+        provider.shutdown()
+        assert provider._eidolon is None
+        assert provider._store is None
+        assert provider._initialized is False
 
 
 class TestEidolonTopicHook:

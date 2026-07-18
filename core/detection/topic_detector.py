@@ -133,6 +133,6 @@ class TopicDetector:
         response = self._llm.complete(
             prompt=prompt,
             system_prompt=_DETECTION_SYSTEM_PROMPT,
-            max_tokens=20,
+            max_tokens=500,
         )
         return _parse_detection_response(response)

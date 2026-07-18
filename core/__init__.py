@@ -342,7 +342,7 @@ class Eidolon:
                     "You extract structured facts from conversation fragments. "
                     "Output JSON only."
                 ),
-                max_tokens=300,
+                max_tokens=1000,
             )
 
             # Parse JSON response
@@ -414,7 +414,7 @@ class Eidolon:
                     "You are a conversation summarizer. "
                     "Output a concise summary and relevant tags only."
                 ),
-                max_tokens=200,
+                max_tokens=1000,
             )
 
             # Parse response

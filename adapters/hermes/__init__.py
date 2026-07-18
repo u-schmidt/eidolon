@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Ensure the plugin root is on sys.path so core/, providers/ etc. are importable
-_plugin_root = str(Path(__file__).resolve().parent)
+# __file__ is adapters/hermes/__init__.py, so parent.parent.parent is the plugin root
+_plugin_root = str(Path(__file__).resolve().parent.parent.parent)
 if _plugin_root not in sys.path:
     sys.path.insert(0, _plugin_root)
 

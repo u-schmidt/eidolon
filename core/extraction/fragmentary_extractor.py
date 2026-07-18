@@ -193,7 +193,7 @@ class FragmentaryExtractor:
         response = self._llm.complete(
             prompt=prompt,
             system_prompt=_EXTRACTION_SYSTEM_PROMPT,
-            max_tokens=300,
+            max_tokens=1000,
         )
 
         raw_items = _parse_extraction_response(response)
