@@ -22,6 +22,14 @@ class MockEidolon:
         self.last_active_topic_id: int | None = None
         self.last_old_topic_id: int | None = None
         self.last_new_topic_label: str | None = None
+        self.active_topic_to_resume: int | None = None
+        self.get_active_topic_calls = 0
+        self.last_get_active_topic_peer_id: str | None = None
+
+    def get_active_topic(self, peer_id: str) -> int | None:
+        self.get_active_topic_calls += 1
+        self.last_get_active_topic_peer_id = peer_id
+        return self.active_topic_to_resume
 
     def detect_topic(self, message: str, active_topic_id: int | None = None):
         from core.models import TopicChange
@@ -186,6 +194,69 @@ class TestEidolonMemoryProvider:
         assert provider._eidolon is None
         assert provider._store is None
         assert provider._initialized is False
+
+    def test_initialize_resumes_open_topic(self, tmp_path):
+        """A restart mid-topic must not silently forget the open topic —
+        initialize() should resume it from storage instead of defaulting
+        to None."""
+        from adapters.hermes import EidolonMemoryProvider
+
+        config_path = tmp_path / "eidolon.yaml"
+        config_path.write_text("db_path: ':memory:'\n")
+
+        mock_eidolon = MockEidolon()
+        mock_eidolon.active_topic_to_resume = 7
+
+        mock_config = MagicMock()
+        mock_config.language = "en"
+        mock_config.retrieval.semantic = 0.4
+        mock_config.retrieval.tag_overlap = 0.3
+        mock_config.retrieval.person = 0.2
+        mock_config.retrieval.temporal = 0.1
+
+        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+            MockConfigLoader.return_value.load.return_value = mock_config
+            factory = MockProviderFactory.return_value
+            factory.create_storage.return_value = MockStore()
+            factory.create_llm.return_value = MagicMock()
+            factory.create_embedder.return_value = MagicMock()
+
+            p = EidolonMemoryProvider()
+            p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
+
+        assert p._active_topic_id == 7
+        assert mock_eidolon.last_get_active_topic_peer_id == "user"
+
+    def test_initialize_no_open_topic_stays_none(self, tmp_path):
+        from adapters.hermes import EidolonMemoryProvider
+
+        config_path = tmp_path / "eidolon.yaml"
+        config_path.write_text("db_path: ':memory:'\n")
+
+        mock_eidolon = MockEidolon()  # active_topic_to_resume defaults to None
+
+        mock_config = MagicMock()
+        mock_config.language = "en"
+        mock_config.retrieval.semantic = 0.4
+        mock_config.retrieval.tag_overlap = 0.3
+        mock_config.retrieval.person = 0.2
+        mock_config.retrieval.temporal = 0.1
+
+        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+            MockConfigLoader.return_value.load.return_value = mock_config
+            factory = MockProviderFactory.return_value
+            factory.create_storage.return_value = MockStore()
+            factory.create_llm.return_value = MagicMock()
+            factory.create_embedder.return_value = MagicMock()
+
+            p = EidolonMemoryProvider()
+            p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
+
+        assert p._active_topic_id is None
 
 
 class TestEidolonTopicHook:

@@ -68,6 +68,24 @@ class TestTopics:
         assert topic["summary"] == "Final summary"
         assert topic["closed_at"] is not None
 
+    def test_get_active_topic_returns_open_topic(self, store: SqliteStore):
+        tid = store.create_topic("Ongoing", summary="", peer_id="user")
+        assert store.get_active_topic("user") == tid
+
+    def test_get_active_topic_none_when_closed(self, store: SqliteStore):
+        tid = store.create_topic("Done", summary="", peer_id="user")
+        store.close_topic(tid, "Wrapped up")
+        assert store.get_active_topic("user") is None
+
+    def test_get_active_topic_none_for_unknown_peer(self, store: SqliteStore):
+        store.create_topic("Ongoing", summary="", peer_id="user")
+        assert store.get_active_topic("someone_else") is None
+
+    def test_get_active_topic_picks_most_recent(self, store: SqliteStore):
+        store.create_topic("Older", summary="", peer_id="user")
+        newer = store.create_topic("Newer", summary="", peer_id="user")
+        assert store.get_active_topic("user") == newer
+
     def test_search_topics_by_tags(self, store: SqliteStore):
         store.create_topic("Bello", summary="", tags=["bello", "fitness"])
         store.create_topic("Mampfi", summary="", tags=["mampfi", "shopping"])
@@ -83,6 +101,23 @@ class TestTopics:
         labels = [r["label"] for r in results]
         assert "Bello" in labels
         assert "Fitness" in labels
+
+    def test_search_topics_respects_custom_weights(self, store: SqliteStore):
+        """A zeroed-out tag_overlap weight must drop tag-only matches from scoring."""
+        store.create_topic("Bello", summary="", tags=["bello", "fitness"])
+        store.close_topic(1, "")
+
+        # Default weights: tag overlap alone (0.3) produces a positive score.
+        default_results = store.search_topics(tags=["fitness"])
+        assert len(default_results) == 1
+
+        # With tag_overlap weight zeroed out and no embedding/peer signal,
+        # the topic should score 0 and drop out of the results.
+        zeroed_results = store.search_topics(
+            tags=["fitness"],
+            weights={"semantic": 0.4, "tag_overlap": 0.0, "person": 0.2, "temporal": 0.1},
+        )
+        assert zeroed_results == []
 
 
 class TestMemoryItems:

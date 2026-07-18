@@ -17,6 +17,16 @@ from pathlib import Path
 from core.models import Fact, MemoryItem
 from core.stores.migrations import migrate
 
+# Fallback scoring weights when the caller doesn't supply an explicit
+# `weights` override (e.g. from EidolonConfig.retrieval). Shared by both
+# search_topics and search_memory_items, matching AssociativeRetriever's
+# own defaults so a configured value means the same thing everywhere.
+#
+# NOTE: "temporal" is accepted in the weights dict for forward-compat but is
+# NOT applied anywhere below — there is no recency scoring term implemented
+# yet. Don't assume configuring it has any effect until that lands.
+_DEFAULT_WEIGHTS = {"semantic": 0.4, "tag_overlap": 0.3, "person": 0.2, "temporal": 0.1}
+
 
 def _serialize_embedding(vec: list[float]) -> bytes:
     """Pack a float list into a binary BLOB (little-endian f64)."""
@@ -138,6 +148,23 @@ class SqliteStore:
         )
         self._conn.commit()
 
+    def get_active_topic(self, peer_id: str) -> int | None:
+        """Return the id of the peer's most recently opened 'active' topic.
+
+        If more than one is somehow left 'active' (e.g. a crash mid topic
+        transition), the most recent wins; older orphans stay open until
+        explicitly closed — no automatic cleanup here.
+        """
+        # `id DESC` breaks ties from CURRENT_TIMESTAMP's second-level
+        # resolution — two topics created within the same second would
+        # otherwise sort ambiguously.
+        row = self._conn.execute(
+            "SELECT id FROM topics WHERE peer_id = ? AND status = 'active' "
+            "ORDER BY created_at DESC, id DESC LIMIT 1",
+            (peer_id,),
+        ).fetchone()
+        return row[0] if row else None
+
     def update_topic_embedding(
         self, topic_id: int, embedding: list[float]
     ) -> None:
@@ -154,11 +181,17 @@ class SqliteStore:
         tags: list[str] | None = None,
         peer_id: str | None = None,
         limit: int = 5,
+        weights: dict[str, float] | None = None,
     ) -> list[dict]:
         """Search topics by embedding similarity, tag overlap, and/or peer.
 
+        `weights` overrides the semantic/tag_overlap/person scoring weights
+        when provided (see `_DEFAULT_WEIGHTS`). `temporal` is accepted
+        but currently unused — no recency term exists yet.
+
         Returns topic dicts ordered by relevance (highest first).
         """
+        w = weights or _DEFAULT_WEIGHTS
         rows = self._conn.execute(
             "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
             "FROM topics WHERE status='closed'"
@@ -182,18 +215,24 @@ class SqliteStore:
             # Embedding similarity (semantic)
             if query_embedding and row[4]:
                 stored_emb = _deserialize_embedding(row[4])
-                score += _cosine_similarity(query_embedding, stored_emb) * 0.4
+                score += _cosine_similarity(query_embedding, stored_emb) * w.get(
+                    "semantic", _DEFAULT_WEIGHTS["semantic"]
+                )
 
             # Tag overlap
             if tags:
                 topic_tags: list[str] = topic["tags"]
                 overlap = len(set(tags) & set(topic_tags))
                 if overlap > 0:
-                    score += (overlap / max(len(tags), 1)) * 0.3
+                    score += (overlap / max(len(tags), 1)) * w.get(
+                        "tag_overlap", _DEFAULT_WEIGHTS["tag_overlap"]
+                    )
 
             # Peer filter
             if peer_id and topic["peer_id"] == peer_id:
-                score += 0.2
+                score += w.get("person", _DEFAULT_WEIGHTS["person"])
+
+            # NOTE: no temporal/recency term yet — w.get("temporal") is unused.
 
             if score > 0:
                 results.append((score, topic))
@@ -219,7 +258,16 @@ class SqliteStore:
         query_embedding: list[float] | None = None,
         peer_id: str | None = None,
         limit: int = 5,
+        weights: dict[str, float] | None = None,
     ) -> list[MemoryItem]:
+        """Search memory items by embedding similarity and/or peer.
+
+        `weights` overrides the semantic/person scoring weights when
+        provided (see `_DEFAULT_WEIGHTS`). `tag_overlap` doesn't apply
+        (memory items carry no tags) and `temporal` is unused — no recency
+        term exists yet.
+        """
+        w = weights or _DEFAULT_WEIGHTS
         rows = self._conn.execute(
             "SELECT id, content, item_type, source_peer, subject_peer, "
             "attribution_type, topic_id, message_id, embedding, created_at "
@@ -245,11 +293,16 @@ class SqliteStore:
             # Embedding similarity
             if query_embedding and row[8]:
                 stored_emb = _deserialize_embedding(row[8])
-                score += _cosine_similarity(query_embedding, stored_emb) * 0.5
+                score += _cosine_similarity(query_embedding, stored_emb) * w.get(
+                    "semantic", _DEFAULT_WEIGHTS["semantic"]
+                )
 
             # Peer filter
             if peer_id and (item.source_peer == peer_id or item.subject_peer == peer_id):
-                score += 0.3
+                score += w.get("person", _DEFAULT_WEIGHTS["person"])
+
+            # NOTE: no tag_overlap (items have no tags) or temporal/recency
+            # term yet — w.get("tag_overlap") / w.get("temporal") are unused.
 
             if score > 0:
                 results.append((score, item))

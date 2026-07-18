@@ -139,6 +139,26 @@ class Eidolon:
         current_topic_summary = self._get_topic_summary(active_topic_id)
         return self._detector.detect(message, current_topic_summary)
 
+    def get_active_topic(self, peer_id: str) -> int | None:
+        """Look up the peer's currently open topic in storage, if any.
+
+        Adapters call this once at startup to resume their in-memory
+        active-topic tracking — otherwise a restart mid-topic silently
+        forgets about it, leaving it open (and unretrievable, since search
+        only considers closed topics) forever.
+
+        Parameters
+        ----------
+        peer_id : str
+            Who the active topic belongs to.
+
+        Returns
+        -------
+        int | None
+            The open topic's id, or None if the peer has no open topic.
+        """
+        return self._storage.get_active_topic(peer_id)
+
     def retrieve_context(
         self,
         message: str,
@@ -437,6 +457,16 @@ class Eidolon:
                         (json.dumps(tags), topic_id),
                     )
                     self._storage._conn.commit()
+                # Re-embed with the final summary. The embedding generated at
+                # topic creation (see store_turn) was based on the short
+                # provisional label from topic detection, not this richer
+                # summary — leaving it stale would mean semantic retrieval
+                # keeps matching against the original guess forever.
+                try:
+                    summary_embedding = self._embedder.embed(summary)
+                    self._storage.update_topic_embedding(topic_id, summary_embedding)
+                except Exception:
+                    pass  # Embedding failure is non-critical
         except Exception:
             pass  # Summarization failure is non-critical
 

@@ -26,8 +26,12 @@ class AssociativeRetriever:
     embedder : EmbedderProvider
         Provider for generating query embeddings.
     weights : dict | None
-        Optional weight overrides for retrieval dimensions.
+        Optional weight overrides for retrieval dimensions, passed through
+        to the storage backend's search methods.
         Defaults: semantic=0.4, tag_overlap=0.3, person=0.2, temporal=0.1
+        NOTE: ``temporal`` is not yet applied by any storage backend —
+        there is no recency scoring term implemented yet. It is kept
+        here (rather than dropped) so the dimension isn't forgotten.
     language : str
         Language code for stop word filtering (default: "en").
         Prompts to the LLM are always in English regardless of this setting.
@@ -85,7 +89,7 @@ class AssociativeRetriever:
         query_embedding = self._embedder.embed(message)
 
         # 3. Extract potential tags from the message (simple keyword extraction)
-        tags = self._extract_tags(message)
+        tags = self._extract_tags(message, stop_words=self._stop_words)
 
         # 4. Search topics
         topic_limit = 5 if is_new_topic else 2
@@ -94,6 +98,7 @@ class AssociativeRetriever:
             tags=tags,
             peer_id=peer_id,
             limit=topic_limit,
+            weights=self._weights,
         )
 
         related_topics = [
@@ -112,6 +117,7 @@ class AssociativeRetriever:
             query_embedding=query_embedding,
             peer_id=peer_id,
             limit=memory_limit,
+            weights=self._weights,
         )
 
         return ContextBundle(

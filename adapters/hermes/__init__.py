@@ -116,6 +116,15 @@ class EidolonMemoryProvider(MemoryProvider):
             },
         )
 
+        # Resume the peer's currently open topic, if any — `topics.status`
+        # in storage is the source of truth, not this in-memory field, so a
+        # restart shouldn't silently orphan a topic that was still open.
+        try:
+            self._active_topic_id = self._eidolon.get_active_topic("user")
+        except Exception as e:
+            logger.debug("Failed to resume active topic (non-fatal): %s", e)
+            self._active_topic_id = None
+
         self._initialized = True
 
     def shutdown(self) -> None:

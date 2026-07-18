@@ -26,6 +26,7 @@ class MockStorage:
         self.last_query_embedding: list[float] | None = None
         self.last_tags: list[str] | None = None
         self.last_peer_id: str | None = None
+        self.last_weights: dict[str, float] | None = None
 
     def get_facts(self, peer_id: str) -> list[Fact]:
         self.last_peer_id = peer_id
@@ -52,10 +53,12 @@ class MockStorage:
         tags: list[str] | None = None,
         peer_id: str | None = None,
         limit: int = 5,
+        weights: dict[str, float] | None = None,
     ) -> list[dict]:
         self.last_query_embedding = query_embedding
         self.last_tags = tags
         self.last_peer_id = peer_id
+        self.last_weights = weights
         return self.topics[:limit]
 
     def store_memory_item(self, item: MemoryItem) -> int:
@@ -66,7 +69,9 @@ class MockStorage:
         query_embedding: list[float] | None = None,
         peer_id: str | None = None,
         limit: int = 5,
+        weights: dict[str, float] | None = None,
     ) -> list[MemoryItem]:
+        self.last_weights = weights
         return self.memory_items[:limit]
 
 
@@ -241,3 +246,45 @@ class TestAssociativeRetriever:
         weights = {"semantic": 0.5, "tag_overlap": 0.3, "person": 0.1, "temporal": 0.1}
         retriever = AssociativeRetriever(storage, embedder, weights=weights)
         assert retriever._weights == weights
+
+    def test_retrieve_uses_configured_language_for_tags(self):
+        """`language` passed to the retriever must actually reach tag
+        extraction during retrieve() — self._stop_words was previously
+        computed but never used, so German conversations always got
+        English (i.e. no-op) stop-word filtering regardless of config."""
+        storage = MockStorage()
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder, language="de")
+
+        retriever.retrieve(
+            message="Lass uns über Bello und Fitness sprechen",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            topic_label="Bello",
+            is_new_topic=True,
+        )
+
+        # German stop words ("lass", "uns", "über") must be filtered out;
+        # with the English default they would have leaked through as tags.
+        assert "lass" not in storage.last_tags
+        assert "uns" not in storage.last_tags
+        assert "über" not in storage.last_tags
+        assert "bello" in storage.last_tags
+        assert "fitness" in storage.last_tags
+
+    def test_custom_weights_passed_to_storage(self):
+        """Configured weights must reach the storage backend's search calls,
+        not just sit unused on the retriever."""
+        storage = MockStorage()
+        embedder = MockEmbedder()
+        weights = {"semantic": 0.5, "tag_overlap": 0.3, "person": 0.1, "temporal": 0.1}
+        retriever = AssociativeRetriever(storage, embedder, weights=weights)
+
+        retriever.retrieve(
+            message="Lass uns über Bello sprechen",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            topic_label="Bello",
+            is_new_topic=True,
+        )
+        assert storage.last_weights == weights

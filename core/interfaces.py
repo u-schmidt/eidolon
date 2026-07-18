@@ -57,6 +57,15 @@ class StorageProvider(Protocol):
         """Mark a topic as closed and set its final summary."""
         ...
 
+    def get_active_topic(self, peer_id: str) -> int | None:
+        """Return the id of the peer's currently open ('active') topic, if any.
+
+        `topics.status` is the source of truth for what's open — adapters
+        use this to resume their in-memory active-topic tracking after a
+        restart instead of assuming there's no open topic.
+        """
+        ...
+
     def update_topic_embedding(
         self, topic_id: int, embedding: list[float]
     ) -> None:
@@ -69,8 +78,14 @@ class StorageProvider(Protocol):
         tags: list[str] | None = None,
         peer_id: str | None = None,
         limit: int = 5,
+        weights: dict[str, float] | None = None,
     ) -> list[dict]:
         """Search topics by embedding similarity, tag overlap, and/or peer.
+
+        ``weights`` overrides the per-dimension scoring weights
+        (semantic, tag_overlap, person, temporal) when provided.
+        NOTE: ``temporal`` is accepted for forward-compat but not yet
+        applied by any backend — there is no recency scoring term yet.
 
         Returns topic dicts ordered by relevance.
         """
@@ -87,8 +102,15 @@ class StorageProvider(Protocol):
         query_embedding: list[float] | None = None,
         peer_id: str | None = None,
         limit: int = 5,
+        weights: dict[str, float] | None = None,
     ) -> list[MemoryItem]:
-        """Search memory items by embedding similarity and/or peer."""
+        """Search memory items by embedding similarity and/or peer.
+
+        ``weights`` overrides the per-dimension scoring weights when
+        provided. NOTE: ``tag_overlap`` (memory items carry no tags) and
+        ``temporal`` (no recency scoring yet) are accepted but currently
+        have no effect.
+        """
         ...
 
     # ── Messages ───────────────────────────────────────────
