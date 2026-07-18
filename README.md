@@ -112,10 +112,12 @@ uv run pytest tests/ -v
 # With simulated providers (no external dependencies):
 python tools/cli.py
 
-# With real providers:
+# With real providers — provider, base_url, AND model are all required;
+# an incomplete role fails fast with a clear error instead of guessing
+# an endpoint (see Configuration below):
 python tools/cli.py \
-  --llm-provider ollama --llm-model deepseek-v4-flash:cloud \
-  --embedder-provider lm_studio --embedder-model text-embedding-bge-m3
+  --llm-provider ollama --llm-base-url http://localhost:11434 --llm-model deepseek-v4-flash:cloud \
+  --embedder-provider lm_studio --embedder-base-url http://localhost:1234 --embedder-model text-embedding-bge-m3
 
 # With a YAML config file:
 python tools/cli.py --config ~/.eidolon/config.yaml
@@ -140,25 +142,26 @@ See [`eidolon.example.yaml`](eidolon.example.yaml) for all available options.
 
 ### Key Settings
 
+Each model role (`llm`, `embedder`, and any future role like `judge`) is a **self-contained** endpoint — provider, `base_url`, and `model` together, no shared registry, no cross-references by name. A role that's actually used but not fully specified (missing `base_url`, for instance) fails immediately with a clear error at startup rather than silently falling back to a guessed endpoint — this used to silently misroute requests to whatever happened to be listening on a default port.
+
 ```yaml
-providers:
-  ollama:
+models:
+  llm:
+    provider: ollama
     base_url: http://192.168.178.81:11434
-  lm_studio:
+    model: deepseek-v4-flash:cloud
+
+  embedder:
+    provider: lm_studio
     base_url: http://192.168.178.81:1234
-
-llm:
-  provider: ollama
-  model: deepseek-v4-flash:cloud
-
-embedder:
-  provider: lm_studio
-  model: text-embedding-bge-m3
+    model: text-embedding-bge-m3
 
 debug:
   enabled: false             # See Debug Tracing below
   trace_db_path: ~/.eidolon/trace.db
 ```
+
+`llm` and `embedder` have dedicated CLI flags/env vars for quick overrides without touching YAML: `--llm-provider`/`--llm-base-url`/`--llm-model`/`--llm-max-tokens`/`--llm-timeout` (and the `embedder-`/`EIDOLON_LLM_*`/`EIDOLON_EMBEDDER_*` equivalents). Other roles are YAML-only for now.
 
 ## Debug Tracing
 

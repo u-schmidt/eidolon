@@ -1,13 +1,16 @@
 """Provider factory for Eidolon.
 
 Creates provider instances (LLM, Embedder, Storage) from configuration.
-``config.providers`` is a map of named endpoints (e.g. ollama, lm_studio).
-``config.llm.provider`` and ``config.embedder.provider`` reference one by name.
+Each model role (``llm``, ``embedder``, and future roles like ``judge``)
+is a fully self-contained ``ModelConfig`` — no shared endpoint registry,
+no cross-referencing by name. A role that isn't fully configured raises
+``ConfigError`` (via ``EidolonConfig.require_model``) instead of silently
+falling back to a guessed endpoint.
 """
 
 from __future__ import annotations
 
-from core.config import EidolonConfig, ProviderEndpoint
+from core.config import EidolonConfig, ModelConfig
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
 from core.stores.sqlite_store import SqliteStore
 from core.trace.null_tracer import NullTracer
@@ -22,21 +25,13 @@ class ProviderFactory:
         config = ConfigLoader("config.yaml").load()
         factory = ProviderFactory(config)
         store = factory.create_storage()
-        llm = factory.create_llm()
-        embedder = factory.create_embedder()
+        llm = factory.create_llm()          # role="llm"
+        embedder = factory.create_embedder()  # role="embedder"
+        judge = factory.create_llm("judge")   # any additional configured role
     """
 
     def __init__(self, config: EidolonConfig) -> None:
         self._config = config
-
-    def _get_endpoint(self, name: str) -> ProviderEndpoint:
-        """Get a provider endpoint by name, creating a default if missing."""
-        if name in self._config.providers:
-            return self._config.providers[name]
-        # Auto-create a default endpoint for convenience (e.g. --llm-provider lm_studio)
-        ep = ProviderEndpoint(name=name)
-        self._config.providers[name] = ep
-        return ep
 
     # ── Storage ─────────────────────────────────────────────
 
@@ -64,62 +59,64 @@ class ProviderFactory:
 
     # ── LLM ────────────────────────────────────────────────
 
-    def create_llm(self) -> LLMProvider:
-        provider_name = self._config.llm.provider
-        ep = self._get_endpoint(provider_name)
+    def create_llm(self, role: str = "llm") -> LLMProvider:
+        cfg = self._config.require_model(role)
+        return self._build_llm(cfg)
 
-        if provider_name == "simulated":
-            from tests.mocks import SimulatedLLM
+    def _build_llm(self, cfg: ModelConfig) -> LLMProvider:
+        if cfg.provider == "simulated":
+            from providers.simulated import SimulatedLLM
             return SimulatedLLM()
 
-        if provider_name == "lm_studio":
+        if cfg.provider == "lm_studio":
             from providers.lm_studio import LMStudio
             return LMStudio(
-                base_url=ep.base_url,
-                llm_model=self._config.llm.model,
-                api_key=ep.api_key,
-                timeout=self._config.llm.timeout or ep.timeout,
+                base_url=cfg.base_url,
+                llm_model=cfg.model,
+                api_key=cfg.api_key,
+                timeout=cfg.timeout,
             )
 
-        if provider_name == "ollama":
+        if cfg.provider == "ollama":
             from providers.ollama import Ollama
             return Ollama(
-                base_url=ep.base_url,
-                llm_model=self._config.llm.model,
-                timeout=self._config.llm.timeout or ep.timeout,
+                base_url=cfg.base_url,
+                llm_model=cfg.model,
+                timeout=cfg.timeout,
             )
 
-        raise ValueError(f"Unknown LLM provider: {provider_name}")
+        raise ValueError(f"Unknown LLM provider: {cfg.provider}")
 
     # ── Embedder ───────────────────────────────────────────
 
-    def create_embedder(self) -> EmbedderProvider:
-        provider_name = self._config.embedder.provider
-        ep = self._get_endpoint(provider_name)
+    def create_embedder(self, role: str = "embedder") -> EmbedderProvider:
+        cfg = self._config.require_model(role)
+        return self._build_embedder(cfg)
 
-        if provider_name == "simulated":
-            from tests.mocks import SimulatedEmbedder
-            return SimulatedEmbedder(dimension=self._config.embedder.dimension)
+    def _build_embedder(self, cfg: ModelConfig) -> EmbedderProvider:
+        if cfg.provider == "simulated":
+            from providers.simulated import SimulatedEmbedder
+            return SimulatedEmbedder(dimension=cfg.dimension)
 
-        if provider_name == "lm_studio":
+        if cfg.provider == "lm_studio":
             from providers.lm_studio import LMStudio
             return LMStudio(
-                base_url=ep.base_url,
-                embedder_model=self._config.embedder.model,
-                api_key=ep.api_key,
-                timeout=self._config.embedder.timeout or ep.timeout,
+                base_url=cfg.base_url,
+                embedder_model=cfg.model,
+                api_key=cfg.api_key,
+                timeout=cfg.timeout,
             )
 
-        if provider_name == "ollama":
+        if cfg.provider == "ollama":
             from providers.ollama import Ollama
             return Ollama(
-                base_url=ep.base_url,
-                embedder_model=self._config.embedder.model,
-                timeout=self._config.embedder.timeout or ep.timeout,
+                base_url=cfg.base_url,
+                embedder_model=cfg.model,
+                timeout=cfg.timeout,
             )
 
-        if provider_name == "sentence_transformers":
+        if cfg.provider == "sentence_transformers":
             from providers.sentence_transformers import SentenceTransformersEmbedder
-            return SentenceTransformersEmbedder(model_name=self._config.embedder.model)
+            return SentenceTransformersEmbedder(model_name=cfg.model)
 
-        raise ValueError(f"Unknown embedder provider: {provider_name}")
+        raise ValueError(f"Unknown embedder provider: {cfg.provider}")

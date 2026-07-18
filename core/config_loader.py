@@ -15,10 +15,13 @@ from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
-from core.config import EidolonConfig, ProviderEndpoint
+from core.config import EidolonConfig, ModelConfig
 
 # Environment variable prefix
 _ENV_PREFIX = "EIDOLON_"
+
+# Fields a `models.<role>` block (YAML) or CLI/env override may set.
+_MODEL_ROLE_FIELDS = ("provider", "base_url", "model", "api_key", "timeout", "max_tokens", "dimension")
 
 
 def _env_key(*parts: str) -> str:
@@ -91,14 +94,6 @@ class ConfigLoader:
         _map: dict[str, tuple[str, ...]] = {
             "storage_provider": ("storage", "provider"),
             "storage_path": ("storage", "path"),
-            "llm_provider": ("llm", "provider"),
-            "llm_model": ("llm", "model"),
-            "llm_max_tokens": ("llm", "max_tokens"),
-            "llm_timeout": ("llm", "timeout"),
-            "embedder_provider": ("embedder", "provider"),
-            "embedder_model": ("embedder", "model"),
-            "embedder_timeout": ("embedder", "timeout"),
-            "embedder_dimension": ("embedder", "dimension"),
             "retrieval_semantic": ("retrieval", "semantic"),
             "retrieval_tag_overlap": ("retrieval", "tag_overlap"),
             "retrieval_person": ("retrieval", "person"),
@@ -131,20 +126,23 @@ class ConfigLoader:
 
             setattr(obj, field_name, converted)
 
+        for role in ("llm", "embedder"):
+            self._merge_model_role(config, role, {
+                "provider": os.environ.get(_env_key(role, "provider")),
+                "base_url": os.environ.get(_env_key(role, "base_url")),
+                "model": os.environ.get(_env_key(role, "model")),
+                "api_key": os.environ.get(_env_key(role, "api_key")),
+                "timeout": self._coerce_int(os.environ.get(_env_key(role, "timeout"))),
+                "max_tokens": self._coerce_int(os.environ.get(_env_key(role, "max_tokens"))),
+                "dimension": self._coerce_int(os.environ.get(_env_key(role, "dimension"))),
+            })
+
     # ── CLI Arguments ──────────────────────────────────────
 
     def _merge_cli(self, config: EidolonConfig, args: Namespace) -> None:
         cli_map: dict[str, tuple[str, ...]] = {
             "storage_provider": ("storage", "provider"),
             "storage_path": ("storage", "path"),
-            "llm_provider": ("llm", "provider"),
-            "llm_model": ("llm", "model"),
-            "llm_max_tokens": ("llm", "max_tokens"),
-            "llm_timeout": ("llm", "timeout"),
-            "embedder_provider": ("embedder", "provider"),
-            "embedder_model": ("embedder", "model"),
-            "embedder_timeout": ("embedder", "timeout"),
-            "embedder_dimension": ("embedder", "dimension"),
             "retrieval_semantic": ("retrieval", "semantic"),
             "retrieval_tag_overlap": ("retrieval", "tag_overlap"),
             "retrieval_person": ("retrieval", "person"),
@@ -165,6 +163,49 @@ class ConfigLoader:
                 obj = getattr(obj, part)
             setattr(obj, attr_path[-1], value)
 
+        for role in ("llm", "embedder"):
+            self._merge_model_role(config, role, {
+                "provider": getattr(args, f"{role}_provider", None),
+                "base_url": getattr(args, f"{role}_base_url", None),
+                "model": getattr(args, f"{role}_model", None),
+                "timeout": getattr(args, f"{role}_timeout", None),
+                "max_tokens": getattr(args, f"{role}_max_tokens", None),
+                "dimension": getattr(args, f"{role}_dimension", None),
+            })
+
+    # ── Model Role Merge (shared by CLI + env) ─────────────
+
+    def _merge_model_role(self, config: EidolonConfig, role: str, updates: dict[str, Any]) -> None:
+        """Merge CLI/env overrides for one model role (llm, embedder).
+
+        If ``provider`` is being changed to a different provider than what's
+        currently set for this role, the whole ``ModelConfig`` is replaced
+        fresh instead of mutating just the ``provider`` field — otherwise
+        switching ``--llm-provider ollama`` would silently keep the
+        zero-config ``simulated`` default's ``base_url="local"``,
+        reproducing the exact silent-misroute bug this design fixes.
+        """
+        updates = {k: v for k, v in updates.items() if v is not None}
+        if not updates:
+            return
+
+        current = config.models.get(role)
+        new_provider = updates.get("provider")
+        if new_provider and (current is None or current.provider != new_provider):
+            current = ModelConfig(provider=new_provider)
+        elif current is None:
+            current = ModelConfig()
+
+        for field_name, value in updates.items():
+            if field_name in _MODEL_ROLE_FIELDS:
+                setattr(current, field_name, value)
+
+        config.models[role] = current
+
+    @staticmethod
+    def _coerce_int(value: str | None) -> int | None:
+        return int(value) if value is not None else None
+
     # ── Dict Merge Helper ─────────────────────────────────
 
     def _merge_dict(self, config: EidolonConfig, data: dict[str, Any]) -> None:
@@ -172,12 +213,8 @@ class ConfigLoader:
         for key, value in data.items():
             if key == "storage" and isinstance(value, dict):
                 self._merge_into(config.storage, value)
-            elif key == "providers" and isinstance(value, dict):
-                self._merge_providers(config, value)
-            elif key == "llm" and isinstance(value, dict):
-                self._merge_into(config.llm, value)
-            elif key == "embedder" and isinstance(value, dict):
-                self._merge_into(config.embedder, value)
+            elif key == "models" and isinstance(value, dict):
+                self._merge_models_yaml(config, value)
             elif key == "retrieval" and isinstance(value, dict):
                 self._merge_into(config.retrieval, value)
             elif key == "debug" and isinstance(value, dict):
@@ -185,19 +222,19 @@ class ConfigLoader:
             elif hasattr(config, key):
                 setattr(config, key, value)
 
-    def _merge_providers(
-        self, config: EidolonConfig, data: dict[str, Any]
-    ) -> None:
-        """Merge provider endpoint dicts into the providers map."""
-        for name, endpoint_data in data.items():
-            if not isinstance(endpoint_data, dict):
+    def _merge_models_yaml(self, config: EidolonConfig, data: dict[str, Any]) -> None:
+        """Merge the ``models:`` YAML block.
+
+        Each role's block constructs a *fresh* ``ModelConfig`` — full
+        replacement, not an in-place merge — so a role always reflects
+        exactly what's specified in YAML, with no stale fields surviving
+        from the zero-config ``simulated`` default.
+        """
+        for role, role_data in data.items():
+            if not isinstance(role_data, dict):
                 continue
-            if name in config.providers:
-                ep = config.providers[name]
-            else:
-                ep = ProviderEndpoint(name=name)
-                config.providers[name] = ep
-            self._merge_into(ep, endpoint_data)
+            fields = {k: v for k, v in role_data.items() if k in _MODEL_ROLE_FIELDS}
+            config.models[role] = ModelConfig(**fields)
 
     @staticmethod
     def _merge_into(obj: Any, data: dict[str, Any]) -> None:

@@ -1,10 +1,13 @@
 """Eidolon configuration model.
 
 Pure dataclasses — no loading logic, no provider instantiation.
-Defines the *shape* of configuration for storage, providers, LLM, embedder, and retrieval.
+Defines the *shape* of configuration for storage, models, and retrieval.
 
-Multiple providers can be defined (e.g. ollama + lm_studio).
-LLM and Embedder each reference one provider by name.
+Each model role (llm, embedder, judge, ...) is a fully self-contained
+ModelConfig — provider, connection, and model name together. There is no
+shared "providers" registry and no cross-referencing by name: a role
+that isn't fully specified raises ConfigError at the point of use rather
+than silently falling back to a guessed endpoint.
 """
 
 from __future__ import annotations
@@ -33,14 +36,17 @@ def default_db_path() -> str:
     return str(Path(default_data_dir()) / "memory.db")
 
 
-def default_providers() -> dict[str, ProviderEndpoint]:
-    """Return default provider endpoints."""
-    return {
-        "simulated": ProviderEndpoint(
-            name="simulated",
-            base_url="http://localhost:1234",
-        ),
-    }
+def default_trace_db_path() -> str:
+    """Return the OS-appropriate default trace database path."""
+    return str(Path(default_data_dir()) / "trace.db")
+
+
+class ConfigError(Exception):
+    """Raised for missing or incomplete configuration.
+
+    Fails loudly at the point of use instead of silently falling back to
+    a guessed default endpoint.
+    """
 
 
 @dataclass
@@ -52,49 +58,40 @@ class StorageConfig:
 
 
 @dataclass
-class ProviderEndpoint:
-    """A single provider service endpoint.
+class ModelConfig:
+    """A single, self-contained model endpoint.
 
-    Defines the connection details for one provider (LM Studio, Ollama, etc.).
-    Multiple endpoints can be defined in ``EidolonConfig.providers``.
+    Bundles provider, connection details, and model name together — no
+    shared registry, no cross-references by name. Each model role (llm,
+    embedder, judge, ...) gets its own independent ModelConfig.
     """
 
-    name: str = "simulated"
-    base_url: str = "http://localhost:1234"
+    provider: str = ""
+    base_url: str = ""
+    model: str = ""
     api_key: str = ""
     timeout: int = 60
+    max_tokens: int = 4096  # meaningful for LLM-role configs only
+    dimension: int = 768  # meaningful for embedder-role configs only
 
-    extra: dict[str, Any] = field(default_factory=dict)
+    def is_complete(self) -> bool:
+        """Whether provider, base_url, and model are all set."""
+        return bool(self.provider and self.base_url and self.model)
 
 
-@dataclass
-class LLMConfig:
-    """LLM configuration.
+def default_models() -> dict[str, ModelConfig]:
+    """Default model roles.
 
-    References a provider by name from ``EidolonConfig.providers``.
+    ``simulated`` stays as the zero-config default for ``llm``/``embedder``
+    only, so ``python tools/cli.py`` keeps working with no YAML file. Real
+    providers (ollama, lm_studio, ...) must be fully specified — see
+    ``EidolonConfig.require_model``. This is a documented, intentional
+    testing default, not a silent fallback for real providers.
     """
-
-    provider: str = "simulated"
-    model: str = "deepseek-v4"
-    max_tokens: int = 4096
-    timeout: int = 60
-
-    extra: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class EmbedderConfig:
-    """Embedder configuration.
-
-    References a provider by name from ``EidolonConfig.providers``.
-    """
-
-    provider: str = "simulated"
-    model: str = "text-embedding-bge-m3"
-    timeout: int = 30
-    dimension: int = 768
-
-    extra: dict[str, Any] = field(default_factory=dict)
+    return {
+        "llm": ModelConfig(provider="simulated", base_url="local", model="simulated"),
+        "embedder": ModelConfig(provider="simulated", base_url="local", model="simulated"),
+    }
 
 
 @dataclass
@@ -105,11 +102,6 @@ class RetrievalConfig:
     tag_overlap: float = 0.3
     person: float = 0.2
     temporal: float = 0.1
-
-
-def default_trace_db_path() -> str:
-    """Return the OS-appropriate default trace database path."""
-    return str(Path(default_data_dir()) / "trace.db")
 
 
 @dataclass
@@ -135,20 +127,28 @@ class EidolonConfig:
     """
 
     storage: StorageConfig = field(default_factory=StorageConfig)
-    providers: dict[str, ProviderEndpoint] = field(default_factory=default_providers)
-    llm: LLMConfig = field(default_factory=LLMConfig)
-    embedder: EmbedderConfig = field(default_factory=EmbedderConfig)
+    models: dict[str, ModelConfig] = field(default_factory=default_models)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     language: str = "en"
 
-    def get_provider(self, name: str) -> ProviderEndpoint:
-        """Get a provider endpoint by name, creating a default if missing."""
-        if name in self.providers:
-            return self.providers[name]
-        ep = ProviderEndpoint(name=name)
-        self.providers[name] = ep
-        return ep
+    def require_model(self, role: str) -> ModelConfig:
+        """Return the fully-specified ``ModelConfig`` for ``role``.
+
+        Raises ``ConfigError`` if the role is missing or incomplete,
+        instead of silently falling back to a guessed endpoint. Called
+        lazily by ``ProviderFactory`` at the point a role is actually
+        needed — an incomplete ``judge`` block sitting unused in YAML
+        doesn't break anything until something actually asks for it.
+        """
+        cfg = self.models.get(role)
+        if cfg is None or not cfg.is_complete():
+            raise ConfigError(
+                f"Model role '{role}' is not fully configured (need provider, "
+                f"base_url, model) — check the 'models.{role}' section of your "
+                f"eidolon.yaml, or pass --{role}-provider/--{role}-model/--{role}-base-url."
+            )
+        return cfg
 
     def to_dict(self) -> dict[str, Any]:
         """Export config as a flat dict for logging/debugging."""
@@ -157,21 +157,13 @@ class EidolonConfig:
                 "provider": self.storage.provider,
                 "path": self.storage.path,
             },
-            "providers": {
-                name: {
-                    "base_url": ep.base_url,
+            "models": {
+                role: {
+                    "provider": m.provider,
+                    "base_url": m.base_url,
+                    "model": m.model,
                 }
-                for name, ep in self.providers.items()
-            },
-            "llm": {
-                "provider": self.llm.provider,
-                "model": self.llm.model,
-                "max_tokens": self.llm.max_tokens,
-            },
-            "embedder": {
-                "provider": self.embedder.provider,
-                "model": self.embedder.model,
-                "dimension": self.embedder.dimension,
+                for role, m in self.models.items()
             },
             "retrieval": {
                 "semantic": self.retrieval.semantic,

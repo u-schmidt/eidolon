@@ -31,6 +31,7 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from core import Eidolon
+from core.config import ConfigError
 from core.config_loader import ConfigLoader
 from core.models import EnvironmentSnapshot
 from core.provider_factory import ProviderFactory
@@ -45,8 +46,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 Examples:
   python tools/cli.py
   python tools/cli.py --config ~/.eidolon/config.yaml
-  python tools/cli.py --llm-provider ollama --llm-model deepseek-v4 --embedder-provider lm_studio
-  EIDOLON_LLM_PROVIDER=ollama python tools/cli.py
+  python tools/cli.py --llm-provider ollama --llm-base-url http://localhost:11434 --llm-model deepseek-v4
+  EIDOLON_LLM_PROVIDER=ollama EIDOLON_LLM_BASE_URL=http://localhost:11434 python tools/cli.py
         """,
     )
 
@@ -60,7 +61,8 @@ Examples:
     # LLM
     parser.add_argument("--llm-provider", default=None,
                         choices=["simulated", "lm_studio", "ollama"],
-                        help="LLM provider name (must match a key in providers config)")
+                        help="LLM provider name")
+    parser.add_argument("--llm-base-url", default=None, help="LLM endpoint URL")
     parser.add_argument("--llm-model", default=None, help="LLM model name")
     parser.add_argument("--llm-max-tokens", type=int, default=None, help="LLM max tokens")
     parser.add_argument("--llm-timeout", type=int, default=None, help="LLM timeout")
@@ -68,7 +70,8 @@ Examples:
     # Embedder
     parser.add_argument("--embedder-provider", default=None,
                         choices=["simulated", "lm_studio", "ollama", "sentence_transformers"],
-                        help="Embedder provider name (must match a key in providers config)")
+                        help="Embedder provider name")
+    parser.add_argument("--embedder-base-url", default=None, help="Embedder endpoint URL")
     parser.add_argument("--embedder-model", default=None, help="Embedder model name")
     parser.add_argument("--embedder-timeout", type=int, default=None, help="Embedder timeout")
     parser.add_argument("--embedder-dimension", type=int, default=None, help="Embedder vector dimension")
@@ -125,19 +128,21 @@ def main() -> None:
     # Print configuration summary
     print(f"  Config: {args.config or '(defaults + env + CLI)'}")
     print(f"  Storage: {config.storage.provider} ({config.storage.path})")
-    print(f"  LLM: {config.llm.provider} / {config.llm.model}")
-    print(f"  Embedder: {config.embedder.provider} / {config.embedder.model}")
+    for role, m in config.models.items():
+        print(f"  {role.capitalize()}: {m.provider} / {m.model} ({m.base_url or '(no base_url)'})")
     print(f"  Language: {config.language}")
-    for name, ep in config.providers.items():
-        print(f"  Provider '{name}': {ep.base_url}")
     if config.debug.enabled:
         print(f"  Debug tracing: ON ({config.debug.trace_db_path})")
 
     # Create providers via factory
     factory = ProviderFactory(config)
-    store = factory.create_storage()
-    llm = factory.create_llm()
-    embedder = factory.create_embedder()
+    try:
+        store = factory.create_storage()
+        llm = factory.create_llm()
+        embedder = factory.create_embedder()
+    except ConfigError as exc:
+        print(f"\n  ✗ {exc}\n", file=sys.stderr)
+        sys.exit(1)
     tracer = factory.create_tracer()
 
     # Initialize Eidolon core

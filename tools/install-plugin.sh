@@ -23,7 +23,7 @@ EXAMPLE_CONFIG="$(cd "$(dirname "$0")/.." && pwd)/eidolon.example.yaml"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "╔══════════════════════════════════════════════╗"
-echo "║     Eidolon Plugin-Installer                ║"
+echo "║     Eidolon Plugin-Installer                 ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
 echo "  Profil:      $PROFILE"
@@ -39,10 +39,34 @@ if [ ! -d "$HERMES_HOME/profiles/$PROFILE" ]; then
 fi
 
 # ── Plugin kopieren ─────────────────────────────────────
-echo "📦 Kopiere Projekt nach $PLUGIN_DIR …"
-rm -rf "$PLUGIN_DIR"
-cp -r "$PROJECT_ROOT" "$PLUGIN_DIR"
-echo "   ✅ Erledigt"
+# rsync statt cp -r + rm -rf: data/ liegt beim laufenden Plugin unter
+# $PLUGIN_DIR (die echte eidolon_memory.db aus dem Live-Betrieb!). Ein
+# vorheriges rm -rf + cp -r des Projekt-Roots (der sein eigenes lokales
+# data/ hat) hat das schon mal überschrieben. rsync mit --exclude data
+# lässt das Zielverzeichnis dort unangetastet; --delete räumt nur
+# gelöschte/umbenannte Code-Dateien auf, nie die ausgeschlossenen Pfade.
+echo "📦 Synchronisiere Projekt nach $PLUGIN_DIR …"
+mkdir -p "$PLUGIN_DIR"
+# tests/ wird nicht mehr benötigt: core/provider_factory.py importiert
+# SimulatedLLM/SimulatedEmbedder aus providers/simulated.py, nicht mehr
+# aus tests/mocks.py — kein Laufzeit-Bezug von core/adapters/providers
+# auf tests/ mehr vorhanden.
+rsync -a --delete \
+    --exclude='.git' \
+    --exclude='.venv' \
+    --exclude='.claude' \
+    --exclude='.gitignore' \
+    --exclude='data' \
+    --exclude='tests' \
+    --exclude='.pytest_cache' \
+    --exclude='eidolon.egg-info' \
+    --exclude='__pycache__' \
+    --exclude='*.pyc' \
+    --exclude='.DS_Store' \
+    --exclude='uv.lock' \
+    --exclude='pyproject.toml' \
+    "$PROJECT_ROOT/" "$PLUGIN_DIR/"
+echo "   ✅ Erledigt (data/, .git/, .venv/ am Ziel unangetastet)"
 
 # ── Config anlegen (falls nicht vorhanden) ──────────────
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -50,10 +74,10 @@ if [ ! -f "$CONFIG_FILE" ]; then
     echo "📝 Keine eidolon.yaml gefunden — lege Beispiel-Config an …"
     cp "$EXAMPLE_CONFIG" "$CONFIG_FILE"
     echo "   ⚠  Bitte passe die Werte in $CONFIG_FILE an:"
-    echo "      - providers.ollama.base_url"
-    echo "      - providers.lm_studio.base_url"
-    echo "      - llm.model"
-    echo "      - embedder.model"
+    echo "      - models.llm.base_url"
+    echo "      - models.llm.model"
+    echo "      - models.embedder.base_url"
+    echo "      - models.embedder.model"
 else
     echo ""
     echo "✅ eidolon.yaml vorhanden: $CONFIG_FILE"

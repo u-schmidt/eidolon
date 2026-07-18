@@ -2,7 +2,6 @@
 # =====================
 #
 # Copy this file to ~/.eidolon/config.yaml and adjust the values.
-# All settings have sensible defaults — you only need to set what you want to override.
 #
 # Precedence (highest wins):
 #   CLI args > Environment variables > YAML config > Code defaults
@@ -17,35 +16,37 @@ storage:
   path: ~/.eidolon/memory.db  # OS default: ~/.eidolon/memory.db (macOS/Linux)
                               #            %APPDATA%/eidolon/memory.db (Windows)
 
-# ── Providers (the services) ───────────────────────────────
-# Define one or more provider services. Each has a name, URL, and optional settings.
-# LLM and Embedder each reference one by name.
-providers:
-  ollama:
+# ── Models ─────────────────────────────────────────────────
+# Each entry is a complete, self-contained model endpoint — provider,
+# connection, and model name together. No shared registry, no
+# cross-references by name: if a role you actually use isn't fully
+# specified here (provider + base_url + model), Eidolon refuses to start
+# with a clear error rather than silently guessing an endpoint.
+#
+# "llm" and "embedder" are required. Add further roles (e.g. "judge" for
+# a future trace-relevance-check model) the same way — no code changes
+# needed, just a new block here.
+models:
+  llm:
+    provider: ollama            # ollama | lm_studio | simulated
     base_url: http://192.168.178.81:11434
+    model: deepseek-v4-flash:cloud
+    max_tokens: 4096             # Max response tokens
     timeout: 60
-  lm_studio:
+
+  embedder:
+    provider: lm_studio         # ollama | lm_studio | sentence_transformers | simulated
     base_url: http://192.168.178.81:1234
+    model: text-embedding-bge-m3
+    dimension: 1024              # Vector dimension (bge-m3 = 1024, nomic-embed-text = 768)
     timeout: 30
-    api_key: ""
 
-# ── LLM (Language Model) ───────────────────────────────────
-# Used for: topic detection, fragmentary extraction, summary generation.
-# References a provider by name from the providers section above.
-llm:
-  provider: ollama           # Which provider to use (must match a key in providers)
-  model: deepseek-v4         # Model name (e.g. deepseek-v4, llama3.2, gpt-4)
-  max_tokens: 4096           # Max response tokens
-  timeout: 60                # Overrides provider.timeout for LLM calls
-
-# ── Embedder ───────────────────────────────────────────────
-# Used for: generating vector embeddings for associative retrieval.
-# Can use a different provider than the LLM.
-embedder:
-  provider: lm_studio        # Which provider to use (must match a key in providers)
-  model: text-embedding-bge-m3     # Model name (bge-m3, nomic-embed-text, etc.)
-  timeout: 30                # Overrides provider.timeout for embedding calls
-  dimension: 768             # Vector dimension (bge-m3 = 1024, nomic-embed-text = 768)
+# Quick CLI overrides without touching this file — the two most-used
+# roles have dedicated flags/env vars:
+#   --llm-provider / --llm-base-url / --llm-model / --llm-max-tokens / --llm-timeout
+#   --embedder-provider / --embedder-base-url / --embedder-model / --embedder-dimension / --embedder-timeout
+#   EIDOLON_LLM_BASE_URL=... / EIDOLON_EMBEDDER_BASE_URL=... (etc., same pattern)
+# Other roles (e.g. judge) are configured via this file only for now.
 
 # ── Retrieval Weights ──────────────────────────────────────
 # How much each dimension contributes to associative search scores.
