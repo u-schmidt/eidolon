@@ -21,6 +21,9 @@
 - `uv run pytest` vor jedem Commit
 - Test-Dateien spiegeln die Modul-Struktur: `tests/test_<modul>.py`
 
+## Dokumentation
+- Nach größeren Implementierungs-Zyklen (neue Features, größere Refactorings): README.md auf Aktualität prüfen — Architektur-Baum, Config-Beispiele, Roadmap/Phasen-Status, Testanzahl
+
 ## Code Style
 - Type Hints sind Pflicht (auch für `self` und `cls`)
 - Keine wilden `**kwargs`-Dictionaries — explizite Parameter

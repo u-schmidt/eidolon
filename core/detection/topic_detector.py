@@ -6,8 +6,11 @@ Uses a mini-LLM call (~50 tokens) per message for real-time detection.
 
 from __future__ import annotations
 
-from core.interfaces import LLMProvider
+import time
+
+from core.interfaces import LLMProvider, Tracer
 from core.models import TopicChange
+from core.trace.null_tracer import NullTracer
 
 # System prompt for the topic detection mini-LLM call.
 # Designed to be small (~50 tokens) and produce structured output.
@@ -105,15 +108,22 @@ class TopicDetector:
     ----------
     llm : LLMProvider
         The LLM provider to use for detection calls.
+    tracer : Tracer | None
+        Debug tracer for recording the prompt/response/duration of each
+        detection call. Defaults to a no-op tracer.
     """
 
-    def __init__(self, llm: LLMProvider) -> None:
+    def __init__(self, llm: LLMProvider, tracer: Tracer | None = None) -> None:
         self._llm = llm
+        self._tracer = tracer or NullTracer()
 
     def detect(
         self,
         message: str,
         current_topic_summary: str | None = None,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
     ) -> TopicChange:
         """Determine whether a message continues or changes the topic.
 
@@ -123,6 +133,11 @@ class TopicDetector:
             The user's message to classify.
         current_topic_summary : str | None
             Summary of the current topic, or None if this is the first message.
+        request_id : str | None
+            Correlates this call's trace event with others from the same
+            top-level ``Eidolon`` call.
+        session_id : str | None
+            Adapter-level conversation identifier, for trace filtering.
 
         Returns
         -------
@@ -130,9 +145,27 @@ class TopicDetector:
             CONTINUE or NEW_TOPIC with a label.
         """
         prompt = _build_detection_prompt(message, current_topic_summary)
+        started = time.perf_counter()
         response = self._llm.complete(
             prompt=prompt,
             system_prompt=_DETECTION_SYSTEM_PROMPT,
             max_tokens=500,
         )
-        return _parse_detection_response(response)
+        duration_ms = (time.perf_counter() - started) * 1000
+        result = _parse_detection_response(response)
+
+        self._tracer.record(
+            "topic_detection",
+            {
+                "message": message,
+                "current_topic_summary": current_topic_summary,
+                "prompt": prompt,
+                "response": response,
+                "result_type": result.type,
+                "result_label": result.label,
+            },
+            request_id=request_id,
+            session_id=session_id,
+            duration_ms=duration_ms,
+        )
+        return result

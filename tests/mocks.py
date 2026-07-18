@@ -117,6 +117,44 @@ class SimulatedLLM:
         )
 
 
+class SpyTracer:
+    """A tracer that records every call for test assertions.
+
+    Implements ``Tracer`` protocol structurally (duck typing).
+    """
+
+    def __init__(self) -> None:
+        self.connected = False
+        self.closed = False
+        self.events: list[dict] = []
+
+    def connect(self) -> None:
+        self.connected = True
+
+    def close(self) -> None:
+        self.closed = True
+
+    def record(
+        self,
+        event_type: str,
+        payload: dict,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
+        duration_ms: float | None = None,
+    ) -> None:
+        self.events.append({
+            "event_type": event_type,
+            "payload": payload,
+            "request_id": request_id,
+            "session_id": session_id,
+            "duration_ms": duration_ms,
+        })
+
+    def events_of_type(self, event_type: str) -> list[dict]:
+        return [e for e in self.events if e["event_type"] == event_type]
+
+
 class SimulatedEmbedder:
     """A simulated embedder that returns a deterministic vector.
 

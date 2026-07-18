@@ -14,7 +14,8 @@ eidolon/
 │   ├── detection/            #   Topic Detector (CONTINUE / NEW_TOPIC)
 │   ├── extraction/           #   Fragmentary Extractor (essence, facts, surprises, feelings)
 │   ├── retrieval/            #   Associative Retriever (semantic + tag + person + time)
-│   └── stores/               #   SQLite store with auto-migration
+│   ├── stores/               #   SQLite store with auto-migration
+│   └── trace/                #   Debug tracer (NullTracer / SqliteTracer), off by default
 ├── adapters/                 # Platform-specific adapters
 │   └── hermes/               #   Hermes MemoryProvider plugin
 ├── providers/                # Provider implementations (one class per service)
@@ -22,9 +23,10 @@ eidolon/
 │   ├── ollama.py             #   Ollama: complete() + embed() (OpenAI-compatible)
 │   └── sentence_transformers.py  #   Local PyTorch embeddings (fallback)
 ├── tools/                    # Standalone tools
-│   └── cli.py                #   CLI for testing without Hermes
+│   ├── cli.py                #   CLI for testing without Hermes
+│   └── trace.py              #   Terminal viewer for debug trace events
 ├── tests/                    # Test suite
-│   ├── core/                 #   Core tests
+│   ├── core/                 #   Core tests (incl. core/trace/)
 │   └── adapters/hermes/      #   Adapter tests
 ├── eidolon.example.yaml      # Example configuration
 ├── AGENTS.md                 # Coding conventions
@@ -78,6 +80,8 @@ User Message
 └─────────────────────────────────────┘
 ```
 
+Every step above (prompts, responses, durations, retrieval score breakdowns, and otherwise-silent failures) can be recorded to a separate trace database for inspection — see [Debug Tracing](#debug-tracing) below. Off by default; zero behavior/performance impact unless enabled.
+
 ## Quick Start
 
 ### Prerequisites
@@ -115,6 +119,9 @@ python tools/cli.py \
 
 # With a YAML config file:
 python tools/cli.py --config ~/.eidolon/config.yaml
+
+# With debug tracing enabled:
+python tools/cli.py --debug --trace-db /tmp/trace.db
 ```
 
 ### Hermes Adapter
@@ -147,6 +154,34 @@ llm:
 embedder:
   provider: lm_studio
   model: text-embedding-bge-m3
+
+debug:
+  enabled: false             # See Debug Tracing below
+  trace_db_path: ~/.eidolon/trace.db
+```
+
+## Debug Tracing
+
+Off by default, zero behavior/performance impact unless enabled. When on, every step in the [Per-Turn Flow](#per-turn-flow) — topic detection, extraction, fact extraction, topic summarization, every embedding call, and retrieval (including per-candidate similarity scores *before and after* weighting) — is recorded as a structured event to a **separate** SQLite database, not the main memory DB. Previously-silent failures (extraction/summarization/embedding errors that would otherwise vanish into a bare `except: pass`) are recorded as `error` events instead of disappearing.
+
+Enable it via `eidolon.yaml`:
+
+```yaml
+debug:
+  enabled: true
+  trace_db_path: ~/.eidolon/trace.db
+```
+
+...or `--debug --trace-db <path>` on `tools/cli.py`, or `EIDOLON_DEBUG_ENABLED=true`.
+
+Inspect recorded traces with the terminal viewer:
+
+```bash
+# Most recent request
+python tools/trace.py --db ~/.eidolon/trace.db
+
+# Last 5 requests for one session
+python tools/trace.py --db ~/.eidolon/trace.db --session <session_id> --last 5
 ```
 
 ## Development
@@ -168,8 +203,8 @@ uv run pytest tests/adapters/ -v
 
 | Phase | Status | What |
 |---|---|---|
-| **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, 118+ tests |
-| **Phase 2** | 🔜 Next | Topic-Only Mode, batch fact extraction, cluster summarization, TUI |
+| **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing, 175+ tests |
+| **Phase 2** | 🔜 Next | Topic-Only Mode, batch fact extraction, cluster summarization, Textual TUI |
 | **Phase 3** | ⏳ TBD | Production deployment, performance optimization |
 
 ## Roadmap
@@ -178,12 +213,16 @@ See [`plan.md`](plan.md) for the detailed Phase 1 implementation plan.
 
 ### Phase 2 (Planned)
 
-- **Topic-Only Mode** — Run alongside Honcho via pre_llm_call hook
+- **Topic-Only Mode** — Run alongside Honcho via pre_llm_call hook (fallback if Full Mode isn't sufficient; scaffolded in `adapters/hermes/llm_hook.py`, not yet wired to a live Hermes hook)
 - **Batch Fact Extraction (Cron)** — Collect fact-type items over multiple turns, extract in a single batch LLM call (cost optimization)
 - **Cluster Summarization** — Group related topics, generate cluster summaries
-- **Alternative Storage** — pgvector, MongoDB
-- **Weighted Associations** — Tune retrieval weights per use case
-- **TUI** — Textual-based debug/analysis interface (experimental)
+- **Alternative Storage** — pgvector (already running in the target deployment; migration not yet started)
+- **TUI** — Textual-based debug/analysis interface, built on top of the trace database (see [Debug Tracing](#debug-tracing)) — the data layer and a terminal viewer (`tools/trace.py`) exist; the interactive TUI itself is still pending
+
+### Done ahead of schedule
+
+- **Weighted Associations** — retrieval weights (`semantic`/`tag_overlap`/`person`/`temporal`) are configurable and actually wired into scoring
+- **Debug Tracing** — see [Debug Tracing](#debug-tracing) above
 
 ## License
 

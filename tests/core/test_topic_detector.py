@@ -6,6 +6,7 @@ import pytest
 
 from core.detection.topic_detector import TopicDetector, _parse_detection_response
 from core.models import TopicChange
+from tests.mocks import SpyTracer
 
 
 class MockLLM:
@@ -108,3 +109,32 @@ class TestTopicDetector:
         detector.detect("test")
         assert llm.last_system is not None
         assert "topic detection" in llm.last_system.lower()
+
+    def test_records_topic_detection_event(self):
+        llm = MockLLM(response="NEW_TOPIC:Bello Features")
+        tracer = SpyTracer()
+        detector = TopicDetector(llm, tracer=tracer)
+        detector.detect(
+            "Lass uns über Bello sprechen",
+            current_topic_summary="prior topic",
+            request_id="req1",
+            session_id="sess1",
+        )
+
+        events = tracer.events_of_type("topic_detection")
+        assert len(events) == 1
+        event = events[0]
+        assert event["request_id"] == "req1"
+        assert event["session_id"] == "sess1"
+        assert event["duration_ms"] is not None
+        assert event["payload"]["message"] == "Lass uns über Bello sprechen"
+        assert event["payload"]["current_topic_summary"] == "prior topic"
+        assert event["payload"]["response"] == "NEW_TOPIC:Bello Features"
+        assert event["payload"]["result_type"] == "NEW_TOPIC"
+        assert event["payload"]["result_label"] == "Bello Features"
+
+    def test_default_tracer_is_noop(self):
+        # No tracer passed — must not raise.
+        llm = MockLLM(response="CONTINUE")
+        detector = TopicDetector(llm)
+        detector.detect("hello")

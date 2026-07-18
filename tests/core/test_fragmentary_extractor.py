@@ -10,6 +10,7 @@ from core.extraction.fragmentary_extractor import (
     _parse_extraction_response,
 )
 from core.models import EnvironmentSnapshot, MemoryItem
+from tests.mocks import SpyTracer
 
 
 class MockLLM:
@@ -201,3 +202,33 @@ class TestFragmentaryExtractor:
         assert len(items) == 2
         assert items[0].content == "First item"
         assert items[1].content == "Second item"
+
+    def test_records_extraction_event(self):
+        llm = MockLLM(
+            response='[{"content": "User is frustrated with FitZone", '
+            '"item_type": "essence", "source_peer": "user", '
+            '"subject_peer": "user", "attribution_type": "self_statement"}]'
+        )
+        tracer = SpyTracer()
+        extractor = FragmentaryExtractor(llm, tracer=tracer)
+        extractor.extract(
+            user_message="FitZone ist immer voll",
+            ai_response="Das klingt frustrierend!",
+            request_id="req1",
+            session_id="sess1",
+        )
+
+        events = tracer.events_of_type("extraction")
+        assert len(events) == 1
+        event = events[0]
+        assert event["request_id"] == "req1"
+        assert event["session_id"] == "sess1"
+        assert event["duration_ms"] is not None
+        assert event["payload"]["user_message"] == "FitZone ist immer voll"
+        assert len(event["payload"]["items"]) == 1
+        assert event["payload"]["items"][0]["content"] == "User is frustrated with FitZone"
+
+    def test_default_tracer_is_noop(self):
+        llm = MockLLM(response="[]")
+        extractor = FragmentaryExtractor(llm)
+        extractor.extract(user_message="Hello", ai_response="Hi!")

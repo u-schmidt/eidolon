@@ -15,10 +15,12 @@ Every extracted item carries perspective attribution (source + subject).
 from __future__ import annotations
 
 import json
+import time
 from typing import Literal
 
-from core.interfaces import LLMProvider
+from core.interfaces import LLMProvider, Tracer
 from core.models import EnvironmentSnapshot, MemoryItem
+from core.trace.null_tracer import NullTracer
 
 # System prompt for fragmentary extraction.
 # Always in English — the LLM's working language.
@@ -151,15 +153,20 @@ class FragmentaryExtractor:
         Note: extraction prompts are always in English regardless of this setting.
         The language parameter is reserved for future use (e.g., language-specific
         extraction tuning) and for consistency with the rest of the API.
+    tracer : Tracer | None
+        Debug tracer for recording the prompt/response/parsed items/duration
+        of each extraction call. Defaults to a no-op tracer.
     """
 
     def __init__(
         self,
         llm: LLMProvider,
         language: str = "en",
+        tracer: Tracer | None = None,
     ) -> None:
         self._llm = llm
         self._language = language
+        self._tracer = tracer or NullTracer()
 
     def extract(
         self,
@@ -168,6 +175,9 @@ class FragmentaryExtractor:
         source_peer: str = "user",
         topic_label: str | None = None,
         environment: EnvironmentSnapshot | None = None,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
     ) -> list[MemoryItem]:
         """Extract memory fragments from a conversation turn.
 
@@ -183,6 +193,11 @@ class FragmentaryExtractor:
             The current topic label, if known.
         environment : EnvironmentSnapshot | None
             The environment context at the time of this turn (V2).
+        request_id : str | None
+            Correlates this call's trace event with others from the same
+            top-level ``Eidolon`` call.
+        session_id : str | None
+            Adapter-level conversation identifier, for trace filtering.
 
         Returns
         -------
@@ -190,15 +205,17 @@ class FragmentaryExtractor:
             Extracted memory items (0-3 per turn).
         """
         prompt = _build_extraction_prompt(user_message, ai_response, topic_label)
+        started = time.perf_counter()
         response = self._llm.complete(
             prompt=prompt,
             system_prompt=_EXTRACTION_SYSTEM_PROMPT,
             max_tokens=1000,
         )
+        duration_ms = (time.perf_counter() - started) * 1000
 
         raw_items = _parse_extraction_response(response)
 
-        return [
+        items = [
             MemoryItem(
                 content=item.get("content", ""),
                 item_type=item.get("item_type", "essence"),
@@ -210,3 +227,21 @@ class FragmentaryExtractor:
             for item in raw_items
             if item.get("content")
         ]
+
+        self._tracer.record(
+            "extraction",
+            {
+                "user_message": user_message,
+                "ai_response": ai_response,
+                "topic_label": topic_label,
+                "response": response,
+                "items": [
+                    {"content": i.content, "item_type": i.item_type, "attribution_type": i.attribution_type}
+                    for i in items
+                ],
+            },
+            request_id=request_id,
+            session_id=session_id,
+            duration_ms=duration_ms,
+        )
+        return items

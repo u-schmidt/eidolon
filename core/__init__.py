@@ -29,11 +29,25 @@ Usage:
 
 from __future__ import annotations
 
+import time
+import uuid
+
 from core.detection.topic_detector import TopicDetector
 from core.extraction.fragmentary_extractor import FragmentaryExtractor
-from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider
+from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
 from core.models import ContextBundle, EnvironmentSnapshot, MemoryItem, TopicChange
 from core.retrieval.associative_retriever import AssociativeRetriever
+from core.trace.null_tracer import NullTracer
+
+
+def _new_request_id() -> str:
+    """Short id grouping the trace events of one top-level Eidolon call.
+
+    Independent of ``messages.turn_id`` (which adapters currently don't
+    populate consistently) — this is purely for correlating this call's
+    own sub-steps (detection, retrieval, extraction, ...) in a trace.
+    """
+    return uuid.uuid4().hex[:8]
 
 
 class Eidolon:
@@ -52,6 +66,10 @@ class Eidolon:
         Prompts to the LLM are always in English regardless of this setting.
     retrieval_weights : dict | None
         Optional weight overrides for associative retrieval dimensions.
+    tracer : Tracer | None
+        Debug tracer recording per-step prompts/responses/scores/durations
+        and otherwise-silent failures. Defaults to a no-op tracer — off
+        unless explicitly configured (see ``core/trace/``).
     """
 
     def __init__(
@@ -61,11 +79,15 @@ class Eidolon:
         embedder: EmbedderProvider,
         language: str = "en",
         retrieval_weights: dict[str, float] | None = None,
+        tracer: Tracer | None = None,
     ) -> None:
         self._storage = storage
-        self._detector = TopicDetector(llm)
-        self._retriever = AssociativeRetriever(storage, embedder, retrieval_weights, language)
-        self._extractor = FragmentaryExtractor(llm, language)
+        self._tracer = tracer or NullTracer()
+        self._detector = TopicDetector(llm, tracer=self._tracer)
+        self._retriever = AssociativeRetriever(
+            storage, embedder, retrieval_weights, language, tracer=self._tracer
+        )
+        self._extractor = FragmentaryExtractor(llm, language, tracer=self._tracer)
         self._embedder = embedder
         self._llm = llm
         self._language = language
@@ -78,6 +100,8 @@ class Eidolon:
         peer_id: str,
         environment: EnvironmentSnapshot,
         active_topic_id: int | None = None,
+        *,
+        session_id: str | None = None,
     ) -> ContextBundle:
         """Prepare context for an LLM call.
 
@@ -94,6 +118,8 @@ class Eidolon:
             Current situational context.
         active_topic_id : int | None
             The current active topic ID from the adapter's state, if any.
+        session_id : str | None
+            Adapter-level conversation identifier, for trace filtering.
 
         Returns
         -------
@@ -101,9 +127,13 @@ class Eidolon:
             Facts, environment, topic info, related topics, and memory items
             for prompt injection.
         """
+        request_id = _new_request_id()
+
         # 1. Detect topic change
         current_topic_summary = self._get_topic_summary(active_topic_id)
-        topic_change = self._detector.detect(message, current_topic_summary)
+        topic_change = self._detector.detect(
+            message, current_topic_summary, request_id=request_id, session_id=session_id
+        )
 
         # 2. Retrieve context
         is_new_topic = topic_change.type == "NEW_TOPIC"
@@ -113,6 +143,8 @@ class Eidolon:
             environment=environment,
             topic_label=topic_change.label,
             is_new_topic=is_new_topic,
+            request_id=request_id,
+            session_id=session_id,
         )
 
         return bundle
@@ -121,6 +153,8 @@ class Eidolon:
         self,
         message: str,
         active_topic_id: int | None = None,
+        *,
+        session_id: str | None = None,
     ) -> TopicChange:
         """Detect whether a message continues or changes the topic.
 
@@ -130,6 +164,8 @@ class Eidolon:
             The user's message.
         active_topic_id : int | None
             The current active topic ID, if any.
+        session_id : str | None
+            Adapter-level conversation identifier, for trace filtering.
 
         Returns
         -------
@@ -137,7 +173,9 @@ class Eidolon:
             CONTINUE or NEW_TOPIC with a label.
         """
         current_topic_summary = self._get_topic_summary(active_topic_id)
-        return self._detector.detect(message, current_topic_summary)
+        return self._detector.detect(
+            message, current_topic_summary, request_id=_new_request_id(), session_id=session_id
+        )
 
     def get_active_topic(self, peer_id: str) -> int | None:
         """Look up the peer's currently open topic in storage, if any.
@@ -166,6 +204,8 @@ class Eidolon:
         environment: EnvironmentSnapshot,
         topic_label: str | None = None,
         is_new_topic: bool = False,
+        *,
+        session_id: str | None = None,
     ) -> ContextBundle:
         """Retrieve relevant context for a message.
 
@@ -181,6 +221,8 @@ class Eidolon:
             Detected topic label, if any.
         is_new_topic : bool
             True if this is a NEW_TOPIC, False if CONTINUE.
+        session_id : str | None
+            Adapter-level conversation identifier, for trace filtering.
 
         Returns
         -------
@@ -193,6 +235,8 @@ class Eidolon:
             environment=environment,
             topic_label=topic_label,
             is_new_topic=is_new_topic,
+            request_id=_new_request_id(),
+            session_id=session_id,
         )
 
     def store_turn(
@@ -204,6 +248,8 @@ class Eidolon:
         turn_id: int | None = None,
         old_topic_id: int | None = None,
         new_topic_label: str | None = None,
+        *,
+        session_id: str | None = None,
     ) -> int | None:
         """Store a conversation turn after the LLM has responded.
 
@@ -233,15 +279,20 @@ class Eidolon:
             The topic ID to close (if a topic change occurred).
         new_topic_label : str | None
             The label for the new topic (if a topic change occurred).
+        session_id : str | None
+            Adapter-level conversation identifier, for trace filtering.
 
         Returns
         -------
         int | None
             The new topic ID if a topic was created, None otherwise.
         """
+        request_id = _new_request_id()
+        turn_started = time.perf_counter()
+
         # 1. Close old topic if topic changed — and generate summary + tags
         if old_topic_id is not None and new_topic_label is not None:
-            self._summarize_topic(old_topic_id)
+            self._summarize_topic(old_topic_id, request_id=request_id, session_id=session_id)
             self._storage.close_topic(old_topic_id, f"Continued to: {new_topic_label}")
 
         # 2. Create new topic if topic changed
@@ -268,9 +319,21 @@ class Eidolon:
         # 4. Generate embedding for the new topic
         if new_topic_id is not None and new_topic_label:
             try:
+                embed_started = time.perf_counter()
                 topic_embedding = self._embedder.embed(new_topic_label)
+                embed_duration_ms = (time.perf_counter() - embed_started) * 1000
                 self._storage.update_topic_embedding(new_topic_id, topic_embedding)
-            except Exception:
+                self._tracer.record(
+                    "embedding",
+                    {"purpose": "topic_label", "text": new_topic_label, "dimension": len(topic_embedding)},
+                    request_id=request_id, session_id=session_id, duration_ms=embed_duration_ms,
+                )
+            except Exception as exc:
+                self._tracer.record(
+                    "error",
+                    {"step": "topic_label_embedding", "exception": repr(exc)},
+                    request_id=request_id, session_id=session_id,
+                )
                 pass  # Embedding failure is non-critical
 
         # 5. Extract memory fragments
@@ -280,6 +343,8 @@ class Eidolon:
             source_peer=peer_id,
             topic_label=new_topic_label,
             environment=environment,
+            request_id=request_id,
+            session_id=session_id,
         )
 
         # 6. Store memory items with topic + message association + embeddings
@@ -295,8 +360,20 @@ class Eidolon:
             # Generate embedding for the item content
             if item.content:
                 try:
+                    embed_started = time.perf_counter()
                     item.embedding = self._embedder.embed(item.content)
-                except Exception:
+                    embed_duration_ms = (time.perf_counter() - embed_started) * 1000
+                    self._tracer.record(
+                        "embedding",
+                        {"purpose": "memory_item", "text": item.content, "dimension": len(item.embedding)},
+                        request_id=request_id, session_id=session_id, duration_ms=embed_duration_ms,
+                    )
+                except Exception as exc:
+                    self._tracer.record(
+                        "error",
+                        {"step": "memory_item_embedding", "exception": repr(exc)},
+                        request_id=request_id, session_id=session_id,
+                    )
                     pass  # Embedding failure is non-critical
             self._storage.store_memory_item(item)
             # Collect fact-type items for structured fact extraction
@@ -305,14 +382,35 @@ class Eidolon:
 
         # 7. Extract structured facts from fact-type memory items
         if fact_items:
-            self._extract_facts(fact_items, peer_id)
+            self._extract_facts(fact_items, peer_id, request_id=request_id, session_id=session_id)
+
+        turn_duration_ms = (time.perf_counter() - turn_started) * 1000
+        self._tracer.record(
+            "turn_complete",
+            {
+                "user_message": user_message,
+                "ai_response": ai_response,
+                "peer_id": peer_id,
+                "old_topic_id": old_topic_id,
+                "new_topic_id": new_topic_id,
+                "new_topic_label": new_topic_label,
+                "items_extracted": len(items),
+                "fact_items": len(fact_items),
+            },
+            request_id=request_id, session_id=session_id, duration_ms=turn_duration_ms,
+        )
 
         return new_topic_id
 
     # ── Internal Helpers ────────────────────────────────────
 
     def _extract_facts(
-        self, fact_items: list[MemoryItem], peer_id: str
+        self,
+        fact_items: list[MemoryItem],
+        peer_id: str,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
     ) -> None:
         """Extract structured facts from fact-type memory items.
 
@@ -328,10 +426,16 @@ class Eidolon:
             Memory items with item_type="fact" from the current turn.
         peer_id : str
             The peer these facts are about.
+        request_id : str | None
+            Correlates this call's trace events with the enclosing
+            ``store_turn`` call.
+        session_id : str | None
+            Adapter-level conversation identifier, for trace filtering.
         """
         if not fact_items:
             return
 
+        started = time.perf_counter()
         try:
             # Build a list of fact statements
             statements = "\n".join(
@@ -379,8 +483,9 @@ class Eidolon:
 
             structured = json.loads(text)
             if not isinstance(structured, list):
-                return
+                structured = []
 
+            stored_facts: list[dict] = []
             for fact in structured:
                 category = fact.get("category", "").strip()
                 key = fact.get("key", "").strip()
@@ -393,10 +498,36 @@ class Eidolon:
                         value=value,
                         source="ai",
                     )
-        except Exception:
+                    stored_facts.append({"category": category, "key": key, "value": value})
+
+            self._tracer.record(
+                "fact_extraction",
+                {
+                    "fact_items": [item.content for item in fact_items],
+                    "response": response,
+                    "stored_facts": stored_facts,
+                },
+                request_id=request_id,
+                session_id=session_id,
+                duration_ms=(time.perf_counter() - started) * 1000,
+            )
+        except Exception as exc:
+            self._tracer.record(
+                "error",
+                {"step": "fact_extraction", "exception": repr(exc)},
+                request_id=request_id,
+                session_id=session_id,
+                duration_ms=(time.perf_counter() - started) * 1000,
+            )
             pass  # Fact extraction failure is non-critical
 
-    def _summarize_topic(self, topic_id: int) -> None:
+    def _summarize_topic(
+        self,
+        topic_id: int,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
         """Generate a summary and tags for a topic based on its messages.
 
         Called async when a topic is closed. Loads all messages for the topic,
@@ -407,7 +538,13 @@ class Eidolon:
         ----------
         topic_id : int
             The topic ID to summarize.
+        request_id : str | None
+            Correlates this call's trace events with the enclosing
+            ``store_turn`` call.
+        session_id : str | None
+            Adapter-level conversation identifier, for trace filtering.
         """
+        started = time.perf_counter()
         try:
             messages = self._storage.get_messages_by_topic(topic_id)
             if not messages:
@@ -463,11 +600,45 @@ class Eidolon:
                 # summary — leaving it stale would mean semantic retrieval
                 # keeps matching against the original guess forever.
                 try:
+                    embed_started = time.perf_counter()
                     summary_embedding = self._embedder.embed(summary)
+                    embed_duration_ms = (time.perf_counter() - embed_started) * 1000
                     self._storage.update_topic_embedding(topic_id, summary_embedding)
-                except Exception:
+                    self._tracer.record(
+                        "embedding",
+                        {"purpose": "topic_summary", "text": summary, "dimension": len(summary_embedding)},
+                        request_id=request_id, session_id=session_id, duration_ms=embed_duration_ms,
+                    )
+                except Exception as exc:
+                    self._tracer.record(
+                        "error",
+                        {"step": "topic_summary_embedding", "exception": repr(exc)},
+                        request_id=request_id, session_id=session_id,
+                    )
                     pass  # Embedding failure is non-critical
-        except Exception:
+
+            self._tracer.record(
+                "topic_summarization",
+                {
+                    "topic_id": topic_id,
+                    "message_count": len(messages),
+                    "transcript_preview": transcript[:500],
+                    "response": response,
+                    "summary": summary,
+                    "tags": tags,
+                },
+                request_id=request_id,
+                session_id=session_id,
+                duration_ms=(time.perf_counter() - started) * 1000,
+            )
+        except Exception as exc:
+            self._tracer.record(
+                "error",
+                {"step": "topic_summarization", "topic_id": topic_id, "exception": repr(exc)},
+                request_id=request_id,
+                session_id=session_id,
+                duration_ms=(time.perf_counter() - started) * 1000,
+            )
             pass  # Summarization failure is non-critical
 
     def _get_topic_summary(self, topic_id: int | None) -> str | None:

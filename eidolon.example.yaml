@@ -56,6 +56,15 @@ retrieval:
   person: 0.2                # Same peer/speaker weight
   temporal: 0.1              # Temporal closeness weight
 
+# ── Debug Tracing ──────────────────────────────────────────
+# Off by default — zero behavior/performance impact when disabled.
+# When enabled, records per-step trace events (prompts, responses,
+# retrieval score breakdowns, durations, failures) to a separate SQLite
+# file. Inspect with: python tools/trace.py --db <trace_db_path>
+debug:
+  enabled: false
+  trace_db_path: ~/.eidolon/trace.db
+
 # ── General ───────────────────────────────────────────────
 language: en                 # Language for stop word filtering (en | de)
                                # Note: LLM prompts are always in English

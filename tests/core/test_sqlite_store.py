@@ -9,6 +9,7 @@ import pytest
 
 from core.models import Fact, MemoryItem
 from core.stores.sqlite_store import SqliteStore
+from tests.mocks import SpyTracer
 
 
 @pytest.fixture
@@ -119,6 +120,47 @@ class TestTopics:
         )
         assert zeroed_results == []
 
+    def test_search_topics_records_candidate_scored_events(self, store: SqliteStore):
+        store.create_topic("Bello", summary="", tags=["bello", "fitness"])
+        store.create_topic("Fitness", summary="", tags=["fitness", "health"])
+        store.close_topic(1, "")
+        store.close_topic(2, "")
+
+        tracer = SpyTracer()
+        results = store.search_topics(tags=["fitness"], limit=1, tracer=tracer, request_id="req1")
+
+        assert len(results) == 1
+        events = tracer.events_of_type("retrieval_candidate_scored")
+        assert len(events) == 2  # both candidates scored, even though only 1 was included
+        for e in events:
+            assert e["request_id"] == "req1"
+            assert e["payload"]["candidate_type"] == "topic"
+        included_flags = [e["payload"]["included"] for e in events]
+        assert included_flags.count(True) == 1
+        assert included_flags.count(False) == 1
+
+    def test_search_topics_score_breakdown_values(self, store: SqliteStore):
+        tid = store.create_topic("Bello", summary="", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(tid, "")
+
+        tracer = SpyTracer()
+        store.search_topics(
+            query_embedding=[1.0, 0.0, 0.0],
+            weights={"semantic": 0.5, "tag_overlap": 0.3, "person": 0.2, "temporal": 0.1},
+            tracer=tracer,
+        )
+
+        event = tracer.events_of_type("retrieval_candidate_scored")[0]
+        assert event["payload"]["semantic_raw"] == pytest.approx(1.0)
+        assert event["payload"]["semantic_weighted"] == pytest.approx(0.5)
+        assert event["payload"]["final_score"] == pytest.approx(0.5)
+
+    def test_search_topics_no_tracer_does_not_raise(self, store: SqliteStore):
+        store.create_topic("Bello", summary="", tags=["fitness"])
+        store.close_topic(1, "")
+        results = store.search_topics(tags=["fitness"])
+        assert len(results) == 1
+
 
 class TestMemoryItems:
     def test_store_and_search(self, store: SqliteStore):
@@ -145,3 +187,34 @@ class TestMemoryItems:
         # Without embedding, peer filter still works via score
         results = store.search_memory_items(peer_id="user")
         assert len(results) >= 1
+
+    def test_search_memory_items_records_candidate_scored_events(self, store: SqliteStore):
+        store.store_memory_item(MemoryItem(
+            content="About Bello", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+        ))
+        store.store_memory_item(MemoryItem(
+            content="About Mampfi", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+        ))
+
+        tracer = SpyTracer()
+        results = store.search_memory_items(peer_id="user", limit=1, tracer=tracer, request_id="req1")
+
+        assert len(results) == 1
+        events = tracer.events_of_type("retrieval_candidate_scored")
+        assert len(events) == 2
+        for e in events:
+            assert e["request_id"] == "req1"
+            assert e["payload"]["candidate_type"] == "memory_item"
+        included_flags = [e["payload"]["included"] for e in events]
+        assert included_flags.count(True) == 1
+        assert included_flags.count(False) == 1
+
+    def test_search_memory_items_no_tracer_does_not_raise(self, store: SqliteStore):
+        store.store_memory_item(MemoryItem(
+            content="About Bello", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+        ))
+        results = store.search_memory_items(peer_id="user")
+        assert len(results) == 1

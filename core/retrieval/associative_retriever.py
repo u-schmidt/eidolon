@@ -6,11 +6,13 @@ Combines semantic similarity (embedding), tag overlap, person-bound, and tempora
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 
-from core.interfaces import EmbedderProvider, StorageProvider
+from core.interfaces import EmbedderProvider, StorageProvider, Tracer
 from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, RelatedTopic
 from core.stop_words import get_stop_words
+from core.trace.null_tracer import NullTracer
 
 
 class AssociativeRetriever:
@@ -35,6 +37,10 @@ class AssociativeRetriever:
     language : str
         Language code for stop word filtering (default: "en").
         Prompts to the LLM are always in English regardless of this setting.
+    tracer : Tracer | None
+        Debug tracer recording the retrieval summary and (when the storage
+        backend supports it) per-candidate score breakdowns. Defaults to a
+        no-op tracer.
     """
 
     def __init__(
@@ -43,6 +49,7 @@ class AssociativeRetriever:
         embedder: EmbedderProvider,
         weights: dict[str, float] | None = None,
         language: str = "en",
+        tracer: Tracer | None = None,
     ) -> None:
         self._storage = storage
         self._embedder = embedder
@@ -53,6 +60,7 @@ class AssociativeRetriever:
             "temporal": 0.1,
         }
         self._stop_words = get_stop_words(language)
+        self._tracer = tracer or NullTracer()
 
     def retrieve(
         self,
@@ -61,6 +69,9 @@ class AssociativeRetriever:
         environment: EnvironmentSnapshot,
         topic_label: str | None,
         is_new_topic: bool,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
     ) -> ContextBundle:
         """Retrieve relevant context for a user message.
 
@@ -76,17 +87,32 @@ class AssociativeRetriever:
             Detected topic label (from detect_topic). None if CONTINUE.
         is_new_topic : bool
             True if this is a NEW_TOPIC, False if CONTINUE.
+        request_id : str | None
+            Correlates this call's trace events with the enclosing
+            top-level ``Eidolon`` call.
+        session_id : str | None
+            Adapter-level conversation identifier, for trace filtering.
 
         Returns
         -------
         ContextBundle
             Facts, related topics, and memory items for prompt injection.
         """
+        started = time.perf_counter()
+
         # 1. Load facts for the current peer
         facts = self._storage.get_facts(peer_id)
 
         # 2. Generate query embedding for semantic search
+        embed_started = time.perf_counter()
         query_embedding = self._embedder.embed(message)
+        self._tracer.record(
+            "embedding",
+            {"purpose": "retrieval_query", "text": message, "dimension": len(query_embedding)},
+            request_id=request_id,
+            session_id=session_id,
+            duration_ms=(time.perf_counter() - embed_started) * 1000,
+        )
 
         # 3. Extract potential tags from the message (simple keyword extraction)
         tags = self._extract_tags(message, stop_words=self._stop_words)
@@ -99,6 +125,8 @@ class AssociativeRetriever:
             peer_id=peer_id,
             limit=topic_limit,
             weights=self._weights,
+            tracer=self._tracer,
+            request_id=request_id,
         )
 
         related_topics = [
@@ -118,6 +146,25 @@ class AssociativeRetriever:
             peer_id=peer_id,
             limit=memory_limit,
             weights=self._weights,
+            tracer=self._tracer,
+            request_id=request_id,
+        )
+
+        self._tracer.record(
+            "context_retrieval",
+            {
+                "message": message,
+                "peer_id": peer_id,
+                "topic_label": topic_label,
+                "is_new_topic": is_new_topic,
+                "tags": tags,
+                "facts_count": len(facts),
+                "related_topics": [{"id": t.topic_id, "summary": t.summary} for t in related_topics],
+                "memory_items_count": len(memory_items),
+            },
+            request_id=request_id,
+            session_id=session_id,
+            duration_ms=(time.perf_counter() - started) * 1000,
         )
 
         return ContextBundle(

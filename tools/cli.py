@@ -81,7 +81,13 @@ Examples:
 
     # General
     parser.add_argument("--language", default=None, help="Language code (default: en)")
-    parser.add_argument("--db", "--db-path", dest="db_path", default=None, help="Database path (overrides storage.path)")
+    parser.add_argument("--db", "--db-path", dest="storage_path", default=None, help="Database path (alias for --storage-path)")
+
+    # Debug tracing
+    parser.add_argument("--debug", dest="debug_enabled", action="store_true", default=None,
+                        help="Enable debug tracing (records per-step trace events to a separate DB)")
+    parser.add_argument("--trace-db", dest="debug_trace_db_path", default=None,
+                        help="Trace database path (only used when --debug is set)")
 
     return parser
 
@@ -124,12 +130,15 @@ def main() -> None:
     print(f"  Language: {config.language}")
     for name, ep in config.providers.items():
         print(f"  Provider '{name}': {ep.base_url}")
+    if config.debug.enabled:
+        print(f"  Debug tracing: ON ({config.debug.trace_db_path})")
 
     # Create providers via factory
     factory = ProviderFactory(config)
     store = factory.create_storage()
     llm = factory.create_llm()
     embedder = factory.create_embedder()
+    tracer = factory.create_tracer()
 
     # Initialize Eidolon core
     eidolon = Eidolon(
@@ -143,6 +152,7 @@ def main() -> None:
             "person": config.retrieval.person,
             "temporal": config.retrieval.temporal,
         },
+        tracer=tracer,
     )
 
     # Session state (managed by the CLI, not by the Core)
@@ -339,6 +349,7 @@ def main() -> None:
         print()
 
     store.close()
+    tracer.close()
     print("  Bye!")
 
 

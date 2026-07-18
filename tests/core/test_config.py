@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from core.config import (
+    DebugConfig,
     EidolonConfig,
     EmbedderConfig,
     LLMConfig,
@@ -19,6 +20,8 @@ from core.config import (
 )
 from core.config_loader import ConfigLoader
 from core.provider_factory import ProviderFactory
+from core.trace.null_tracer import NullTracer
+from core.trace.sqlite_tracer import SqliteTracer
 
 
 class TestEidolonConfig:
@@ -29,6 +32,12 @@ class TestEidolonConfig:
         assert config.embedder.provider == "simulated"
         assert config.retrieval.semantic == 0.4
         assert config.language == "en"
+        assert config.debug.enabled is False
+
+    def test_debug_config_defaults(self):
+        debug = DebugConfig()
+        assert debug.enabled is False
+        assert debug.trace_db_path.endswith("trace.db")
 
     def test_default_providers(self):
         config = EidolonConfig()
@@ -156,9 +165,8 @@ llm:
             embedder_provider="ollama",
             embedder_model="nomic-embed-text",
             language="de",
-            db_path="/cli/test.db",
             storage_provider=None,
-            storage_path=None,
+            storage_path="/cli/test.db",
         )
 
         loader = ConfigLoader(cli_args=args)
@@ -169,7 +177,7 @@ llm:
         assert config.embedder.provider == "ollama"
         assert config.embedder.model == "nomic-embed-text"
         assert config.language == "de"
-        assert config.db_path == "/cli/test.db"
+        assert config.storage.path == "/cli/test.db"
         assert config.storage.provider == "sqlite"
 
         del os.environ["EIDOLON_LLM_PROVIDER"]
@@ -187,6 +195,45 @@ llm:
 
         del os.environ["EIDOLON_LLM_MAX_TOKENS"]
         del os.environ["EIDOLON_RETRIEVAL_SEMANTIC"]
+
+    def test_yaml_debug_section(self):
+        yaml_content = """
+debug:
+  enabled: true
+  trace_db_path: /tmp/custom-trace.db
+"""
+        tmp = tempfile.mkdtemp()
+        yaml_path = str(Path(tmp) / "config.yaml")
+        with open(yaml_path, "w") as f:
+            f.write(yaml_content)
+
+        loader = ConfigLoader(config_path=yaml_path)
+        config = loader.load()
+
+        assert config.debug.enabled is True
+        assert config.debug.trace_db_path == "/tmp/custom-trace.db"
+
+    def test_env_debug_vars(self):
+        os.environ["EIDOLON_DEBUG_ENABLED"] = "true"
+        os.environ["EIDOLON_DEBUG_TRACE_DB_PATH"] = "/tmp/env-trace.db"
+
+        loader = ConfigLoader()
+        config = loader.load()
+
+        assert config.debug.enabled is True
+        assert config.debug.trace_db_path == "/tmp/env-trace.db"
+
+        del os.environ["EIDOLON_DEBUG_ENABLED"]
+        del os.environ["EIDOLON_DEBUG_TRACE_DB_PATH"]
+
+    def test_cli_debug_args(self):
+        args = Namespace(debug_enabled=True, debug_trace_db_path="/cli/trace.db")
+
+        loader = ConfigLoader(cli_args=args)
+        config = loader.load()
+
+        assert config.debug.enabled is True
+        assert config.debug.trace_db_path == "/cli/trace.db"
 
 
 class TestProviderFactory:
@@ -242,3 +289,18 @@ class TestProviderFactory:
         factory = ProviderFactory(config)
         with pytest.raises(ValueError, match="Unknown embedder provider: nonexistent"):
             factory.create_embedder()
+
+    def test_create_tracer_null_when_disabled(self):
+        config = EidolonConfig(debug=DebugConfig(enabled=False))
+        factory = ProviderFactory(config)
+        tracer = factory.create_tracer()
+        assert isinstance(tracer, NullTracer)
+
+    def test_create_tracer_sqlite_when_enabled(self):
+        config = EidolonConfig(
+            debug=DebugConfig(enabled=True, trace_db_path="/tmp/test_factory_trace.db"),
+        )
+        factory = ProviderFactory(config)
+        tracer = factory.create_tracer()
+        assert isinstance(tracer, SqliteTracer)
+        tracer.close()

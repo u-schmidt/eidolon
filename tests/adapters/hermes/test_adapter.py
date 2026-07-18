@@ -25,17 +25,19 @@ class MockEidolon:
         self.active_topic_to_resume: int | None = None
         self.get_active_topic_calls = 0
         self.last_get_active_topic_peer_id: str | None = None
+        self.last_session_id: str | None = None
 
     def get_active_topic(self, peer_id: str) -> int | None:
         self.get_active_topic_calls += 1
         self.last_get_active_topic_peer_id = peer_id
         return self.active_topic_to_resume
 
-    def detect_topic(self, message: str, active_topic_id: int | None = None):
+    def detect_topic(self, message: str, active_topic_id: int | None = None, *, session_id: str | None = None):
         from core.models import TopicChange
         self.detect_topic_calls += 1
         self.last_message = message
         self.last_active_topic_id = active_topic_id
+        self.last_session_id = session_id
         return TopicChange(type="NEW_TOPIC", label="Test Topic")
 
     def retrieve_context(
@@ -45,8 +47,11 @@ class MockEidolon:
         environment: EnvironmentSnapshot,
         topic_label: str | None = None,
         is_new_topic: bool = False,
+        *,
+        session_id: str | None = None,
     ) -> ContextBundle:
         self.retrieve_context_calls += 1
+        self.last_session_id = session_id
         return ContextBundle(
             current_topic_label=topic_label or "Test Topic",
             facts=[Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")],
@@ -67,6 +72,8 @@ class MockEidolon:
         environment: EnvironmentSnapshot,
         old_topic_id: int | None = None,
         new_topic_label: str | None = None,
+        *,
+        session_id: str | None = None,
     ) -> int | None:
         self.store_turn_calls += 1
         self.last_message = user_message
@@ -75,6 +82,7 @@ class MockEidolon:
         self.last_environment = environment
         self.last_old_topic_id = old_topic_id
         self.last_new_topic_label = new_topic_label
+        self.last_session_id = session_id
         return 42  # new topic id
 
 
@@ -135,6 +143,10 @@ class TestEidolonMemoryProvider:
         provider.prefetch("hello", session_id="sess_1")
         assert provider._eidolon.retrieve_context_calls >= 1
 
+    def test_prefetch_passes_session_id_through(self, provider):
+        provider.prefetch("hello", session_id="sess_1")
+        assert provider._eidolon.last_session_id == "sess_1"
+
     def test_sync_turn_stores_turn(self, provider):
         provider.sync_turn(
             user_content="Lass uns über Bello sprechen",
@@ -144,6 +156,14 @@ class TestEidolonMemoryProvider:
         assert provider._eidolon.store_turn_calls == 1
         assert provider._eidolon.last_message == "Lass uns über Bello sprechen"
         assert provider._eidolon.last_ai_response == "Gerne!"
+
+    def test_sync_turn_passes_session_id_through(self, provider):
+        provider.sync_turn(
+            user_content="Hello",
+            assistant_content="Hi!",
+            session_id="sess_1",
+        )
+        assert provider._eidolon.last_session_id == "sess_1"
 
     def test_sync_turn_updates_active_topic(self, provider):
         provider.sync_turn(
@@ -194,6 +214,17 @@ class TestEidolonMemoryProvider:
         assert provider._eidolon is None
         assert provider._store is None
         assert provider._initialized is False
+
+    def test_shutdown_closes_tracer(self, provider):
+        mock_tracer = MagicMock()
+        provider._tracer = mock_tracer
+        provider.shutdown()
+        mock_tracer.close.assert_called_once()
+        assert provider._tracer is None
+
+    def test_shutdown_without_tracer_does_not_raise(self, provider):
+        provider._tracer = None
+        provider.shutdown()  # must not raise
 
     def test_initialize_resumes_open_topic(self, tmp_path):
         """A restart mid-topic must not silently forget the open topic —
@@ -257,6 +288,39 @@ class TestEidolonMemoryProvider:
             p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
 
         assert p._active_topic_id is None
+
+    def test_initialize_wires_tracer_from_factory(self, tmp_path):
+        """create_tracer()'s result must be stored for shutdown() and passed
+        through to Eidolon(), not silently dropped."""
+        from adapters.hermes import EidolonMemoryProvider
+
+        config_path = tmp_path / "eidolon.yaml"
+        config_path.write_text("db_path: ':memory:'\n")
+
+        mock_eidolon = MockEidolon()
+        mock_config = MagicMock()
+        mock_config.language = "en"
+        mock_config.retrieval.semantic = 0.4
+        mock_config.retrieval.tag_overlap = 0.3
+        mock_config.retrieval.person = 0.2
+        mock_config.retrieval.temporal = 0.1
+        sentinel_tracer = MagicMock()
+
+        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.Eidolon", return_value=mock_eidolon) as MockEidolonClass:
+            MockConfigLoader.return_value.load.return_value = mock_config
+            factory = MockProviderFactory.return_value
+            factory.create_storage.return_value = MockStore()
+            factory.create_llm.return_value = MagicMock()
+            factory.create_embedder.return_value = MagicMock()
+            factory.create_tracer.return_value = sentinel_tracer
+
+            p = EidolonMemoryProvider()
+            p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
+
+        assert p._tracer is sentinel_tracer
+        assert MockEidolonClass.call_args.kwargs["tracer"] is sentinel_tracer
 
 
 class TestEidolonTopicHook:

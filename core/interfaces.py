@@ -79,6 +79,8 @@ class StorageProvider(Protocol):
         peer_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
+        tracer: Tracer | None = None,
+        request_id: str | None = None,
     ) -> list[dict]:
         """Search topics by embedding similarity, tag overlap, and/or peer.
 
@@ -86,6 +88,10 @@ class StorageProvider(Protocol):
         (semantic, tag_overlap, person, temporal) when provided.
         NOTE: ``temporal`` is accepted for forward-compat but not yet
         applied by any backend — there is no recency scoring term yet.
+
+        When ``tracer`` is given, one ``retrieval_candidate_scored`` event
+        is recorded per candidate row with the raw and weighted score for
+        each dimension, plus whether it made the final cut.
 
         Returns topic dicts ordered by relevance.
         """
@@ -103,6 +109,8 @@ class StorageProvider(Protocol):
         peer_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
+        tracer: Tracer | None = None,
+        request_id: str | None = None,
     ) -> list[MemoryItem]:
         """Search memory items by embedding similarity and/or peer.
 
@@ -110,6 +118,9 @@ class StorageProvider(Protocol):
         provided. NOTE: ``tag_overlap`` (memory items carry no tags) and
         ``temporal`` (no recency scoring yet) are accepted but currently
         have no effect.
+
+        When ``tracer`` is given, one ``retrieval_candidate_scored`` event
+        is recorded per candidate row scored.
         """
         ...
 
@@ -155,4 +166,40 @@ class EmbedderProvider(Protocol):
 
     def embed(self, text: str) -> list[float]:
         """Return a vector embedding for the given text."""
+        ...
+
+
+class Tracer(Protocol):
+    """Abstract debug-tracing backend.
+
+    V1: ``NullTracer`` (no-op, default) or ``SqliteTracer`` (writes to a
+    separate trace database) via ``core/trace/``. Disabled by default —
+    production behavior and performance are unaffected unless a real
+    tracer is configured.
+    """
+
+    def connect(self) -> None:
+        """Open any resources needed to record events."""
+        ...
+
+    def close(self) -> None:
+        """Release resources opened by ``connect()``."""
+        ...
+
+    def record(
+        self,
+        event_type: str,
+        payload: dict,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
+        duration_ms: float | None = None,
+    ) -> None:
+        """Record one trace event.
+
+        ``request_id`` groups the events produced by a single top-level
+        ``Eidolon`` call (e.g. one ``store_turn`` invocation) — see
+        ``core/__init__.py``. ``session_id`` is the adapter-level
+        conversation identifier, when available.
+        """
         ...

@@ -107,6 +107,24 @@ class RetrievalConfig:
     temporal: float = 0.1
 
 
+def default_trace_db_path() -> str:
+    """Return the OS-appropriate default trace database path."""
+    return str(Path(default_data_dir()) / "trace.db")
+
+
+@dataclass
+class DebugConfig:
+    """Debug-tracing configuration.
+
+    Disabled by default — enabling writes detailed per-step trace events
+    (prompts, responses, retrieval score breakdowns, durations, failures)
+    to a separate SQLite file for inspection via ``tools/trace.py``.
+    """
+
+    enabled: bool = False
+    trace_db_path: str = field(default_factory=default_trace_db_path)
+
+
 @dataclass
 class EidolonConfig:
     """Complete Eidolon configuration.
@@ -121,8 +139,8 @@ class EidolonConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     embedder: EmbedderConfig = field(default_factory=EmbedderConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
+    debug: DebugConfig = field(default_factory=DebugConfig)
     language: str = "en"
-    db_path: str = "~/.eidolon/memory.db"
 
     def get_provider(self, name: str) -> ProviderEndpoint:
         """Get a provider endpoint by name, creating a default if missing."""
@@ -160,6 +178,10 @@ class EidolonConfig:
                 "tag_overlap": self.retrieval.tag_overlap,
                 "person": self.retrieval.person,
                 "temporal": self.retrieval.temporal,
+            },
+            "debug": {
+                "enabled": self.debug.enabled,
+                "trace_db_path": self.debug.trace_db_path,
             },
             "language": self.language,
         }

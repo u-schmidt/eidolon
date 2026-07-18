@@ -8,8 +8,10 @@ Creates provider instances (LLM, Embedder, Storage) from configuration.
 from __future__ import annotations
 
 from core.config import EidolonConfig, ProviderEndpoint
-from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider
+from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
 from core.stores.sqlite_store import SqliteStore
+from core.trace.null_tracer import NullTracer
+from core.trace.sqlite_tracer import SqliteTracer
 
 
 class ProviderFactory:
@@ -48,6 +50,17 @@ class ProviderFactory:
         store = SqliteStore(self._config.storage.path)
         store.connect()
         return store
+
+    # ── Tracer ─────────────────────────────────────────────
+
+    def create_tracer(self) -> Tracer:
+        """Create the debug tracer — a connected ``SqliteTracer`` when
+        ``config.debug.enabled``, otherwise a no-op ``NullTracer``."""
+        if not self._config.debug.enabled:
+            return NullTracer()
+        tracer = SqliteTracer(self._config.debug.trace_db_path)
+        tracer.connect()
+        return tracer
 
     # ── LLM ────────────────────────────────────────────────
 

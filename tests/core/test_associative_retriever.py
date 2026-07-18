@@ -14,6 +14,7 @@ from core.models import (
     RelatedTopic,
 )
 from core.retrieval.associative_retriever import AssociativeRetriever
+from tests.mocks import SpyTracer
 
 
 class MockStorage:
@@ -27,6 +28,8 @@ class MockStorage:
         self.last_tags: list[str] | None = None
         self.last_peer_id: str | None = None
         self.last_weights: dict[str, float] | None = None
+        self.last_tracer = None
+        self.last_request_id: str | None = None
 
     def get_facts(self, peer_id: str) -> list[Fact]:
         self.last_peer_id = peer_id
@@ -54,11 +57,15 @@ class MockStorage:
         peer_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
+        tracer=None,
+        request_id: str | None = None,
     ) -> list[dict]:
         self.last_query_embedding = query_embedding
         self.last_tags = tags
         self.last_peer_id = peer_id
         self.last_weights = weights
+        self.last_tracer = tracer
+        self.last_request_id = request_id
         return self.topics[:limit]
 
     def store_memory_item(self, item: MemoryItem) -> int:
@@ -70,8 +77,12 @@ class MockStorage:
         peer_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
+        tracer=None,
+        request_id: str | None = None,
     ) -> list[MemoryItem]:
         self.last_weights = weights
+        self.last_tracer = tracer
+        self.last_request_id = request_id
         return self.memory_items[:limit]
 
 
@@ -288,3 +299,69 @@ class TestAssociativeRetriever:
             is_new_topic=True,
         )
         assert storage.last_weights == weights
+
+    def test_tracer_passed_to_storage(self):
+        storage = MockStorage()
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        retriever = AssociativeRetriever(storage, embedder, tracer=tracer)
+
+        retriever.retrieve(
+            message="test",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            topic_label="Test",
+            is_new_topic=True,
+            request_id="req1",
+        )
+        assert storage.last_tracer is tracer
+        assert storage.last_request_id == "req1"
+
+    def test_records_context_retrieval_event(self):
+        storage = MockStorage()
+        storage.topics = [
+            {"id": 1, "label": "Bello", "summary": "About Bello", "tags": ["bello"]},
+        ]
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        retriever = AssociativeRetriever(storage, embedder, tracer=tracer)
+
+        retriever.retrieve(
+            message="Lass uns über Bello sprechen",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            topic_label="Bello",
+            is_new_topic=True,
+            request_id="req1",
+            session_id="sess1",
+        )
+
+        events = tracer.events_of_type("context_retrieval")
+        assert len(events) == 1
+        event = events[0]
+        assert event["request_id"] == "req1"
+        assert event["session_id"] == "sess1"
+        assert event["duration_ms"] is not None
+        assert event["payload"]["message"] == "Lass uns über Bello sprechen"
+        assert event["payload"]["related_topics"] == [{"id": 1, "summary": "About Bello"}]
+
+    def test_records_query_embedding_event(self):
+        storage = MockStorage()
+        embedder = MockEmbedder(vector=[0.1, 0.2, 0.3])
+        tracer = SpyTracer()
+        retriever = AssociativeRetriever(storage, embedder, tracer=tracer)
+
+        retriever.retrieve(
+            message="test message",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            topic_label="Test",
+            is_new_topic=True,
+            request_id="req1",
+        )
+
+        events = tracer.events_of_type("embedding")
+        assert len(events) == 1
+        assert events[0]["payload"]["purpose"] == "retrieval_query"
+        assert events[0]["payload"]["text"] == "test message"
+        assert events[0]["payload"]["dimension"] == 3

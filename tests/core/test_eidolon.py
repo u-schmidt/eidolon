@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 from core import Eidolon
 from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, TopicChange
+from tests.mocks import SpyTracer
 
 
 class MockStorage:
@@ -57,14 +58,16 @@ class MockStorage:
     def update_topic_embedding(self, topic_id: int, embedding: list[float]) -> None:
         self.topic_embeddings[topic_id] = embedding
 
-    def search_topics(self, query_embedding=None, tags=None, peer_id=None, limit=5, weights=None):
+    def search_topics(self, query_embedding=None, tags=None, peer_id=None, limit=5, weights=None,
+                       tracer=None, request_id=None):
         return [t for t in self.topics.values() if t["status"] == "closed"][:limit]
 
     def store_memory_item(self, item: MemoryItem) -> int:
         self.stored_items.append(item)
         return len(self.stored_items)
 
-    def search_memory_items(self, query_embedding=None, peer_id=None, limit=5, weights=None):
+    def search_memory_items(self, query_embedding=None, peer_id=None, limit=5, weights=None,
+                             tracer=None, request_id=None):
         return self.memory_items[:limit]
 
     def store_message(self, turn_id, role, content, peer_id, topic_id=None):
@@ -89,10 +92,12 @@ class MockLLM:
         detection_response: str = "CONTINUE",
         extraction_response: str = "[]",
         summary_response: str = "",
+        fact_response: str = "[]",
     ):
         self.detection_response = detection_response
         self.extraction_response = extraction_response
         self.summary_response = summary_response
+        self.fact_response = fact_response
 
     def complete(self, prompt: str, system_prompt: str | None = None, max_tokens: int = 100) -> str:
         sp = (system_prompt or "").lower()
@@ -102,14 +107,19 @@ class MockLLM:
             return self.extraction_response
         if "summarizer" in sp:
             return self.summary_response
+        if "structured facts" in sp:
+            return self.fact_response
         return ""
 
 
 class MockEmbedder:
-    def __init__(self) -> None:
+    def __init__(self, should_fail: bool = False) -> None:
         self.embedded_texts: list[str] = []
+        self.should_fail = should_fail
 
     def embed(self, text: str) -> list[float]:
+        if self.should_fail:
+            raise RuntimeError("embedding backend unavailable")
         self.embedded_texts.append(text)
         return [0.1, 0.2, 0.3]
 
@@ -314,3 +324,236 @@ class TestEidolon:
         eidolon = Eidolon(storage, llm, embedder)
 
         assert eidolon.get_active_topic("user") is None
+
+
+class TestEidolonTracing:
+    """Verifies the tracer actually gets called at the right points with
+    the right data — not just that a tracer can be passed in."""
+
+    def test_store_turn_records_turn_complete_event(self):
+        storage = MockStorage()
+        llm = MockLLM(extraction_response="[]")
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.store_turn(
+            user_message="Lass uns über Bello sprechen",
+            ai_response="Gerne!",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            new_topic_label="Bello Features",
+            session_id="sess1",
+        )
+
+        events = tracer.events_of_type("turn_complete")
+        assert len(events) == 1
+        event = events[0]
+        assert event["session_id"] == "sess1"
+        assert event["duration_ms"] is not None
+        assert event["payload"]["user_message"] == "Lass uns über Bello sprechen"
+        assert event["payload"]["new_topic_label"] == "Bello Features"
+        assert event["payload"]["new_topic_id"] is not None
+
+    def test_store_turn_events_share_request_id(self):
+        storage = MockStorage()
+        llm = MockLLM(
+            extraction_response='[{"content": "fact-worthy", "item_type": "fact", '
+            '"source_peer": "user", "subject_peer": "user", "attribution_type": "self_statement"}]',
+            fact_response='[{"category": "fitness", "key": "gym_frustration", "value": "crowded gym"}]',
+        )
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.store_turn(
+            user_message="FitZone ist voll",
+            ai_response="Nervig!",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            new_topic_label="Bello Features",
+        )
+
+        request_ids = {e["request_id"] for e in tracer.events}
+        assert len(request_ids) == 1
+        assert None not in request_ids
+
+    def test_store_turn_records_topic_label_embedding_event(self):
+        storage = MockStorage()
+        llm = MockLLM(extraction_response="[]")
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.store_turn(
+            user_message="Hi",
+            ai_response="Hello",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            new_topic_label="Bello Features",
+        )
+
+        events = tracer.events_of_type("embedding")
+        purposes = [e["payload"]["purpose"] for e in events]
+        assert "topic_label" in purposes
+
+    def test_store_turn_records_memory_item_embedding_event(self):
+        storage = MockStorage()
+        llm = MockLLM(
+            extraction_response='[{"content": "User likes hiking", "item_type": "essence", '
+            '"source_peer": "user", "subject_peer": "user", "attribution_type": "self_statement"}]'
+        )
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.store_turn(
+            user_message="I love hiking",
+            ai_response="Nice!",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+        )
+
+        events = tracer.events_of_type("embedding")
+        item_events = [e for e in events if e["payload"]["purpose"] == "memory_item"]
+        assert len(item_events) == 1
+        assert item_events[0]["payload"]["text"] == "User likes hiking"
+
+    def test_store_turn_records_error_on_topic_embedding_failure(self):
+        """An embedding failure must not vanish silently — it should show
+        up as an `error` trace event even though store_turn still succeeds
+        (embedding failure is non-critical, per the existing except/pass)."""
+        storage = MockStorage()
+        llm = MockLLM(extraction_response="[]")
+        embedder = MockEmbedder(should_fail=True)
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        new_topic_id = eidolon.store_turn(
+            user_message="Hi",
+            ai_response="Hello",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            new_topic_label="Bello Features",
+        )
+
+        assert new_topic_id is not None  # store_turn still succeeds
+        error_events = tracer.events_of_type("error")
+        assert any(e["payload"]["step"] == "topic_label_embedding" for e in error_events)
+
+    def test_store_turn_records_error_on_memory_item_embedding_failure(self):
+        storage = MockStorage()
+        llm = MockLLM(
+            extraction_response='[{"content": "User likes hiking", "item_type": "essence", '
+            '"source_peer": "user", "subject_peer": "user", "attribution_type": "self_statement"}]'
+        )
+        embedder = MockEmbedder(should_fail=True)
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.store_turn(
+            user_message="I love hiking",
+            ai_response="Nice!",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+        )
+
+        error_events = tracer.events_of_type("error")
+        assert any(e["payload"]["step"] == "memory_item_embedding" for e in error_events)
+
+    def test_extract_facts_records_fact_extraction_event(self):
+        storage = MockStorage()
+        llm = MockLLM(
+            fact_response='[{"category": "fitness", "key": "gym_frustration", "value": "crowded gym"}]'
+        )
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        fact_item = MemoryItem(
+            content="User is frustrated with crowded gym", item_type="fact",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+        )
+        eidolon._extract_facts([fact_item], "user", request_id="req1", session_id="sess1")
+
+        events = tracer.events_of_type("fact_extraction")
+        assert len(events) == 1
+        event = events[0]
+        assert event["request_id"] == "req1"
+        assert event["session_id"] == "sess1"
+        assert event["payload"]["stored_facts"] == [
+            {"category": "fitness", "key": "gym_frustration", "value": "crowded gym"}
+        ]
+        assert storage.facts  # actually persisted too
+
+    def test_extract_facts_records_error_on_malformed_json(self):
+        storage = MockStorage()
+        llm = MockLLM(fact_response="not json at all")
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        fact_item = MemoryItem(
+            content="User is frustrated with crowded gym", item_type="fact",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+        )
+        eidolon._extract_facts([fact_item], "user")
+
+        error_events = tracer.events_of_type("error")
+        assert any(e["payload"]["step"] == "fact_extraction" for e in error_events)
+        assert tracer.events_of_type("fact_extraction") == []  # never got that far
+        assert storage.facts == []
+
+    def test_summarize_topic_records_topic_summarization_event(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Bello Features", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+
+        llm = MockLLM(summary_response="Summary: Crowded gym frustration\nTags: fitness, gym")
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon._summarize_topic(tid, request_id="req1", session_id="sess1")
+
+        events = tracer.events_of_type("topic_summarization")
+        assert len(events) == 1
+        event = events[0]
+        assert event["request_id"] == "req1"
+        assert event["session_id"] == "sess1"
+        assert event["payload"]["topic_id"] == tid
+        assert event["payload"]["message_count"] == 1
+        assert event["payload"]["summary"] == "Crowded gym frustration"
+        assert event["payload"]["tags"] == ["fitness", "gym"]
+
+    def test_summarize_topic_records_error_on_failure(self):
+        class FailingStorage(MockStorage):
+            def get_messages_by_topic(self, topic_id):
+                raise RuntimeError("db unavailable")
+
+        storage = FailingStorage()
+        tid = storage.create_topic("Bello Features", peer_id="user")
+        llm = MockLLM(summary_response="Summary: x\nTags: y")
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon._summarize_topic(tid)  # must not raise
+
+        error_events = tracer.events_of_type("error")
+        assert any(e["payload"]["step"] == "topic_summarization" for e in error_events)
+
+    def test_default_tracer_is_noop(self):
+        # No tracer passed anywhere — must not raise.
+        storage = MockStorage()
+        llm = MockLLM(extraction_response="[]")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        eidolon.store_turn(
+            user_message="Hi",
+            ai_response="Hello",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            new_topic_label="Test",
+        )

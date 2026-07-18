@@ -103,8 +103,9 @@ class ConfigLoader:
             "retrieval_tag_overlap": ("retrieval", "tag_overlap"),
             "retrieval_person": ("retrieval", "person"),
             "retrieval_temporal": ("retrieval", "temporal"),
+            "debug_enabled": ("debug", "enabled"),
+            "debug_trace_db_path": ("debug", "trace_db_path"),
             "language": ("language",),
-            "db_path": ("db_path",),
         }
 
         for env_suffix, attr_path in _map.items():
@@ -148,8 +149,9 @@ class ConfigLoader:
             "retrieval_tag_overlap": ("retrieval", "tag_overlap"),
             "retrieval_person": ("retrieval", "person"),
             "retrieval_temporal": ("retrieval", "temporal"),
+            "debug_enabled": ("debug", "enabled"),
+            "debug_trace_db_path": ("debug", "trace_db_path"),
             "language": ("language",),
-            "db_path": ("db_path",),
         }
 
         for cli_attr, attr_path in cli_map.items():
@@ -178,6 +180,8 @@ class ConfigLoader:
                 self._merge_into(config.embedder, value)
             elif key == "retrieval" and isinstance(value, dict):
                 self._merge_into(config.retrieval, value)
+            elif key == "debug" and isinstance(value, dict):
+                self._merge_into(config.debug, value)
             elif hasattr(config, key):
                 setattr(config, key, value)
 

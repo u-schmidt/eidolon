@@ -49,6 +49,7 @@ class EidolonMemoryProvider(MemoryProvider):
     def __init__(self) -> None:
         self._eidolon: Eidolon | None = None
         self._store = None
+        self._tracer = None
         self._active_topic_id: int | None = None
         self._hermes_home: str = ""
         self._initialized = False
@@ -98,9 +99,11 @@ class EidolonMemoryProvider(MemoryProvider):
         store = factory.create_storage()
         llm = factory.create_llm()
         embedder = factory.create_embedder()
+        tracer = factory.create_tracer()
 
-        # Store reference for shutdown
+        # Store references for shutdown
         self._store = store
+        self._tracer = tracer
 
         # Eidolon core
         self._eidolon = Eidolon(
@@ -114,6 +117,7 @@ class EidolonMemoryProvider(MemoryProvider):
                 "person": config.retrieval.person,
                 "temporal": config.retrieval.temporal,
             },
+            tracer=tracer,
         )
 
         # Resume the peer's currently open topic, if any — `topics.status`
@@ -131,8 +135,11 @@ class EidolonMemoryProvider(MemoryProvider):
         """Clean up resources when the plugin is unloaded."""
         if self._store is not None:
             self._store.close()
+        if self._tracer is not None:
+            self._tracer.close()
         self._eidolon = None
         self._store = None
+        self._tracer = None
         self._initialized = False
 
     # ── Prefetch (called SYNC before each LLM call) ──────
@@ -153,6 +160,7 @@ class EidolonMemoryProvider(MemoryProvider):
             topic_change = self._eidolon.detect_topic(
                 message=query,
                 active_topic_id=self._active_topic_id,
+                session_id=session_id,
             )
 
             # Retrieve context
@@ -163,6 +171,7 @@ class EidolonMemoryProvider(MemoryProvider):
                 environment=EnvironmentSnapshot(situation="conversation"),
                 topic_label=topic_change.label,
                 is_new_topic=is_new,
+                session_id=session_id,
             )
 
             # Build formatted context string
@@ -231,6 +240,7 @@ class EidolonMemoryProvider(MemoryProvider):
             topic_change = self._eidolon.detect_topic(
                 message=user_content,
                 active_topic_id=self._active_topic_id,
+                session_id=session_id,
             )
 
             is_new = topic_change.type == "NEW_TOPIC"
@@ -245,6 +255,7 @@ class EidolonMemoryProvider(MemoryProvider):
                 environment=EnvironmentSnapshot(situation="conversation"),
                 old_topic_id=old_topic_id,
                 new_topic_label=new_topic_label,
+                session_id=session_id,
             )
 
             # Update active topic
