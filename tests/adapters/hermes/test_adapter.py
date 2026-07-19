@@ -27,6 +27,7 @@ class MockEidolon:
         self.get_active_topic_calls = 0
         self.last_get_active_topic_peer_id: str | None = None
         self.last_session_id: str | None = None
+        self.last_peer_id: str | None = None
 
     def get_active_topic(self, peer_id: str) -> int | None:
         self.get_active_topic_calls += 1
@@ -53,6 +54,7 @@ class MockEidolon:
     ) -> ContextBundle:
         self.retrieve_context_calls += 1
         self.last_session_id = session_id
+        self.last_peer_id = peer_id
         return ContextBundle(
             current_topic_label=topic_label or "Test Topic",
             facts=[Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")],
@@ -148,6 +150,11 @@ class TestEidolonMemoryProvider:
         provider.prefetch("hello", session_id="sess_1")
         assert provider._eidolon.last_session_id == "sess_1"
 
+    def test_prefetch_uses_resolved_peer_id(self, provider):
+        provider._peer_id = "alice"
+        provider.prefetch("hello", session_id="sess_1")
+        assert provider._eidolon.last_peer_id == "alice"
+
     def test_prefetch_caches_topic_change_for_sync_turn(self, provider):
         provider.prefetch("hello", session_id="sess_1")
         session = provider._sessions["sess_1"]
@@ -179,6 +186,15 @@ class TestEidolonMemoryProvider:
             session_id="sess_1",
         )
         assert provider._eidolon.last_session_id == "sess_1"
+
+    def test_sync_turn_uses_resolved_peer_id(self, provider):
+        provider._peer_id = "alice"
+        provider.sync_turn(
+            user_content="Hello",
+            assistant_content="Hi!",
+            session_id="sess_1",
+        )
+        assert provider._eidolon.last_peer_id == "alice"
 
     def test_sync_turn_updates_active_topic(self, provider):
         provider.sync_turn(
@@ -264,6 +280,11 @@ class TestEidolonMemoryProvider:
         result = provider.handle_tool_call("eidolon_search", {"query": "test"})
         assert "related_topics" in result
         assert "memory_items" in result
+
+    def test_handle_search_uses_resolved_peer_id(self, provider):
+        provider._peer_id = "alice"
+        provider.handle_tool_call("eidolon_search", {"query": "test"})
+        assert provider._eidolon.last_peer_id == "alice"
 
     def test_handle_tool_call_unknown_raises(self, provider):
         with pytest.raises(NotImplementedError):
@@ -376,6 +397,97 @@ class TestEidolonMemoryProvider:
             p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
 
         assert p._sessions["sess_1"].active_topic_id is None
+
+    def test_initialize_falls_back_to_user_when_no_identity_kwargs(self, tmp_path):
+        from adapters.hermes import EidolonMemoryProvider
+
+        config_path = tmp_path / "eidolon.yaml"
+        config_path.write_text("db_path: ':memory:'\n")
+
+        mock_eidolon = MockEidolon()
+        mock_config = MagicMock()
+        mock_config.language = "en"
+        mock_config.retrieval.semantic = 0.4
+        mock_config.retrieval.tag_overlap = 0.3
+        mock_config.retrieval.person = 0.2
+        mock_config.retrieval.temporal = 0.1
+
+        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+            MockConfigLoader.return_value.load.return_value = mock_config
+            factory = MockProviderFactory.return_value
+            factory.create_storage.return_value = MockStore()
+            factory.create_llm.return_value = MagicMock()
+            factory.create_embedder.return_value = MagicMock()
+
+            p = EidolonMemoryProvider()
+            p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
+
+        assert p._peer_id == "user"
+
+    def test_initialize_resolves_peer_id_from_user_id(self, tmp_path):
+        from adapters.hermes import EidolonMemoryProvider
+
+        config_path = tmp_path / "eidolon.yaml"
+        config_path.write_text("db_path: ':memory:'\n")
+
+        mock_eidolon = MockEidolon()
+        mock_config = MagicMock()
+        mock_config.language = "en"
+        mock_config.retrieval.semantic = 0.4
+        mock_config.retrieval.tag_overlap = 0.3
+        mock_config.retrieval.person = 0.2
+        mock_config.retrieval.temporal = 0.1
+
+        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+            MockConfigLoader.return_value.load.return_value = mock_config
+            factory = MockProviderFactory.return_value
+            factory.create_storage.return_value = MockStore()
+            factory.create_llm.return_value = MagicMock()
+            factory.create_embedder.return_value = MagicMock()
+
+            p = EidolonMemoryProvider()
+            p.initialize(
+                session_id="sess_1", hermes_home=str(tmp_path), user_id="platform-123"
+            )
+
+        assert p._peer_id == "platform-123"
+
+    def test_initialize_prefers_user_id_alt_over_user_id(self, tmp_path):
+        from adapters.hermes import EidolonMemoryProvider
+
+        config_path = tmp_path / "eidolon.yaml"
+        config_path.write_text("db_path: ':memory:'\n")
+
+        mock_eidolon = MockEidolon()
+        mock_config = MagicMock()
+        mock_config.language = "en"
+        mock_config.retrieval.semantic = 0.4
+        mock_config.retrieval.tag_overlap = 0.3
+        mock_config.retrieval.person = 0.2
+        mock_config.retrieval.temporal = 0.1
+
+        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+            MockConfigLoader.return_value.load.return_value = mock_config
+            factory = MockProviderFactory.return_value
+            factory.create_storage.return_value = MockStore()
+            factory.create_llm.return_value = MagicMock()
+            factory.create_embedder.return_value = MagicMock()
+
+            p = EidolonMemoryProvider()
+            p.initialize(
+                session_id="sess_1",
+                hermes_home=str(tmp_path),
+                user_id="u1",
+                user_id_alt="alt1",
+            )
+
+        assert p._peer_id == "alt1"
 
     def test_initialize_seeds_current_session_fallback(self, tmp_path):
         """An empty-session_id prefetch() call right after initialize() must

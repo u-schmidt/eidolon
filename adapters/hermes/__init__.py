@@ -62,6 +62,13 @@ class EidolonMemoryProvider(MemoryProvider):
         # land in the same session's state that sync_turn() will look up.
         self._current_session_id: str = ""
         self._hermes_home: str = ""
+        # Resolved once in initialize() from Hermes' user_id/user_id_alt
+        # kwargs — never supplied again afterward (confirmed: no other
+        # MemoryProvider method receives them), and one instance already
+        # belongs to one person's session for its whole lifetime. Falls
+        # back to the literal "user" for CLI-attached sessions, which
+        # Hermes never gives an identity for.
+        self._peer_id: str = "user"
         self._initialized = False
 
     def _resolve_session_id(self, session_id: str) -> str:
@@ -108,6 +115,13 @@ class EidolonMemoryProvider(MemoryProvider):
         """
         hermes_home = kwargs.get("hermes_home", "")
         self._hermes_home = hermes_home
+        # Mirrors Hermes' own convention for picking the stable participant
+        # identity (see gateway/session.py, gateway/slash_commands.py):
+        # user_id_alt carries a platform-canonical id (e.g. Feishu's
+        # union_id) when the platform has one, user_id is the general case.
+        # Both are only populated for gateway-routed platforms — a plain
+        # CLI-attached session has neither, hence the "user" fallback.
+        self._peer_id = kwargs.get("user_id_alt") or kwargs.get("user_id") or "user"
 
         # Resolve config path — look for eidolon.yaml in HERMES_HOME
         config_path = Path(hermes_home) / "eidolon.yaml"
@@ -155,7 +169,7 @@ class EidolonMemoryProvider(MemoryProvider):
         # session_id from a later prefetch() call still lands here.
         session = self._get_or_create_session(session_id)
         try:
-            session.active_topic_id = self._eidolon.get_active_topic("user")
+            session.active_topic_id = self._eidolon.get_active_topic(self._peer_id)
         except Exception as e:
             logger.debug("Failed to resume active topic (non-fatal): %s", e)
             session.active_topic_id = None
@@ -205,7 +219,7 @@ class EidolonMemoryProvider(MemoryProvider):
             is_new = topic_change.type == "NEW_TOPIC"
             bundle = self._eidolon.retrieve_context(
                 message=query,
-                peer_id="user",
+                peer_id=self._peer_id,
                 environment=EnvironmentSnapshot(situation="conversation"),
                 topic_label=topic_change.label,
                 is_new_topic=is_new,
@@ -306,7 +320,7 @@ class EidolonMemoryProvider(MemoryProvider):
             new_topic_id = self._eidolon.store_turn(
                 user_message=user_content,
                 ai_response=assistant_content,
-                peer_id="user",
+                peer_id=self._peer_id,
                 environment=EnvironmentSnapshot(situation="conversation"),
                 old_topic_id=old_topic_id,
                 new_topic_label=new_topic_label,
@@ -368,7 +382,7 @@ class EidolonMemoryProvider(MemoryProvider):
         try:
             bundle = self._eidolon.retrieve_context(
                 message=query,
-                peer_id="user",
+                peer_id=self._peer_id,
                 environment=EnvironmentSnapshot(situation="search"),
                 topic_label=None,
                 is_new_topic=True,
