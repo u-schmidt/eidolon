@@ -6,7 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, RelatedTopic
+from adapters.hermes.session_state import SessionState
+from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, RelatedTopic, TopicChange
 
 
 class MockEidolon:
@@ -147,6 +148,20 @@ class TestEidolonMemoryProvider:
         provider.prefetch("hello", session_id="sess_1")
         assert provider._eidolon.last_session_id == "sess_1"
 
+    def test_prefetch_caches_topic_change_for_sync_turn(self, provider):
+        provider.prefetch("hello", session_id="sess_1")
+        session = provider._sessions["sess_1"]
+        assert session.pending_topic_change is not None
+        assert session.pending_query == "hello"
+
+    def test_prefetch_resolves_empty_session_id_via_fallback(self, provider):
+        # Mirrors Hermes' prefetch_all() call site, which currently never
+        # forwards session_id (see adapters/hermes/__init__.py comments).
+        provider.prefetch("hello", session_id="sess_1")
+        provider.prefetch("second message", session_id="")
+        assert "" not in provider._sessions
+        assert provider._sessions["sess_1"].pending_query == "second message"
+
     def test_sync_turn_stores_turn(self, provider):
         provider.sync_turn(
             user_content="Lass uns über Bello sprechen",
@@ -172,7 +187,62 @@ class TestEidolonMemoryProvider:
             session_id="sess_1",
         )
         # store_turn returns 42, so active_topic_id should be 42
-        assert provider._active_topic_id == 42
+        assert provider._sessions["sess_1"].active_topic_id == 42
+
+    def test_sync_turn_without_prior_prefetch_recomputes_topic(self, provider):
+        # No cached decision — must fall back to calling detect_topic itself
+        # rather than crashing or silently skipping topic detection.
+        provider.sync_turn(
+            user_content="Hello",
+            assistant_content="Hi!",
+            session_id="sess_1",
+        )
+        assert provider._eidolon.detect_topic_calls == 1
+
+    def test_sync_turn_reuses_cached_topic_change_from_prefetch(self, provider):
+        provider.prefetch("hello", session_id="sess_1")
+        assert provider._eidolon.detect_topic_calls == 1
+        provider.sync_turn(
+            user_content="hello",
+            assistant_content="hi",
+            session_id="sess_1",
+        )
+        # Same message as prefetch's — cache hit, no second LLM call.
+        assert provider._eidolon.detect_topic_calls == 1
+
+    def test_sync_turn_recomputes_when_message_differs_from_cache(self, provider):
+        provider.prefetch("hello", session_id="sess_1")
+        provider.sync_turn(
+            user_content="something else entirely",
+            assistant_content="hi",
+            session_id="sess_1",
+        )
+        # Cached decision was for a different message — must not be trusted.
+        assert provider._eidolon.detect_topic_calls == 2
+
+    def test_sync_turn_clears_pending_cache_after_use(self, provider):
+        provider.prefetch("hello", session_id="sess_1")
+        provider.sync_turn(
+            user_content="hello",
+            assistant_content="hi",
+            session_id="sess_1",
+        )
+        session = provider._sessions["sess_1"]
+        assert session.pending_topic_change is None
+        assert session.pending_query is None
+
+    def test_sessions_are_isolated_by_session_id(self, provider):
+        provider.prefetch("hello A", session_id="sess_a")
+        provider.sync_turn(
+            user_content="hello A", assistant_content="hi", session_id="sess_a"
+        )
+        provider.prefetch("hello B", session_id="sess_b")
+
+        assert provider._sessions["sess_a"].active_topic_id == 42
+        assert provider._sessions["sess_b"].active_topic_id is None
+        # sess_a's cache was consumed by its own sync_turn; sess_b's is untouched.
+        assert provider._sessions["sess_a"].pending_query is None
+        assert provider._sessions["sess_b"].pending_query == "hello B"
 
     def test_sync_turn_skips_when_not_initialized(self):
         from adapters.hermes import EidolonMemoryProvider
@@ -200,14 +270,32 @@ class TestEidolonMemoryProvider:
             provider.handle_tool_call("unknown_tool", {})
 
     def test_on_session_switch_resets_topic(self, provider):
-        provider._active_topic_id = 42
-        provider.on_session_switch("new_sess", reset=True)
-        assert provider._active_topic_id is None
+        provider._sessions["sess_1"] = SessionState(active_topic_id=42)
+        provider.on_session_switch("sess_1", reset=True)
+        assert provider._sessions["sess_1"].active_topic_id is None
 
-    def test_on_session_switch_keeps_topic(self, provider):
-        provider._active_topic_id = 42
-        provider.on_session_switch("new_sess", reset=False)
-        assert provider._active_topic_id == 42
+    def test_on_session_switch_carries_topic_forward_on_resume(self, provider):
+        provider._sessions["sess_1"] = SessionState(active_topic_id=42)
+        provider.on_session_switch("sess_2", parent_session_id="sess_1", reset=False)
+        assert provider._sessions["sess_2"].active_topic_id == 42
+        assert "sess_1" not in provider._sessions
+
+    def test_on_session_switch_rewound_clears_pending_cache_only(self, provider):
+        provider._sessions["sess_1"] = SessionState(
+            active_topic_id=42,
+            pending_topic_change=TopicChange(type="NEW_TOPIC", label="X"),
+            pending_query="hi",
+        )
+        provider.on_session_switch("sess_1", rewound=True)
+        session = provider._sessions["sess_1"]
+        assert session.pending_topic_change is None
+        assert session.pending_query is None
+        assert session.active_topic_id == 42
+
+    def test_on_session_switch_updates_current_session_fallback(self, provider):
+        provider.on_session_switch("sess_2", reset=True)
+        provider.prefetch("hello", session_id="")
+        assert provider._sessions["sess_2"].pending_query == "hello"
 
     def test_shutdown_cleans_up(self, provider):
         provider.shutdown()
@@ -257,7 +345,7 @@ class TestEidolonMemoryProvider:
             p = EidolonMemoryProvider()
             p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
 
-        assert p._active_topic_id == 7
+        assert p._sessions["sess_1"].active_topic_id == 7
         assert mock_eidolon.last_get_active_topic_peer_id == "user"
 
     def test_initialize_no_open_topic_stays_none(self, tmp_path):
@@ -287,7 +375,41 @@ class TestEidolonMemoryProvider:
             p = EidolonMemoryProvider()
             p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
 
-        assert p._active_topic_id is None
+        assert p._sessions["sess_1"].active_topic_id is None
+
+    def test_initialize_seeds_current_session_fallback(self, tmp_path):
+        """An empty-session_id prefetch() call right after initialize() must
+        still land in the session initialize() was called with — this is
+        the workaround for Hermes' prefetch_all() call site not forwarding
+        session_id at all."""
+        from adapters.hermes import EidolonMemoryProvider
+
+        config_path = tmp_path / "eidolon.yaml"
+        config_path.write_text("db_path: ':memory:'\n")
+
+        mock_eidolon = MockEidolon()
+        mock_config = MagicMock()
+        mock_config.language = "en"
+        mock_config.retrieval.semantic = 0.4
+        mock_config.retrieval.tag_overlap = 0.3
+        mock_config.retrieval.person = 0.2
+        mock_config.retrieval.temporal = 0.1
+
+        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+            MockConfigLoader.return_value.load.return_value = mock_config
+            factory = MockProviderFactory.return_value
+            factory.create_storage.return_value = MockStore()
+            factory.create_llm.return_value = MagicMock()
+            factory.create_embedder.return_value = MagicMock()
+
+            p = EidolonMemoryProvider()
+            p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
+
+        p.prefetch("hello", session_id="")
+        assert "" not in p._sessions
+        assert p._sessions["sess_1"].pending_query == "hello"
 
     def test_initialize_wires_tracer_from_factory(self, tmp_path):
         """create_tracer()'s result must be stored for shutdown() and passed

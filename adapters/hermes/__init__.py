@@ -30,6 +30,7 @@ except ImportError:
     MemoryProvider = object
 
 # Eidolon core
+from adapters.hermes.session_state import SessionState
 from core import Eidolon
 from core.config import EidolonConfig
 from core.config_loader import ConfigLoader
@@ -50,9 +51,36 @@ class EidolonMemoryProvider(MemoryProvider):
         self._eidolon: Eidolon | None = None
         self._store = None
         self._tracer = None
-        self._active_topic_id: int | None = None
+        # Keyed by Hermes session_id. Hermes gives this instance its own
+        # per-session lifecycle, but a single instance can still see more
+        # than one session_id (resume/branch/compression handoffs) — see
+        # session_state.py.
+        self._sessions: dict[str, SessionState] = {}
+        # Last known real (non-empty) session_id — Hermes' prefetch_all()
+        # call site does not currently forward session_id at all (always
+        # ""), while sync_all() does. Falling back to this lets prefetch()
+        # land in the same session's state that sync_turn() will look up.
+        self._current_session_id: str = ""
         self._hermes_home: str = ""
         self._initialized = False
+
+    def _resolve_session_id(self, session_id: str) -> str:
+        """Resolve a possibly-empty session_id to the best-known real one.
+
+        Remembers any non-empty session_id it sees (from any call site) as
+        the current session, and returns that as the fallback when given
+        an empty one.
+        """
+        if session_id:
+            self._current_session_id = session_id
+            return session_id
+        return self._current_session_id
+
+    def _get_or_create_session(self, session_id: str) -> SessionState:
+        resolved = self._resolve_session_id(session_id)
+        if resolved not in self._sessions:
+            self._sessions[resolved] = SessionState()
+        return self._sessions[resolved]
 
     @property
     def name(self) -> str:
@@ -123,11 +151,14 @@ class EidolonMemoryProvider(MemoryProvider):
         # Resume the peer's currently open topic, if any — `topics.status`
         # in storage is the source of truth, not this in-memory field, so a
         # restart shouldn't silently orphan a topic that was still open.
+        # Seed the current-session fallback before resolving so an empty
+        # session_id from a later prefetch() call still lands here.
+        session = self._get_or_create_session(session_id)
         try:
-            self._active_topic_id = self._eidolon.get_active_topic("user")
+            session.active_topic_id = self._eidolon.get_active_topic("user")
         except Exception as e:
             logger.debug("Failed to resume active topic (non-fatal): %s", e)
-            self._active_topic_id = None
+            session.active_topic_id = None
 
         self._initialized = True
 
@@ -156,12 +187,19 @@ class EidolonMemoryProvider(MemoryProvider):
             return ""
 
         try:
-            # Detect topic
+            session = self._get_or_create_session(session_id)
+            resolved_session_id = self._resolve_session_id(session_id)
+
+            # Detect topic — the user's message is the only input that
+            # ever matters here (see sync_turn(), which reuses this
+            # decision instead of recomputing it from the AI's reply).
             topic_change = self._eidolon.detect_topic(
                 message=query,
-                active_topic_id=self._active_topic_id,
-                session_id=session_id,
+                active_topic_id=session.active_topic_id,
+                session_id=resolved_session_id,
             )
+            session.pending_topic_change = topic_change
+            session.pending_query = query
 
             # Retrieve context
             is_new = topic_change.type == "NEW_TOPIC"
@@ -171,7 +209,7 @@ class EidolonMemoryProvider(MemoryProvider):
                 environment=EnvironmentSnapshot(situation="conversation"),
                 topic_label=topic_change.label,
                 is_new_topic=is_new,
-                session_id=session_id,
+                session_id=resolved_session_id,
             )
 
             # Build formatted context string
@@ -236,15 +274,32 @@ class EidolonMemoryProvider(MemoryProvider):
             return
 
         try:
-            # Detect topic to determine if we need to close/create
-            topic_change = self._eidolon.detect_topic(
-                message=user_content,
-                active_topic_id=self._active_topic_id,
-                session_id=session_id,
-            )
+            session = self._get_or_create_session(session_id)
+            resolved_session_id = self._resolve_session_id(session_id)
+
+            # Reuse the topic decision prefetch() already made for this
+            # exact message — it's driven entirely by the user's message,
+            # which hasn't changed, so recomputing it here would just be
+            # the same LLM call twice. Only recompute if there's no cached
+            # decision for this message (e.g. sync_turn() was called
+            # without a preceding prefetch()) — never trust a cached
+            # decision for a different message.
+            if (
+                session.pending_topic_change is not None
+                and session.pending_query == user_content
+            ):
+                topic_change = session.pending_topic_change
+            else:
+                topic_change = self._eidolon.detect_topic(
+                    message=user_content,
+                    active_topic_id=session.active_topic_id,
+                    session_id=resolved_session_id,
+                )
+            session.pending_topic_change = None
+            session.pending_query = None
 
             is_new = topic_change.type == "NEW_TOPIC"
-            old_topic_id = self._active_topic_id
+            old_topic_id = session.active_topic_id
             new_topic_label = topic_change.label if is_new else None
 
             # Store the turn — returns new topic ID if created
@@ -255,12 +310,12 @@ class EidolonMemoryProvider(MemoryProvider):
                 environment=EnvironmentSnapshot(situation="conversation"),
                 old_topic_id=old_topic_id,
                 new_topic_label=new_topic_label,
-                session_id=session_id,
+                session_id=resolved_session_id,
             )
 
             # Update active topic
             if new_topic_id is not None:
-                self._active_topic_id = new_topic_id
+                session.active_topic_id = new_topic_id
 
         except Exception as e:
             logger.warning("Eidolon sync_turn failed: %s", e)
@@ -376,10 +431,30 @@ class EidolonMemoryProvider(MemoryProvider):
     ) -> None:
         """Called when the agent switches session_id.
 
-        Reset active topic on /reset or /new, keep it on /resume.
+        Reset active topic on /reset or /new; carry it forward under the
+        new session_id on /resume or /branch (same logical conversation,
+        new id). On a rewind, drop the pending prefetch->sync_turn cache
+        (it was computed for a turn that no longer exists) but leave
+        active_topic_id alone — knowing whether the rewind crossed a topic
+        boundary would need transcript inspection this method doesn't do.
         """
+        if not new_session_id:
+            return
+        self._current_session_id = new_session_id
+
         if reset:
-            self._active_topic_id = None
+            self._sessions[new_session_id] = SessionState()
+            return
+
+        if new_session_id not in self._sessions:
+            self._sessions[new_session_id] = self._sessions.pop(
+                parent_session_id, SessionState()
+            )
+
+        if rewound:
+            session = self._sessions[new_session_id]
+            session.pending_topic_change = None
+            session.pending_query = None
 
 
 # ── Plugin Entry Point ──────────────────────────────────
