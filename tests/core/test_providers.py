@@ -76,7 +76,7 @@ class TestLMStudio:
         }
         mock_response.raise_for_status.return_value = None
 
-        with patch("providers.lm_studio.requests.post", return_value=mock_response) as mock_post:
+        with patch("core.providers.lm_studio.requests.post", return_value=mock_response) as mock_post:
             provider = LMStudio()
             result = provider.complete("Hi", system_prompt="Be nice", max_tokens=50)
 
@@ -93,7 +93,7 @@ class TestLMStudio:
         }
         mock_response.raise_for_status.return_value = None
 
-        with patch("providers.lm_studio.requests.post", return_value=mock_response) as mock_post:
+        with patch("core.providers.lm_studio.requests.post", return_value=mock_response) as mock_post:
             provider = LMStudio()
             result = provider.embed("test text")
 
@@ -106,7 +106,7 @@ class TestLMStudio:
         mock_response = MagicMock()
         mock_response.raise_for_status.side_effect = Exception("HTTP 500")
 
-        with patch("providers.lm_studio.requests.post", return_value=mock_response):
+        with patch("core.providers.lm_studio.requests.post", return_value=mock_response):
             provider = LMStudio()
             with pytest.raises(Exception, match="HTTP 500"):
                 provider.embed("test")
@@ -142,7 +142,7 @@ class TestOllama:
             "choices": [{"message": {"content": "Hello from Ollama!"}}]
         }
 
-        with patch("providers.ollama.requests.post", return_value=mock_response) as mock_post:
+        with patch("core.providers.ollama.requests.post", return_value=mock_response) as mock_post:
             provider = Ollama()
             result = provider.complete("Hi", system_prompt="Be nice", max_tokens=50)
 
@@ -161,7 +161,7 @@ class TestOllama:
             "choices": [{"message": {"content": "Hello!"}}]
         }
 
-        with patch("providers.ollama.requests.post", return_value=mock_response) as mock_post:
+        with patch("core.providers.ollama.requests.post", return_value=mock_response) as mock_post:
             provider = Ollama(api_key="sk-secret")
             provider.complete("Hi")
 
@@ -175,7 +175,7 @@ class TestOllama:
             "data": [{"embedding": [0.5, 0.6, 0.7]}]
         }
 
-        with patch("providers.ollama.requests.post", return_value=mock_response) as mock_post:
+        with patch("core.providers.ollama.requests.post", return_value=mock_response) as mock_post:
             provider = Ollama()
             result = provider.embed("test text")
 
@@ -191,7 +191,7 @@ class TestOllama:
         mock_response.status_code = 500
         mock_response.text = "Internal Server Error"
 
-        with patch("providers.ollama.requests.post", return_value=mock_response):
+        with patch("core.providers.ollama.requests.post", return_value=mock_response):
             provider = Ollama()
             with pytest.raises(RuntimeError, match="Ollama embed API error"):
                 provider.embed("test")

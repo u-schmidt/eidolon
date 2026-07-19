@@ -216,6 +216,52 @@ class TestEidolon:
 
         assert tid in storage.closed_topics
 
+    def test_store_turn_closes_old_topic_with_real_summary_when_available(self):
+        """store_turn must keep the LLM-generated summary from
+        _summarize_topic instead of overwriting it with the
+        'Continued to: ...' placeholder."""
+        storage = MockStorage()
+        tid = storage.create_topic("Old Topic", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        llm = MockLLM(extraction_response="[]", summary_response="Summary: Crowded gym frustration\nTags: fitness")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        eidolon.store_turn(
+            user_message="Lass uns über Bello sprechen",
+            ai_response="Gerne!",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            old_topic_id=tid,
+            new_topic_label="Bello Features",
+        )
+
+        assert storage.topics[tid]["summary"] == "Crowded gym frustration"
+
+    def test_store_turn_falls_back_to_placeholder_when_summarization_fails(self):
+        """If _summarize_topic can't produce a real summary (no messages,
+        LLM failure, unparseable response), the topic must still end up
+        closed — never stuck 'active' forever."""
+        storage = MockStorage()
+        tid = storage.create_topic("Old Topic", peer_id="user")
+        # No messages stored under this topic -> _summarize_topic returns
+        # False without closing it.
+        llm = MockLLM(extraction_response="[]", summary_response="")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        eidolon.store_turn(
+            user_message="Lass uns über Bello sprechen",
+            ai_response="Gerne!",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            old_topic_id=tid,
+            new_topic_label="Bello Features",
+        )
+
+        assert storage.topics[tid]["status"] == "closed"
+        assert storage.topics[tid]["summary"] == "Continued to: Bello Features"
+
     def test_store_turn_creates_new_topic(self):
         storage = MockStorage()
         llm = MockLLM(extraction_response="[]")
@@ -307,6 +353,38 @@ class TestEidolon:
 
         assert tid in storage.topic_embeddings
         assert "User frustrated about crowded gym" in embedder.embedded_texts
+
+    def test_summarize_topic_returns_true_on_success(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Bello Features", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        llm = MockLLM(summary_response="Summary: Crowded gym frustration\nTags: fitness")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        assert eidolon._summarize_topic(tid) is True
+
+    def test_summarize_topic_returns_false_when_no_messages(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Bello Features", peer_id="user")
+        llm = MockLLM(summary_response="Summary: Crowded gym frustration\nTags: fitness")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        assert eidolon._summarize_topic(tid) is False
+
+    def test_summarize_topic_returns_false_on_exception(self):
+        class FailingStorage(MockStorage):
+            def get_messages_by_topic(self, topic_id):
+                raise RuntimeError("db unavailable")
+
+        storage = FailingStorage()
+        tid = storage.create_topic("Bello Features", peer_id="user")
+        llm = MockLLM(summary_response="Summary: x\nTags: y")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        assert eidolon._summarize_topic(tid) is False
 
     def test_get_active_topic_delegates_to_storage(self):
         storage = MockStorage()

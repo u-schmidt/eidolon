@@ -311,10 +311,15 @@ class Eidolon:
         request_id = request_id or _new_request_id()
         turn_started = time.perf_counter()
 
-        # 1. Close old topic if topic changed — and generate summary + tags
+        # 1. Close old topic if topic changed — and generate summary + tags.
+        # _summarize_topic() closes the topic itself once it has a real
+        # summary; the placeholder here is only a fallback for when it
+        # couldn't (no messages, LLM failure, unparseable response), so a
+        # topic is never left stuck 'active' forever.
         if old_topic_id is not None and new_topic_label is not None:
-            self._summarize_topic(old_topic_id, request_id=request_id, session_id=session_id)
-            self._storage.close_topic(old_topic_id, f"Continued to: {new_topic_label}")
+            summarized = self._summarize_topic(old_topic_id, request_id=request_id, session_id=session_id)
+            if not summarized:
+                self._storage.close_topic(old_topic_id, f"Continued to: {new_topic_label}")
 
         # 2. Create new topic if topic changed
         new_topic_id: int | None = None
@@ -548,7 +553,7 @@ class Eidolon:
         *,
         request_id: str | None = None,
         session_id: str | None = None,
-    ) -> None:
+    ) -> bool:
         """Generate a summary and tags for a topic based on its messages.
 
         Called async when a topic is closed. Loads all messages for the topic,
@@ -564,12 +569,20 @@ class Eidolon:
             ``store_turn`` call.
         session_id : str | None
             Adapter-level conversation identifier, for trace filtering.
+
+        Returns
+        -------
+        bool
+            True if a real summary was generated and the topic closed with
+            it. False if summarization couldn't produce one (no messages,
+            LLM failure, unparseable response) — the caller should close
+            the topic with a fallback summary itself in that case.
         """
         started = time.perf_counter()
         try:
             messages = self._storage.get_messages_by_topic(topic_id)
             if not messages:
-                return
+                return False
 
             # Build a compact conversation transcript
             transcript = "\n".join(
@@ -652,6 +665,7 @@ class Eidolon:
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
+            return bool(summary)
         except Exception as exc:
             self._tracer.record(
                 "error",
@@ -660,7 +674,7 @@ class Eidolon:
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
-            pass  # Summarization failure is non-critical
+            return False  # Summarization failure is non-critical; caller falls back
 
     def _get_topic_summary(self, topic_id: int | None) -> str | None:
         """Get the summary of a topic by its ID.
