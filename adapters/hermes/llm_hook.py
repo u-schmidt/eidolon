@@ -14,7 +14,7 @@ from typing import Any
 from core import Eidolon
 from core.models import EnvironmentSnapshot
 from core.stores.sqlite_store import SqliteStore
-from providers.lm_studio import LMStudio
+from core.providers.lm_studio import LMStudio
 
 
 class EidolonTopicHook:

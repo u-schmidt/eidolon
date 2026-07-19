@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from providers.lm_studio import LMStudio
-from providers.ollama import Ollama
+from core.providers.lm_studio import LMStudio
+from core.providers.ollama import Ollama
 
 
 class TestLLMWrapperPattern:
@@ -199,12 +199,12 @@ class TestOllama:
 
 class TestSentenceTransformersEmbedder:
     def test_constructor(self):
-        from providers.sentence_transformers import SentenceTransformersEmbedder
+        from core.providers.sentence_transformers import SentenceTransformersEmbedder
         embedder = SentenceTransformersEmbedder()
         assert embedder._model_name == "all-MiniLM-L6-v2"
         assert embedder._model is None  # lazy-loaded
 
     def test_constructor_custom_model(self):
-        from providers.sentence_transformers import SentenceTransformersEmbedder
+        from core.providers.sentence_transformers import SentenceTransformersEmbedder
         embedder = SentenceTransformersEmbedder(model_name="paraphrase-multilingual-MiniLM-L12-v2")
         assert embedder._model_name == "paraphrase-multilingual-MiniLM-L12-v2"

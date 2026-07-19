@@ -65,11 +65,11 @@ class ProviderFactory:
 
     def _build_llm(self, cfg: ModelConfig) -> LLMProvider:
         if cfg.provider == "simulated":
-            from providers.simulated import SimulatedLLM
+            from core.providers.simulated import SimulatedLLM
             return SimulatedLLM()
 
         if cfg.provider == "lm_studio":
-            from providers.lm_studio import LMStudio
+            from core.providers.lm_studio import LMStudio
             return LMStudio(
                 base_url=cfg.base_url,
                 llm_model=cfg.model,
@@ -78,7 +78,7 @@ class ProviderFactory:
             )
 
         if cfg.provider == "ollama":
-            from providers.ollama import Ollama
+            from core.providers.ollama import Ollama
             return Ollama(
                 base_url=cfg.base_url,
                 llm_model=cfg.model,
@@ -95,11 +95,11 @@ class ProviderFactory:
 
     def _build_embedder(self, cfg: ModelConfig) -> EmbedderProvider:
         if cfg.provider == "simulated":
-            from providers.simulated import SimulatedEmbedder
+            from core.providers.simulated import SimulatedEmbedder
             return SimulatedEmbedder(dimension=cfg.dimension)
 
         if cfg.provider == "lm_studio":
-            from providers.lm_studio import LMStudio
+            from core.providers.lm_studio import LMStudio
             return LMStudio(
                 base_url=cfg.base_url,
                 embedder_model=cfg.model,
@@ -108,7 +108,7 @@ class ProviderFactory:
             )
 
         if cfg.provider == "ollama":
-            from providers.ollama import Ollama
+            from core.providers.ollama import Ollama
             return Ollama(
                 base_url=cfg.base_url,
                 embedder_model=cfg.model,
@@ -116,7 +116,7 @@ class ProviderFactory:
             )
 
         if cfg.provider == "sentence_transformers":
-            from providers.sentence_transformers import SentenceTransformersEmbedder
+            from core.providers.sentence_transformers import SentenceTransformersEmbedder
             return SentenceTransformersEmbedder(model_name=cfg.model)
 
         raise ValueError(f"Unknown embedder provider: {cfg.provider}")

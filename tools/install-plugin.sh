@@ -48,7 +48,7 @@ fi
 echo "📦 Synchronisiere Projekt nach $PLUGIN_DIR …"
 mkdir -p "$PLUGIN_DIR"
 # tests/ wird nicht mehr benötigt: core/provider_factory.py importiert
-# SimulatedLLM/SimulatedEmbedder aus providers/simulated.py, nicht mehr
+# SimulatedLLM/SimulatedEmbedder aus core/providers/simulated.py, nicht mehr
 # aus tests/mocks.py — kein Laufzeit-Bezug von core/adapters/providers
 # auf tests/ mehr vorhanden.
 rsync -a --delete \
@@ -67,6 +67,51 @@ rsync -a --delete \
     --exclude='pyproject.toml' \
     "$PROJECT_ROOT/" "$PLUGIN_DIR/"
 echo "   ✅ Erledigt (data/, .git/, .venv/ am Ziel unangetastet)"
+
+# ── plugin.yaml an Root kopieren ────────────────────────
+# Hermes' Discovery liest plugin.yaml nur aus $PLUGIN_DIR/plugin.yaml
+# (für die Beschreibung). Das Original liegt im Projekt unter
+# adapters/hermes/plugin.yaml.
+ROOT_PLUGIN_YAML="$PLUGIN_DIR/plugin.yaml"
+ADAPTER_PLUGIN_YAML="$PLUGIN_DIR/adapters/hermes/plugin.yaml"
+if [ -f "$ADAPTER_PLUGIN_YAML" ] && [ ! -f "$ROOT_PLUGIN_YAML" ]; then
+    echo "📝 Kopiere plugin.yaml an Root-Position …"
+    cp "$ADAPTER_PLUGIN_YAML" "$ROOT_PLUGIN_YAML"
+    echo "   ✅ plugin.yaml nach $ROOT_PLUGIN_YAML kopiert"
+elif [ -f "$ROOT_PLUGIN_YAML" ]; then
+    echo "   ✅ plugin.yaml bereits an Root-Position vorhanden"
+else
+    echo "   ⚠  Kein plugin.yaml unter adapters/hermes/ gefunden"
+fi
+
+# ── __init__.py-Shim anlegen (falls nicht vorhanden) ────
+# Hermes' Plugin-Discovery sucht nach $HERMES_HOME/plugins/<name>/__init__.py
+# mit register()-Funktion. Die eigentliche Implementierung lebt in
+# adapters/hermes/__init__.py — dieser Shim leitet weiter.
+SHIM="$PLUGIN_DIR/__init__.py"
+if [ ! -f "$SHIM" ]; then
+    echo "📝 Erstelle __init__.py-Shim für Hermes-Plugin-Discovery …"
+    cat > "$SHIM" << 'PYEOF'
+"""Eidolon — topic memory provider for Hermes Agent.
+
+Re-exports the register() entry point from the Hermes adapter.
+The actual implementation lives in adapters/hermes/__init__.py.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_plugin_root = str(Path(__file__).resolve().parent)
+if _plugin_root not in sys.path:
+    sys.path.insert(0, _plugin_root)
+
+from adapters.hermes import register  # noqa: E402, F401
+PYEOF
+    echo "   ✅ __init__.py-Shim angelegt"
+else
+    echo "   ✅ __init__.py-Shim bereits vorhanden"
+fi
 
 # ── Config anlegen (falls nicht vorhanden) ──────────────
 if [ ! -f "$CONFIG_FILE" ]; then
