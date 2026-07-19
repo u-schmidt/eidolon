@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 # Ensure the project root is on sys.path for direct execution
@@ -34,6 +35,7 @@ if _project_root not in sys.path:
 from core import Eidolon
 from core.config import ConfigError
 from core.config_loader import ConfigLoader
+from core.context_formatter import ContextFormatter
 from core.models import EnvironmentSnapshot
 from core.provider_factory import ProviderFactory
 
@@ -254,9 +256,13 @@ def main() -> None:
 
         # Process a message
         turn_count += 1
+        # Captured once and reused for both the injected "current time" and
+        # ContextFormatter's relative-age calculations below, so they can't
+        # drift apart within a single turn.
+        turn_now = datetime.now()
         env = EnvironmentSnapshot(
-            time=None,
-            day_of_week=None,
+            time=turn_now,
+            day_of_week=turn_now.strftime("%A"),
             situation="cli_test",
         )
 
@@ -295,21 +301,7 @@ def main() -> None:
             print(f"  Memory items: {len(bundle.memory_items)}")
 
         # Step 3: Generate AI response using the LLM provider
-        context_prompt = ""
-        if bundle.current_topic_label:
-            context_prompt += f"Current topic: {bundle.current_topic_label}\n"
-        if bundle.facts:
-            context_prompt += "Facts:\n"
-            for f in bundle.facts:
-                context_prompt += f"- {f.key}: {f.value}\n"
-        if bundle.related_topics:
-            context_prompt += "Related topics (from memory):\n"
-            for rt in bundle.related_topics:
-                context_prompt += f"- {rt.summary[:100]}\n"
-        if bundle.memory_items:
-            context_prompt += "Memory items:\n"
-            for mi in bundle.memory_items:
-                context_prompt += f"- {mi.content[:100]}\n"
+        context_prompt = ContextFormatter.format(bundle, now=turn_now)
 
         # Build chat history into the prompt (last 5 turns)
         history_text = ""

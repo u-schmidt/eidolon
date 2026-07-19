@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -210,6 +211,10 @@ class EidolonMemoryProvider(MemoryProvider):
             # trace events all land under one request_id instead of three
             # unrelated ones (see SessionState.pending_request_id).
             turn_request_id = uuid.uuid4().hex[:8]
+            # Captured once and reused for both the injected "current time"
+            # and the relative-age calculations in ContextFormatter, so
+            # they can't drift apart within a single turn.
+            turn_now = datetime.now()
 
             # Detect topic — the user's message is the only input that
             # ever matters here (see sync_turn(), which reuses this
@@ -229,14 +234,16 @@ class EidolonMemoryProvider(MemoryProvider):
             bundle = self._eidolon.retrieve_context(
                 message=query,
                 peer_id=self._peer_id,
-                environment=EnvironmentSnapshot(situation="conversation"),
+                environment=EnvironmentSnapshot(
+                    situation="conversation", time=turn_now, day_of_week=turn_now.strftime("%A"),
+                ),
                 topic_label=topic_change.label,
                 is_new_topic=is_new,
                 session_id=resolved_session_id,
                 request_id=turn_request_id,
             )
 
-            return ContextFormatter.format(bundle)
+            return ContextFormatter.format(bundle, now=turn_now)
 
         except Exception as e:
             logger.debug("Eidolon prefetch failed (non-fatal): %s", e)

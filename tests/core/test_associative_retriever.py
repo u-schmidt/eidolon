@@ -344,7 +344,7 @@ class TestAssociativeRetriever:
         assert event["duration_ms"] is not None
         assert event["payload"]["message"] == "Lass uns über Bello sprechen"
         assert event["payload"]["related_topics"] == [
-            {"id": 1, "summary": "About Bello", "tags": ["bello"]}
+            {"id": 1, "summary": "About Bello", "tags": ["bello"], "timestamp": None}
         ]
 
     def test_context_retrieval_event_carries_full_content_not_counts(self):
@@ -375,10 +375,12 @@ class TestAssociativeRetriever:
         payload = tracer.events_of_type("context_retrieval")[0]["payload"]
         assert "facts_count" not in payload
         assert "memory_items_count" not in payload
-        assert payload["facts"] == [{"category": "fitness", "key": "gym", "value": "FitZone"}]
+        assert payload["facts"] == [
+            {"category": "fitness", "key": "gym", "value": "FitZone", "created_at": None}
+        ]
         assert payload["memory_items"] == [
             {"content": "User likes FitZone", "item_type": "essence",
-             "source_peer": "user", "subject_peer": "user"}
+             "source_peer": "user", "subject_peer": "user", "timestamp": None}
         ]
         assert payload["environment"]["situation"] == "conversation"
         assert payload["environment"]["location"] == "home"

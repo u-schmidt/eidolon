@@ -68,6 +68,7 @@ class MockEidolon:
         self.last_session_id = session_id
         self.last_peer_id = peer_id
         self.last_request_id = request_id
+        self.last_environment = environment
         self.request_ids_seen.append(request_id)
         return ContextBundle(
             current_topic_label=topic_label or "Test Topic",
@@ -171,6 +172,12 @@ class TestEidolonMemoryProvider:
         provider._peer_id = "alice"
         provider.prefetch("hello", session_id="sess_1")
         assert provider._eidolon.last_peer_id == "alice"
+
+    def test_prefetch_populates_real_time_in_environment(self, provider):
+        provider.prefetch("hello", session_id="sess_1")
+        env = provider._eidolon.last_environment
+        assert env.time is not None
+        assert env.day_of_week is not None
 
     def test_prefetch_caches_topic_change_for_sync_turn(self, provider):
         provider.prefetch("hello", session_id="sess_1")

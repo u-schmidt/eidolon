@@ -165,10 +165,12 @@ class AssociativeRetriever:
                     "day_of_week": environment.day_of_week,
                 },
                 "facts": [
-                    {"category": f.category, "key": f.key, "value": f.value} for f in facts
+                    {"category": f.category, "key": f.key, "value": f.value, "created_at": f.created_at}
+                    for f in facts
                 ],
                 "related_topics": [
-                    {"id": t.topic_id, "summary": t.summary, "tags": t.tags} for t in related_topics
+                    {"id": t.topic_id, "summary": t.summary, "tags": t.tags, "timestamp": t.timestamp}
+                    for t in related_topics
                 ],
                 "memory_items": [
                     {
@@ -176,6 +178,7 @@ class AssociativeRetriever:
                         "item_type": mi.item_type,
                         "source_peer": mi.source_peer,
                         "subject_peer": mi.subject_peer,
+                        "timestamp": mi.timestamp,
                     }
                     for mi in memory_items
                 ],

@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 # Ensure the project root is on sys.path for direct execution
@@ -26,7 +27,7 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from core.context_formatter import ContextFormatter
-from core.models import ContextBundle, Fact, MemoryItem, RelatedTopic
+from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, RelatedTopic
 from tools.trace import TraceReader
 
 
@@ -62,37 +63,60 @@ class InjectionSimulator:
         that turn has no context_retrieval event (prefetch never ran, or
         it errored before retrieval)."""
         events = self._reader.events_for_request(request_id)
-        payload = next(
-            (e["payload"] for e in events if e["event_type"] == "context_retrieval"), None
-        )
-        if payload is None:
+        event = next((e for e in events if e["event_type"] == "context_retrieval"), None)
+        if event is None:
             return None
 
+        payload = event["payload"]
         bundle = self._bundle_from_payload(payload)
+        # Reference point for relative-age suffixes is this turn's own
+        # timestamp, not today — so replaying an old turn shows ages as
+        # they were *then* ("3 weeks ago" at the time), not re-computed
+        # against the current date.
+        now = self._parse_event_time(event.get("created_at"))
         return SimulationResult(
             request_id=request_id,
             user_message=payload.get("message", ""),
-            injection=ContextFormatter.format(bundle),
+            injection=ContextFormatter.format(bundle, now=now),
         )
 
     @staticmethod
+    def _parse_event_time(value: str | None) -> datetime | None:
+        if value is None:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    @staticmethod
     def _bundle_from_payload(payload: dict) -> ContextBundle:
+        env_payload = payload.get("environment") or {}
+        environment = EnvironmentSnapshot(
+            location=env_payload.get("location"),
+            time=env_payload.get("time"),
+            day_of_week=env_payload.get("day_of_week"),
+            situation=env_payload.get("situation"),
+        )
         facts = [
             Fact(peer_id=payload.get("peer_id", ""), category=f["category"], key=f["key"],
-                 value=f["value"], source="")
+                 value=f["value"], source="", created_at=f.get("created_at"))
             for f in payload.get("facts", [])
         ]
         related_topics = [
-            RelatedTopic(topic_id=t["id"], summary=t["summary"], tags=t.get("tags", []))
+            RelatedTopic(topic_id=t["id"], summary=t["summary"], tags=t.get("tags", []),
+                         timestamp=t.get("timestamp"))
             for t in payload.get("related_topics", [])
         ]
         memory_items = [
             MemoryItem(content=mi["content"], item_type=mi["item_type"],
-                       source_peer=mi["source_peer"], subject_peer=mi["subject_peer"])
+                       source_peer=mi["source_peer"], subject_peer=mi["subject_peer"],
+                       timestamp=mi.get("timestamp"))
             for mi in payload.get("memory_items", [])
         ]
         return ContextBundle(
             facts=facts,
+            environment=environment,
             current_topic_label=payload.get("topic_label"),
             related_topics=related_topics,
             memory_items=memory_items,

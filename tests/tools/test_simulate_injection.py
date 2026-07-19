@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 
 from core.trace.sqlite_tracer import SqliteTracer
@@ -93,3 +95,54 @@ class TestSimulate:
         reader.close()
 
         assert result is None
+
+
+class TestSimulateEnvironmentAndAges:
+    def test_reconstructs_environment_and_relative_ages(self, tmp_path):
+        """Ages must be computed relative to the turn's own recorded time,
+        not today — so replaying an old turn shows ages as they were then."""
+        db_path = str(tmp_path / "trace.db")
+        tracer = SqliteTracer(db_path)
+        tracer.connect()
+
+        three_weeks_ago = (datetime.now() - timedelta(days=21)).strftime("%Y-%m-%d %H:%M:%S")
+        tracer.record(
+            "context_retrieval",
+            {
+                "message": "hi",
+                "peer_id": "user",
+                "topic_label": None,
+                "is_new_topic": False,
+                "environment": {
+                    "situation": "conversation", "location": None,
+                    "time": datetime.now().isoformat(), "day_of_week": datetime.now().strftime("%A"),
+                },
+                "facts": [{"category": "work", "key": "role", "value": "engineer", "created_at": three_weeks_ago}],
+                "related_topics": [],
+                "memory_items": [],
+            },
+            request_id="req-env", session_id="sess1",
+        )
+        tracer.close()
+
+        reader = TraceReader(db_path)
+        simulator = InjectionSimulator(reader)
+        result = simulator.simulate("req-env")
+        reader.close()
+
+        assert "[Environment]" in result.injection
+        assert "3 weeks ago" in result.injection
+
+    def test_old_trace_without_environment_or_timestamps_degrades_gracefully(self, trace_db):
+        """Trace data recorded before this feature existed has no
+        environment sub-fields and no per-item timestamps — must not
+        crash, and must simply omit the new sections."""
+        reader = TraceReader(trace_db)
+        simulator = InjectionSimulator(reader)
+
+        result = simulator.simulate("req-full")
+        reader.close()
+
+        assert "[Environment]" not in result.injection
+        assert "ago" not in result.injection
+        assert "today" not in result.injection
