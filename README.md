@@ -107,6 +107,17 @@ Trigger it manually any time — useful for testing without waiting N turns:
 You > /consolidate
 ```
 
+## Tool Calls
+
+The Hermes adapter exposes two tools to the LLM (`EidolonMemoryProvider.get_tool_schemas()`):
+
+| Tool | Effect |
+|---|---|
+| `eidolon_search` | Read-only. Runs associative retrieval for an explicit query, returning facts, related topics, and memory items as JSON. |
+| `eidolon_correct_fact` | Writes directly. Upserts or deletes one `(category, key)` fact immediately, bypassing consolidation — for when the user explicitly says a remembered fact is wrong or should be forgotten. Omitting `value` deletes the fact. |
+
+`eidolon_correct_fact` is a deliberately narrow write surface: it can only touch the curated facts profile, not `memory_items` or topics. A manual correction can still be silently revised or reverted by the next automatic consolidation pass, since `FactConsolidator` has no concept of "this fact was manually pinned" — an accepted tradeoff, not a bug.
+
 ## Quick Start
 
 ### Prerequisites

@@ -12,6 +12,7 @@ Directory structure (inside Hermes plugins/):
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import uuid
@@ -357,12 +358,42 @@ class EidolonMemoryProvider(MemoryProvider):
                     "required": ["query"],
                 },
             },
+            {
+                "name": "eidolon_correct_fact",
+                "description": (
+                    "Correct or remove one fact in the user's durable profile "
+                    "immediately. Use this when the user explicitly says a "
+                    "remembered fact is wrong, outdated, or should be forgotten. "
+                    "Note: a later automatic consolidation pass may still revise "
+                    "this fact based on other conversation evidence."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "category": {
+                            "type": "string",
+                            "description": "Fact category, e.g. 'location', 'work'.",
+                        },
+                        "key": {
+                            "type": "string",
+                            "description": "Fact key within the category, e.g. 'city'.",
+                        },
+                        "value": {
+                            "type": "string",
+                            "description": "New value. Omit to delete this fact entirely.",
+                        },
+                    },
+                    "required": ["category", "key"],
+                },
+            },
         ]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         """Handle a tool call for one of this provider's tools."""
         if tool_name == "eidolon_search":
             return self._handle_search(args)
+        if tool_name == "eidolon_correct_fact":
+            return self._handle_correct_fact(args)
         raise NotImplementedError(
             f"Eidolon provider does not handle tool {tool_name}"
         )
@@ -409,11 +440,32 @@ class EidolonMemoryProvider(MemoryProvider):
                 ],
             }
 
-            import json
             return json.dumps(results, ensure_ascii=False)
 
         except Exception as e:
             return f'{{"error": "Search failed: {e}"}}'
+
+    def _handle_correct_fact(self, args: Dict[str, Any]) -> str:
+        """Handle eidolon_correct_fact tool call."""
+        if not self._eidolon or not self._initialized:
+            return json.dumps({"error": "Eidolon not initialized"})
+
+        category = args.get("category", "").strip()
+        key = args.get("key", "").strip()
+        if not category or not key:
+            return json.dumps({"error": "category and key are required"})
+
+        value = args.get("value")
+        try:
+            self._eidolon.correct_fact(self._peer_id, category, key, value)
+            return json.dumps({
+                "status": "ok",
+                "action": "deleted" if not value else "updated",
+                "category": category,
+                "key": key,
+            })
+        except Exception as e:
+            return json.dumps({"error": f"Fact correction failed: {e}"})
 
     # ── Session Lifecycle Hooks ─────────────────────────
 

@@ -466,6 +466,39 @@ class Eidolon:
             peer_id, request_id=request_id or _new_request_id(), session_id=session_id
         )
 
+    def correct_fact(
+        self,
+        peer_id: str,
+        category: str,
+        key: str,
+        value: str | None = None,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Directly upsert or delete one fact, bypassing consolidation.
+
+        For explicit user-driven corrections (e.g. the eidolon_correct_fact
+        tool). `value=None` (or blank) deletes the fact; otherwise upserts
+        it with source="user". A later consolidation pass may still revise
+        or remove this fact based on other accumulated evidence — that's
+        accepted, not a bug.
+        """
+        category = category.strip().lower()
+        key = key.strip().lower()
+        if value is None or not value.strip():
+            self._storage.delete_fact(peer_id, category, key)
+            action = "delete"
+        else:
+            value = value.strip()
+            self._storage.set_fact(peer_id, category, key, value, source="user")
+            action = "upsert"
+        self._tracer.record(
+            "fact_correction",
+            {"peer_id": peer_id, "category": category, "key": key, "value": value, "action": action},
+            request_id=request_id or _new_request_id(), session_id=session_id,
+        )
+
     # ── Internal Helpers ────────────────────────────────────
 
     def _summarize_topic(

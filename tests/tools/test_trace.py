@@ -114,6 +114,14 @@ class TestTracePrinterFormatSummary:
         }
         assert TracePrinter().format_summary(event) == "consolidated → 1 upsert(s), 1 delete(s)"
 
+    def test_format_summary_fact_correction(self):
+        event = {
+            "event_type": "fact_correction",
+            "payload": {"peer_id": "user", "category": "location", "key": "city",
+                        "value": "Berlin", "action": "upsert"},
+        }
+        assert TracePrinter().format_summary(event) == "corrected fact → upsert location.city"
+
 
 class TestTracePrinterFormatDetail:
     def test_format_detail_includes_header_and_body(self, trace_db):
@@ -153,3 +161,15 @@ class TestTracePrinterFormatDetail:
         assert "location.city = Berlin" in detail
         assert "lifestyle.smoking" in detail
         assert "total_facts_after: 3" in detail
+
+    def test_format_detail_fact_correction(self):
+        event = {
+            "event_type": "fact_correction",
+            "duration_ms": 1.0,
+            "created_at": "2026-07-19 12:00:00",
+            "payload": {"peer_id": "user", "category": "location", "key": "city",
+                        "value": "Berlin", "action": "upsert"},
+        }
+        detail = TracePrinter().format_detail(event)
+        assert "action: upsert" in detail
+        assert "location.city = Berlin" in detail

@@ -209,6 +209,12 @@ class TracePrinter:
             lines.append(f"    raw response: {_truncate(p.get('response'))}")
         return "\n".join(lines)
 
+    def _format_fact_correction(self, p: dict) -> str:
+        return (
+            f"    peer_id: {p.get('peer_id')}  action: {p.get('action')}\n"
+            f"    {p.get('category')}.{p.get('key')} = {p.get('value')}"
+        )
+
     def _format_topic_summarization(self, p: dict) -> str:
         return "\n".join([
             f"    topic_id: {p.get('topic_id')}  message_count: {p.get('message_count')}",
@@ -293,6 +299,9 @@ class TracePrinter:
             f"consolidated → {len(p.get('upserts', []))} upsert(s), "
             f"{len(p.get('deletes', []))} delete(s)"
         )
+
+    def _summary_fact_correction(self, p: dict) -> str:
+        return f"corrected fact → {p.get('action')} {p.get('category')}.{p.get('key')}"
 
     def _summary_topic_summarization(self, p: dict) -> str:
         return f"summarized topic #{p.get('topic_id')}"

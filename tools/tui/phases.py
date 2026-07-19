@@ -14,7 +14,10 @@ PREFETCH = "prefetch"
 SYNC_TURN = "sync_turn"
 
 _PREFETCH_EVENT_TYPES = {"topic_detection", "retrieval_candidate_scored", "context_retrieval"}
-_SYNC_TURN_EVENT_TYPES = {"extraction", "fact_consolidation", "topic_summarization", "turn_complete", "error"}
+_SYNC_TURN_EVENT_TYPES = {
+    "extraction", "fact_consolidation", "fact_correction", "topic_summarization",
+    "turn_complete", "error",
+}
 
 # "embedding" events happen in both phases — purpose disambiguates.
 _PREFETCH_EMBEDDING_PURPOSES = {"retrieval_query"}

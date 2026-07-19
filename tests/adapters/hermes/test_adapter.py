@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -30,6 +31,8 @@ class MockEidolon:
         self.last_peer_id: str | None = None
         self.last_request_id: str | None = None
         self.request_ids_seen: list[str | None] = []
+        self.correct_fact_calls = 0
+        self.last_correct_fact_args: tuple | None = None
 
     def get_active_topic(self, peer_id: str) -> int | None:
         self.get_active_topic_calls += 1
@@ -105,6 +108,19 @@ class MockEidolon:
         self.last_request_id = request_id
         self.request_ids_seen.append(request_id)
         return 42  # new topic id
+
+    def correct_fact(
+        self,
+        peer_id: str,
+        category: str,
+        key: str,
+        value: str | None = None,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        self.correct_fact_calls += 1
+        self.last_correct_fact_args = (peer_id, category, key, value)
 
 
 class MockStore:
@@ -337,9 +353,15 @@ class TestEidolonMemoryProvider:
 
     def test_get_tool_schemas(self, provider):
         schemas = provider.get_tool_schemas()
-        assert len(schemas) == 1
-        assert schemas[0]["name"] == "eidolon_search"
-        assert "query" in schemas[0]["parameters"]["properties"]
+        assert len(schemas) == 2
+        names = [s["name"] for s in schemas]
+        assert "eidolon_search" in names
+        assert "eidolon_correct_fact" in names
+        search_schema = next(s for s in schemas if s["name"] == "eidolon_search")
+        assert "query" in search_schema["parameters"]["properties"]
+        correct_schema = next(s for s in schemas if s["name"] == "eidolon_correct_fact")
+        assert set(correct_schema["parameters"]["required"]) == {"category", "key"}
+        assert "value" in correct_schema["parameters"]["properties"]
 
     def test_handle_tool_call_search(self, provider):
         result = provider.handle_tool_call("eidolon_search", {"query": "test"})
@@ -354,6 +376,45 @@ class TestEidolonMemoryProvider:
     def test_handle_tool_call_unknown_raises(self, provider):
         with pytest.raises(NotImplementedError):
             provider.handle_tool_call("unknown_tool", {})
+
+    def test_handle_correct_fact_upserts(self, provider):
+        result = provider.handle_tool_call(
+            "eidolon_correct_fact", {"category": "location", "key": "city", "value": "Berlin"}
+        )
+        assert provider._eidolon.correct_fact_calls == 1
+        assert provider._eidolon.last_correct_fact_args == ("user", "location", "city", "Berlin")
+        payload = json.loads(result)
+        assert payload["status"] == "ok"
+        assert payload["action"] == "updated"
+
+    def test_handle_correct_fact_deletes_when_value_omitted(self, provider):
+        result = provider.handle_tool_call(
+            "eidolon_correct_fact", {"category": "lifestyle", "key": "smoking"}
+        )
+        assert provider._eidolon.last_correct_fact_args == ("user", "lifestyle", "smoking", None)
+        payload = json.loads(result)
+        assert payload["action"] == "deleted"
+
+    def test_handle_correct_fact_uses_resolved_peer_id(self, provider):
+        provider._peer_id = "alice"
+        provider.handle_tool_call("eidolon_correct_fact", {"category": "location", "key": "city", "value": "Berlin"})
+        assert provider._eidolon.last_correct_fact_args[0] == "alice"
+
+    def test_handle_correct_fact_missing_category_returns_error(self, provider):
+        result = provider.handle_tool_call("eidolon_correct_fact", {"key": "city", "value": "Berlin"})
+        assert provider._eidolon.correct_fact_calls == 0
+        assert "error" in json.loads(result)
+
+    def test_handle_correct_fact_missing_key_returns_error(self, provider):
+        result = provider.handle_tool_call("eidolon_correct_fact", {"category": "location", "value": "Berlin"})
+        assert provider._eidolon.correct_fact_calls == 0
+        assert "error" in json.loads(result)
+
+    def test_handle_correct_fact_when_not_initialized(self):
+        from adapters.hermes import EidolonMemoryProvider
+        p = EidolonMemoryProvider()
+        result = p.handle_tool_call("eidolon_correct_fact", {"category": "location", "key": "city", "value": "Berlin"})
+        assert "error" in json.loads(result)
 
     def test_on_session_switch_resets_topic(self, provider):
         provider._sessions["sess_1"] = SessionState(active_topic_id=42)

@@ -723,3 +723,88 @@ class TestEidolonTracing:
             environment=EnvironmentSnapshot(),
             new_topic_label="Test",
         )
+
+
+class TestCorrectFact:
+    def test_upserts_with_source_user(self):
+        storage = MockStorage()
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        eidolon.correct_fact("user", "location", "city", "Berlin")
+
+        facts = storage.get_facts("user")
+        assert len(facts) == 1
+        assert facts[0].category == "location"
+        assert facts[0].key == "city"
+        assert facts[0].value == "Berlin"
+        assert facts[0].source == "user"
+
+    def test_updates_existing_key_in_place(self):
+        storage = MockStorage()
+        storage.set_fact("user", "location", "city", "Hamburg", source="ai")
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        eidolon.correct_fact("user", "location", "city", "Berlin")
+
+        facts = storage.get_facts("user")
+        assert len(facts) == 1
+        assert facts[0].value == "Berlin"
+
+    def test_none_value_deletes(self):
+        storage = MockStorage()
+        storage.set_fact("user", "lifestyle", "smoking", "occasionally", source="ai")
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        eidolon.correct_fact("user", "lifestyle", "smoking", None)
+
+        assert storage.get_facts("user") == []
+
+    def test_blank_value_deletes(self):
+        storage = MockStorage()
+        storage.set_fact("user", "lifestyle", "smoking", "occasionally", source="ai")
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        eidolon.correct_fact("user", "lifestyle", "smoking", "   ")
+
+        assert storage.get_facts("user") == []
+
+    def test_normalizes_category_and_key_casing(self):
+        storage = MockStorage()
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        eidolon.correct_fact("user", "  Location ", "CITY", "Berlin")
+
+        facts = storage.get_facts("user")
+        assert facts[0].category == "location"
+        assert facts[0].key == "city"
+
+    def test_records_fact_correction_event_on_upsert(self):
+        storage = MockStorage()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder(), tracer=tracer)
+
+        eidolon.correct_fact(
+            "user", "location", "city", "Berlin", request_id="req1", session_id="sess1",
+        )
+
+        events = tracer.events_of_type("fact_correction")
+        assert len(events) == 1
+        event = events[0]
+        assert event["request_id"] == "req1"
+        assert event["session_id"] == "sess1"
+        assert event["payload"] == {
+            "peer_id": "user", "category": "location", "key": "city",
+            "value": "Berlin", "action": "upsert",
+        }
+
+    def test_records_fact_correction_event_on_delete(self):
+        storage = MockStorage()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder(), tracer=tracer)
+
+        eidolon.correct_fact("user", "lifestyle", "smoking", None)
+
+        events = tracer.events_of_type("fact_correction")
+        assert len(events) == 1
+        assert events[0]["payload"]["action"] == "delete"
+        assert events[0]["payload"]["value"] is None

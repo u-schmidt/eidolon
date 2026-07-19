@@ -130,6 +130,15 @@ Eidolon loads its configuration from `eidolon.yaml` in the profile root director
 
 **Total per turn:** ~150-250 tokens + 2 embedding calls, plus one larger consolidation call every N turns.
 
+### Tool calls
+
+`get_tool_schemas()` exposes two tools the LLM can call explicitly:
+
+| Tool | Effect |
+|---|---|
+| `eidolon_search` | Read-only associative retrieval for an explicit query. |
+| `eidolon_correct_fact` | Upserts or deletes one fact immediately, bypassing consolidation. Use when the user says a remembered fact is wrong or should be forgotten. Omit `value` to delete. See the main [README's Tool Calls section](../../README.md#tool-calls). |
+
 ## Development
 
 ### Running tests
