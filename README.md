@@ -24,10 +24,13 @@ eidolon/
 │   └── sentence_transformers.py  #   Local PyTorch embeddings (fallback)
 ├── tools/                    # Standalone tools
 │   ├── cli.py                #   CLI for testing without Hermes
-│   └── trace.py              #   Terminal viewer for debug trace events
+│   ├── trace.py              #   Terminal viewer for debug trace events
+│   ├── trace_tui.py          #   Interactive drill-down TUI over trace.db (needs `tui` extra)
+│   └── tui/                  #   Textual screens for trace_tui.py
 ├── tests/                    # Test suite
 │   ├── core/                 #   Core tests (incl. core/trace/)
-│   └── adapters/hermes/      #   Adapter tests
+│   ├── adapters/hermes/      #   Adapter tests
+│   └── tools/                #   Trace viewer + TUI tests
 ├── eidolon.example.yaml      # Example configuration
 ├── AGENTS.md                 # Coding conventions
 ├── plan.md                   # Phase 1 implementation plan
@@ -187,6 +190,14 @@ python tools/trace.py --db ~/.eidolon/trace.db
 python tools/trace.py --db ~/.eidolon/trace.db --session <session_id> --last 5
 ```
 
+Or explore interactively with the Textual-based TUI (`uv sync --extra tui` first): a drill-down list of recent turns → prefetch/sync_turn → individual steps → for context_retrieval, the full scored candidate ranking (topics/memory items with similarity scores) behind what actually got injected into the prompt.
+
+```bash
+python tools/trace_tui.py --db ~/.eidolon/trace.db
+```
+
+Both tools share the same request_id: the Hermes adapter and `tools/cli.py` both mint one id per turn and reuse it across prefetch and sync_turn, so a turn's events all group together instead of appearing as unrelated requests.
+
 ## Development
 
 ### Running Tests
@@ -206,8 +217,8 @@ uv run pytest tests/adapters/ -v
 
 | Phase | Status | What |
 |---|---|---|
-| **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing, 175+ tests |
-| **Phase 2** | 🔜 Next | Topic-Only Mode, batch fact extraction, cluster summarization, Textual TUI |
+| **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, 239+ tests |
+| **Phase 2** | 🔜 Next | Topic-Only Mode, batch fact extraction, cluster summarization |
 | **Phase 3** | ⏳ TBD | Production deployment, performance optimization |
 
 ## Roadmap
@@ -220,12 +231,12 @@ See [`plan.md`](plan.md) for the detailed Phase 1 implementation plan.
 - **Batch Fact Extraction (Cron)** — Collect fact-type items over multiple turns, extract in a single batch LLM call (cost optimization)
 - **Cluster Summarization** — Group related topics, generate cluster summaries
 - **Alternative Storage** — pgvector (already running in the target deployment; migration not yet started)
-- **TUI** — Textual-based debug/analysis interface, built on top of the trace database (see [Debug Tracing](#debug-tracing)) — the data layer and a terminal viewer (`tools/trace.py`) exist; the interactive TUI itself is still pending
 
 ### Done ahead of schedule
 
 - **Weighted Associations** — retrieval weights (`semantic`/`tag_overlap`/`person`/`temporal`) are configurable and actually wired into scoring
 - **Debug Tracing** — see [Debug Tracing](#debug-tracing) above
+- **TUI** — Textual-based interactive drill-down explorer over the trace database (`tools/trace_tui.py`), see [Debug Tracing](#debug-tracing)
 
 ## License
 

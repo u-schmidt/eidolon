@@ -16,6 +16,9 @@ dev = [
 sentence-transformers = [
     "sentence-transformers>=3",
 ]
+tui = [
+    "textual>=0.60",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
