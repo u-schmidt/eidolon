@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -203,6 +204,11 @@ class EidolonMemoryProvider(MemoryProvider):
         try:
             session = self._get_or_create_session(session_id)
             resolved_session_id = self._resolve_session_id(session_id)
+            # One id for this whole turn — shared by both calls below, and
+            # reused by the matching sync_turn() call later, so a turn's
+            # trace events all land under one request_id instead of three
+            # unrelated ones (see SessionState.pending_request_id).
+            turn_request_id = uuid.uuid4().hex[:8]
 
             # Detect topic — the user's message is the only input that
             # ever matters here (see sync_turn(), which reuses this
@@ -211,9 +217,11 @@ class EidolonMemoryProvider(MemoryProvider):
                 message=query,
                 active_topic_id=session.active_topic_id,
                 session_id=resolved_session_id,
+                request_id=turn_request_id,
             )
             session.pending_topic_change = topic_change
             session.pending_query = query
+            session.pending_request_id = turn_request_id
 
             # Retrieve context
             is_new = topic_change.type == "NEW_TOPIC"
@@ -224,6 +232,7 @@ class EidolonMemoryProvider(MemoryProvider):
                 topic_label=topic_change.label,
                 is_new_topic=is_new,
                 session_id=resolved_session_id,
+                request_id=turn_request_id,
             )
 
             # Build formatted context string
@@ -298,19 +307,24 @@ class EidolonMemoryProvider(MemoryProvider):
             # decision for this message (e.g. sync_turn() was called
             # without a preceding prefetch()) — never trust a cached
             # decision for a different message.
-            if (
+            cache_hit = (
                 session.pending_topic_change is not None
                 and session.pending_query == user_content
-            ):
+            )
+            if cache_hit:
                 topic_change = session.pending_topic_change
+                turn_request_id = session.pending_request_id
             else:
+                turn_request_id = None  # store_turn() mints its own below
                 topic_change = self._eidolon.detect_topic(
                     message=user_content,
                     active_topic_id=session.active_topic_id,
                     session_id=resolved_session_id,
+                    request_id=turn_request_id,
                 )
             session.pending_topic_change = None
             session.pending_query = None
+            session.pending_request_id = None
 
             is_new = topic_change.type == "NEW_TOPIC"
             old_topic_id = session.active_topic_id
@@ -325,6 +339,7 @@ class EidolonMemoryProvider(MemoryProvider):
                 old_topic_id=old_topic_id,
                 new_topic_label=new_topic_label,
                 session_id=resolved_session_id,
+                request_id=turn_request_id,
             )
 
             # Update active topic

@@ -102,6 +102,7 @@ class Eidolon:
         active_topic_id: int | None = None,
         *,
         session_id: str | None = None,
+        request_id: str | None = None,
     ) -> ContextBundle:
         """Prepare context for an LLM call.
 
@@ -120,6 +121,10 @@ class Eidolon:
             The current active topic ID from the adapter's state, if any.
         session_id : str | None
             Adapter-level conversation identifier, for trace filtering.
+        request_id : str | None
+            Caller-supplied id to correlate this call's trace events with
+            others from the same turn (e.g. a matching store_turn() call
+            made later). Defaults to a fresh id if not given.
 
         Returns
         -------
@@ -127,7 +132,7 @@ class Eidolon:
             Facts, environment, topic info, related topics, and memory items
             for prompt injection.
         """
-        request_id = _new_request_id()
+        request_id = request_id or _new_request_id()
 
         # 1. Detect topic change
         current_topic_summary = self._get_topic_summary(active_topic_id)
@@ -155,6 +160,7 @@ class Eidolon:
         active_topic_id: int | None = None,
         *,
         session_id: str | None = None,
+        request_id: str | None = None,
     ) -> TopicChange:
         """Detect whether a message continues or changes the topic.
 
@@ -166,6 +172,9 @@ class Eidolon:
             The current active topic ID, if any.
         session_id : str | None
             Adapter-level conversation identifier, for trace filtering.
+        request_id : str | None
+            Caller-supplied id to correlate this call's trace events with
+            others from the same turn. Defaults to a fresh id if not given.
 
         Returns
         -------
@@ -174,7 +183,8 @@ class Eidolon:
         """
         current_topic_summary = self._get_topic_summary(active_topic_id)
         return self._detector.detect(
-            message, current_topic_summary, request_id=_new_request_id(), session_id=session_id
+            message, current_topic_summary,
+            request_id=request_id or _new_request_id(), session_id=session_id,
         )
 
     def get_active_topic(self, peer_id: str) -> int | None:
@@ -206,6 +216,7 @@ class Eidolon:
         is_new_topic: bool = False,
         *,
         session_id: str | None = None,
+        request_id: str | None = None,
     ) -> ContextBundle:
         """Retrieve relevant context for a message.
 
@@ -223,6 +234,10 @@ class Eidolon:
             True if this is a NEW_TOPIC, False if CONTINUE.
         session_id : str | None
             Adapter-level conversation identifier, for trace filtering.
+        request_id : str | None
+            Caller-supplied id to correlate this call's trace events with
+            others from the same turn (e.g. a preceding detect_topic()
+            call). Defaults to a fresh id if not given.
 
         Returns
         -------
@@ -235,7 +250,7 @@ class Eidolon:
             environment=environment,
             topic_label=topic_label,
             is_new_topic=is_new_topic,
-            request_id=_new_request_id(),
+            request_id=request_id or _new_request_id(),
             session_id=session_id,
         )
 
@@ -250,6 +265,7 @@ class Eidolon:
         new_topic_label: str | None = None,
         *,
         session_id: str | None = None,
+        request_id: str | None = None,
     ) -> int | None:
         """Store a conversation turn after the LLM has responded.
 
@@ -281,13 +297,18 @@ class Eidolon:
             The label for the new topic (if a topic change occurred).
         session_id : str | None
             Adapter-level conversation identifier, for trace filtering.
+        request_id : str | None
+            Caller-supplied id to correlate this call's trace events with
+            others from the same turn (e.g. a preceding prefetch's
+            detect_topic()/retrieve_context() calls). Defaults to a fresh
+            id if not given. Unrelated to `turn_id` above.
 
         Returns
         -------
         int | None
             The new topic ID if a topic was created, None otherwise.
         """
-        request_id = _new_request_id()
+        request_id = request_id or _new_request_id()
         turn_started = time.perf_counter()
 
         # 1. Close old topic if topic changed — and generate summary + tags

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import uuid
 from pathlib import Path
 
 # Ensure the project root is on sys.path for direct execution
@@ -261,8 +262,13 @@ def main() -> None:
 
         print(f"  ─── Turn {turn_count} ───")
 
+        # One id for the whole turn, so tools/trace.py shows detect_topic,
+        # retrieve_context, and store_turn as a single grouped request
+        # instead of three unrelated ones.
+        turn_request_id = uuid.uuid4().hex[:8]
+
         # Step 1: Detect topic
-        topic_change = eidolon.detect_topic(text, active_topic_id)
+        topic_change = eidolon.detect_topic(text, active_topic_id, request_id=turn_request_id)
         print(f"  Topic: {topic_change.type}", end="")
         if topic_change.label:
             print(f" → '{topic_change.label}'", end="")
@@ -276,6 +282,7 @@ def main() -> None:
             environment=env,
             topic_label=topic_change.label,
             is_new_topic=is_new,
+            request_id=turn_request_id,
         )
 
         if bundle.facts:
@@ -349,6 +356,7 @@ def main() -> None:
             turn_id=turn_count,
             old_topic_id=old_topic_id,
             new_topic_label=new_topic_label,
+            request_id=turn_request_id,
         )
 
         # Update session state with the returned topic ID

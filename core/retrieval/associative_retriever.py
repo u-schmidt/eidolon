@@ -158,9 +158,27 @@ class AssociativeRetriever:
                 "topic_label": topic_label,
                 "is_new_topic": is_new_topic,
                 "tags": tags,
-                "facts_count": len(facts),
-                "related_topics": [{"id": t.topic_id, "summary": t.summary} for t in related_topics],
-                "memory_items_count": len(memory_items),
+                "environment": {
+                    "situation": environment.situation,
+                    "location": environment.location,
+                    "time": environment.time.isoformat() if environment.time else None,
+                    "day_of_week": environment.day_of_week,
+                },
+                "facts": [
+                    {"category": f.category, "key": f.key, "value": f.value} for f in facts
+                ],
+                "related_topics": [
+                    {"id": t.topic_id, "summary": t.summary, "tags": t.tags} for t in related_topics
+                ],
+                "memory_items": [
+                    {
+                        "content": mi.content,
+                        "item_type": mi.item_type,
+                        "source_peer": mi.source_peer,
+                        "subject_peer": mi.subject_peer,
+                    }
+                    for mi in memory_items
+                ],
             },
             request_id=request_id,
             session_id=session_id,

@@ -146,15 +146,26 @@ class TracePrinter:
         print(f"    text: {_truncate(p.get('text'))}")
 
     def _print_context_retrieval(self, p: dict) -> None:
+        facts = p.get("facts", [])
+        related_topics = p.get("related_topics", [])
+        memory_items = p.get("memory_items", [])
         print(f"    message: {_truncate(p.get('message'))}")
         print(f"    topic_label: {p.get('topic_label')}  is_new_topic: {p.get('is_new_topic')}")
         print(
-            f"    facts: {p.get('facts_count')}  "
-            f"related_topics: {len(p.get('related_topics', []))}  "
-            f"memory_items: {p.get('memory_items_count')}"
+            f"    facts: {len(facts)}  "
+            f"related_topics: {len(related_topics)}  "
+            f"memory_items: {len(memory_items)}"
         )
-        for rt in p.get("related_topics", []):
+        for f in facts:
+            print(f"      - fact: {f.get('category')}.{f.get('key')} = {f.get('value')}")
+        for rt in related_topics:
             print(f"      - topic #{rt.get('id')}: {_truncate(rt.get('summary'))}")
+        for mi in memory_items:
+            print(
+                f"      - item [{mi.get('item_type')}] "
+                f"({mi.get('source_peer')} about {mi.get('subject_peer')}): "
+                f"{_truncate(mi.get('content'))}"
+            )
 
     def _print_retrieval_candidate_scored(self, p: dict) -> None:
         mark = "✓" if p.get("included") else " "

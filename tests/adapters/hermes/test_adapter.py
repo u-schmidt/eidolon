@@ -28,18 +28,29 @@ class MockEidolon:
         self.last_get_active_topic_peer_id: str | None = None
         self.last_session_id: str | None = None
         self.last_peer_id: str | None = None
+        self.last_request_id: str | None = None
+        self.request_ids_seen: list[str | None] = []
 
     def get_active_topic(self, peer_id: str) -> int | None:
         self.get_active_topic_calls += 1
         self.last_get_active_topic_peer_id = peer_id
         return self.active_topic_to_resume
 
-    def detect_topic(self, message: str, active_topic_id: int | None = None, *, session_id: str | None = None):
+    def detect_topic(
+        self,
+        message: str,
+        active_topic_id: int | None = None,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ):
         from core.models import TopicChange
         self.detect_topic_calls += 1
         self.last_message = message
         self.last_active_topic_id = active_topic_id
         self.last_session_id = session_id
+        self.last_request_id = request_id
+        self.request_ids_seen.append(request_id)
         return TopicChange(type="NEW_TOPIC", label="Test Topic")
 
     def retrieve_context(
@@ -51,10 +62,13 @@ class MockEidolon:
         is_new_topic: bool = False,
         *,
         session_id: str | None = None,
+        request_id: str | None = None,
     ) -> ContextBundle:
         self.retrieve_context_calls += 1
         self.last_session_id = session_id
         self.last_peer_id = peer_id
+        self.last_request_id = request_id
+        self.request_ids_seen.append(request_id)
         return ContextBundle(
             current_topic_label=topic_label or "Test Topic",
             facts=[Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")],
@@ -77,6 +91,7 @@ class MockEidolon:
         new_topic_label: str | None = None,
         *,
         session_id: str | None = None,
+        request_id: str | None = None,
     ) -> int | None:
         self.store_turn_calls += 1
         self.last_message = user_message
@@ -86,6 +101,8 @@ class MockEidolon:
         self.last_old_topic_id = old_topic_id
         self.last_new_topic_label = new_topic_label
         self.last_session_id = session_id
+        self.last_request_id = request_id
+        self.request_ids_seen.append(request_id)
         return 42  # new topic id
 
 
@@ -246,6 +263,47 @@ class TestEidolonMemoryProvider:
         session = provider._sessions["sess_1"]
         assert session.pending_topic_change is None
         assert session.pending_query is None
+
+    def test_prefetch_shares_one_request_id_across_detect_and_retrieve(self, provider):
+        provider.prefetch("hello", session_id="sess_1")
+        eidolon = provider._eidolon
+        assert len(eidolon.request_ids_seen) == 2
+        assert eidolon.request_ids_seen[0] is not None
+        assert eidolon.request_ids_seen[0] == eidolon.request_ids_seen[1]
+
+    def test_sync_turn_reuses_prefetchs_request_id_on_cache_hit(self, provider):
+        provider.prefetch("hello", session_id="sess_1")
+        prefetch_request_id = provider._eidolon.request_ids_seen[0]
+
+        provider.sync_turn(
+            user_content="hello", assistant_content="hi", session_id="sess_1"
+        )
+
+        # store_turn's request_id (the 3rd call recorded) must match the
+        # id prefetch's two calls already shared — one id for the turn.
+        assert provider._eidolon.request_ids_seen == [
+            prefetch_request_id, prefetch_request_id, prefetch_request_id
+        ]
+
+    def test_sync_turn_gets_fresh_request_id_on_cache_miss(self, provider):
+        # No preceding prefetch() — store_turn() must get request_id=None
+        # and mint its own, exactly like today's fallback behavior.
+        provider.sync_turn(
+            user_content="hello", assistant_content="hi", session_id="sess_1"
+        )
+        eidolon = provider._eidolon
+        # detect_topic (fallback) and store_turn both got request_id=None
+        # passed in from the adapter — each mints its own independently
+        # inside the real Eidolon core; the mock just records what it
+        # was handed.
+        assert eidolon.request_ids_seen == [None, None]
+
+    def test_prefetch_clears_pending_request_id_after_sync_turn(self, provider):
+        provider.prefetch("hello", session_id="sess_1")
+        provider.sync_turn(
+            user_content="hello", assistant_content="hi", session_id="sess_1"
+        )
+        assert provider._sessions["sess_1"].pending_request_id is None
 
     def test_sessions_are_isolated_by_session_id(self, provider):
         provider.prefetch("hello A", session_id="sess_a")

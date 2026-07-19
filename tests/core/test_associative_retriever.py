@@ -343,7 +343,45 @@ class TestAssociativeRetriever:
         assert event["session_id"] == "sess1"
         assert event["duration_ms"] is not None
         assert event["payload"]["message"] == "Lass uns über Bello sprechen"
-        assert event["payload"]["related_topics"] == [{"id": 1, "summary": "About Bello"}]
+        assert event["payload"]["related_topics"] == [
+            {"id": 1, "summary": "About Bello", "tags": ["bello"]}
+        ]
+
+    def test_context_retrieval_event_carries_full_content_not_counts(self):
+        """The payload must carry actual fact/memory-item/environment content
+        for a debug UI to display — not just counts, which was the previous
+        (insufficient) shape."""
+        storage = MockStorage()
+        storage.facts = [
+            Fact(peer_id="user", category="fitness", key="gym", value="FitZone", source="user"),
+        ]
+        storage.memory_items = [
+            MemoryItem(content="User likes FitZone", item_type="essence",
+                       source_peer="user", subject_peer="user", attribution_type="self_statement"),
+        ]
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        retriever = AssociativeRetriever(storage, embedder, tracer=tracer)
+
+        retriever.retrieve(
+            message="hello",
+            peer_id="user",
+            environment=EnvironmentSnapshot(situation="conversation", location="home"),
+            topic_label=None,
+            is_new_topic=False,
+            request_id="req1",
+        )
+
+        payload = tracer.events_of_type("context_retrieval")[0]["payload"]
+        assert "facts_count" not in payload
+        assert "memory_items_count" not in payload
+        assert payload["facts"] == [{"category": "fitness", "key": "gym", "value": "FitZone"}]
+        assert payload["memory_items"] == [
+            {"content": "User likes FitZone", "item_type": "essence",
+             "source_peer": "user", "subject_peer": "user"}
+        ]
+        assert payload["environment"]["situation"] == "conversation"
+        assert payload["environment"]["location"] == "home"
 
     def test_records_query_embedding_event(self):
         storage = MockStorage()

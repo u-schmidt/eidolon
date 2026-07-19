@@ -33,8 +33,15 @@ class SessionState:
         The user message ``pending_topic_change`` was computed for — lets
         ``sync_turn()`` verify the cached decision is actually for this
         turn before trusting it.
+    pending_request_id : str | None
+        The trace ``request_id`` ``prefetch()`` minted for this turn's
+        ``detect_topic()``/``retrieve_context()`` calls. Reused by
+        ``sync_turn()``'s ``store_turn()`` call (under the same
+        ``pending_query`` validity check) so a whole turn's trace events
+        share one id instead of three unrelated ones.
     """
 
     active_topic_id: int | None = None
     pending_topic_change: TopicChange | None = None
     pending_query: str | None = None
+    pending_request_id: str | None = None

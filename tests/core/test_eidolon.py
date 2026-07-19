@@ -355,6 +355,63 @@ class TestEidolonTracing:
         assert event["payload"]["new_topic_label"] == "Bello Features"
         assert event["payload"]["new_topic_id"] is not None
 
+    def test_detect_topic_honors_caller_supplied_request_id(self):
+        storage = MockStorage()
+        llm = MockLLM()
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.detect_topic("hello", request_id="fixed-id")
+
+        assert {e["request_id"] for e in tracer.events} == {"fixed-id"}
+
+    def test_retrieve_context_honors_caller_supplied_request_id(self):
+        storage = MockStorage()
+        llm = MockLLM()
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.retrieve_context(
+            message="hello", peer_id="user", environment=EnvironmentSnapshot(),
+            request_id="fixed-id",
+        )
+
+        assert {e["request_id"] for e in tracer.events} == {"fixed-id"}
+
+    def test_store_turn_honors_caller_supplied_request_id(self):
+        storage = MockStorage()
+        llm = MockLLM(extraction_response="[]")
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.store_turn(
+            user_message="hi", ai_response="hey", peer_id="user",
+            environment=EnvironmentSnapshot(), request_id="fixed-id",
+        )
+
+        assert {e["request_id"] for e in tracer.events} == {"fixed-id"}
+
+    def test_detect_topic_and_retrieve_context_share_caller_request_id(self):
+        """The core mechanism the Hermes adapter relies on to correlate a
+        whole turn: passing the same request_id into both of prefetch()'s
+        calls must produce one unified group of trace events, not two."""
+        storage = MockStorage()
+        llm = MockLLM()
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.detect_topic("hello", request_id="turn-1")
+        eidolon.retrieve_context(
+            message="hello", peer_id="user", environment=EnvironmentSnapshot(),
+            request_id="turn-1",
+        )
+
+        assert {e["request_id"] for e in tracer.events} == {"turn-1"}
+
     def test_store_turn_events_share_request_id(self):
         storage = MockStorage()
         llm = MockLLM(
