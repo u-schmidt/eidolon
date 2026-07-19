@@ -15,18 +15,21 @@ eidolon/
 │   ├── extraction/           #   Fragmentary Extractor (essence, facts, surprises, feelings)
 │   ├── retrieval/            #   Associative Retriever (semantic + tag + person + time)
 │   ├── stores/               #   SQLite store with auto-migration
-│   └── trace/                #   Debug tracer (NullTracer / SqliteTracer), off by default
+│   ├── trace/                #   Debug tracer (NullTracer / SqliteTracer), off by default
+│   ├── providers/            #   Provider implementations (one class per service)
+│   │   ├── lm_studio.py      #     LM Studio: complete() + embed()
+│   │   ├── ollama.py         #     Ollama: complete() + embed() (OpenAI-compatible)
+│   │   ├── sentence_transformers.py  # Local PyTorch embeddings (fallback)
+│   │   └── simulated.py      #     Deterministic fake provider for tests/CLI dry-runs
+│   └── context_formatter.py  #   Renders a ContextBundle into the prompt-injection text
 ├── adapters/                 # Platform-specific adapters
 │   └── hermes/               #   Hermes MemoryProvider plugin
-├── providers/                # Provider implementations (one class per service)
-│   ├── lm_studio.py          #   LM Studio: complete() + embed()
-│   ├── ollama.py             #   Ollama: complete() + embed() (OpenAI-compatible)
-│   └── sentence_transformers.py  #   Local PyTorch embeddings (fallback)
 ├── tools/                    # Standalone tools
 │   ├── cli.py                #   CLI for testing without Hermes
 │   ├── trace.py              #   Terminal viewer for debug trace events
 │   ├── trace_tui.py          #   Interactive drill-down TUI over trace.db (needs `tui` extra)
-│   └── tui/                  #   Textual screens for trace_tui.py
+│   ├── tui/                  #   Textual screens for trace_tui.py
+│   └── simulate_injection.py #   Replays a turn's prefetch() injection string from trace.db
 ├── tests/                    # Test suite
 │   ├── core/                 #   Core tests (incl. core/trace/)
 │   ├── adapters/hermes/      #   Adapter tests
@@ -198,6 +201,18 @@ python tools/trace_tui.py --db ~/.eidolon/trace.db
 
 Both tools share the same request_id: the Hermes adapter and `tools/cli.py` both mint one id per turn and reuse it across prefetch and sync_turn, so a turn's events all group together instead of appearing as unrelated requests.
 
+To see exactly what a past turn's prefetch() returned for prompt injection, without a live Eidolon instance:
+
+```bash
+# Most recent turn
+python tools/simulate_injection.py --db ~/.eidolon/trace.db
+
+# A specific turn
+python tools/simulate_injection.py --db ~/.eidolon/trace.db --request-id <request_id>
+```
+
+It replays the turn's recorded `context_retrieval` event through `core/context_formatter.py`'s `ContextFormatter` — the same formatter `prefetch()` itself calls — so the output can never drift from what actually happened.
+
 ## Development
 
 ### Running Tests
@@ -217,7 +232,7 @@ uv run pytest tests/adapters/ -v
 
 | Phase | Status | What |
 |---|---|---|
-| **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, 239+ tests |
+| **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, 255+ tests |
 | **Phase 2** | 🔜 Next | Topic-Only Mode, batch fact extraction, cluster summarization |
 | **Phase 3** | ⏳ TBD | Production deployment, performance optimization |
 

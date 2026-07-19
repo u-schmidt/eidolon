@@ -10,8 +10,7 @@
 plugins/eidolon/              ← Hermes plugin root (flat, no memory/ subdir!)
 ├── __init__.py               # MemoryProvider implementation + register()
 ├── plugin.yaml               # Metadata (name, description, hooks)
-├── core/                     # Eidolon core library
-├── providers/                # Provider implementations (LM Studio, Ollama, etc.)
+├── core/                     # Eidolon core library (incl. core/providers/: LM Studio, Ollama, etc.)
 ├── adapters/hermes/          # Hermes adapter implementation
 ├── tools/                    # CLI for standalone testing
 ├── eidolon.example.yaml      # Example configuration

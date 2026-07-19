@@ -35,6 +35,7 @@ from adapters.hermes.session_state import SessionState
 from core import Eidolon
 from core.config import EidolonConfig
 from core.config_loader import ConfigLoader
+from core.context_formatter import ContextFormatter
 from core.models import EnvironmentSnapshot
 from core.provider_factory import ProviderFactory
 
@@ -235,35 +236,7 @@ class EidolonMemoryProvider(MemoryProvider):
                 request_id=turn_request_id,
             )
 
-            # Build formatted context string
-            parts: list[str] = []
-
-            if bundle.current_topic_label:
-                parts.append(f"[Current topic: {bundle.current_topic_label}]")
-
-            if bundle.facts:
-                fact_lines = []
-                for f in bundle.facts:
-                    fact_lines.append(f"- {f.category}: {f.key} = {f.value}")
-                parts.append("[Known facts]\n" + "\n".join(fact_lines))
-
-            if bundle.related_topics:
-                topic_lines = []
-                for rt in bundle.related_topics:
-                    tags = ", ".join(rt.tags) if rt.tags else ""
-                    tag_str = f" ({tags})" if tags else ""
-                    topic_lines.append(f"- {rt.summary}{tag_str}")
-                parts.append("[Related topics]\n" + "\n".join(topic_lines))
-
-            if bundle.memory_items:
-                item_lines = []
-                for mi in bundle.memory_items:
-                    item_lines.append(
-                        f"- [{mi.item_type}] ({mi.source_peer} about {mi.subject_peer}): {mi.content}"
-                    )
-                parts.append("[Memory fragments]\n" + "\n".join(item_lines))
-
-            return "\n\n".join(parts)
+            return ContextFormatter.format(bundle)
 
         except Exception as e:
             logger.debug("Eidolon prefetch failed (non-fatal): %s", e)
