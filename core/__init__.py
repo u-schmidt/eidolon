@@ -32,6 +32,7 @@ from __future__ import annotations
 import time
 import uuid
 
+from core.consolidation.fact_consolidator import FactConsolidator
 from core.detection.topic_detector import TopicDetector
 from core.extraction.fragmentary_extractor import FragmentaryExtractor
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
@@ -66,6 +67,12 @@ class Eidolon:
         Prompts to the LLM are always in English regardless of this setting.
     retrieval_weights : dict | None
         Optional weight overrides for associative retrieval dimensions.
+    facts_consolidation_interval : int
+        Reconcile the durable-facts profile every N user turns (see
+        ``store_turn``'s step 7 and ``FactConsolidator``).
+    facts_target_max : int
+        Soft guidance passed to ``FactConsolidator`` for the target
+        profile size — not enforced in code, only steered via its prompt.
     tracer : Tracer | None
         Debug tracer recording per-step prompts/responses/scores/durations
         and otherwise-silent failures. Defaults to a no-op tracer — off
@@ -79,6 +86,8 @@ class Eidolon:
         embedder: EmbedderProvider,
         language: str = "en",
         retrieval_weights: dict[str, float] | None = None,
+        facts_consolidation_interval: int = 20,
+        facts_target_max: int = 100,
         tracer: Tracer | None = None,
     ) -> None:
         self._storage = storage
@@ -88,6 +97,10 @@ class Eidolon:
             storage, embedder, retrieval_weights, language, tracer=self._tracer
         )
         self._extractor = FragmentaryExtractor(llm, language, tracer=self._tracer)
+        self._fact_consolidator = FactConsolidator(
+            storage, llm, target_max=facts_target_max, tracer=self._tracer
+        )
+        self._consolidation_interval = facts_consolidation_interval
         self._embedder = embedder
         self._llm = llm
         self._language = language
@@ -402,13 +415,19 @@ class Eidolon:
                     )
                     pass  # Embedding failure is non-critical
             self._storage.store_memory_item(item)
-            # Collect fact-type items for structured fact extraction
+            # Collect fact-type items — no longer converted to facts
+            # immediately (see step 7); kept here only for the
+            # turn_complete trace field below.
             if item.item_type == "fact":
                 fact_items.append(item)
 
-        # 7. Extract structured facts from fact-type memory items
-        if fact_items:
-            self._extract_facts(fact_items, peer_id, request_id=request_id, session_id=session_id)
+        # 7. Periodically reconcile the durable facts profile — a batch
+        # review every N turns instead of a per-turn conversion, so
+        # updates replace stale values in place and the LLM judges what's
+        # actually durable rather than everything fact-shaped becoming a
+        # permanent row. See FactConsolidator.
+        if self._storage.count_user_turns(peer_id) % self._consolidation_interval == 0:
+            self.consolidate_facts(peer_id, request_id=request_id, session_id=session_id)
 
         turn_duration_ms = (time.perf_counter() - turn_started) * 1000
         self._tracer.record(
@@ -428,124 +447,26 @@ class Eidolon:
 
         return new_topic_id
 
-    # ── Internal Helpers ────────────────────────────────────
-
-    def _extract_facts(
+    def consolidate_facts(
         self,
-        fact_items: list[MemoryItem],
         peer_id: str,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
-        """Extract structured facts from fact-type memory items.
+        """Reconcile `peer_id`'s durable-facts profile now.
 
-        Takes memory items with item_type="fact" and asks the LLM to
-        convert them into structured (category, key, value) triples
-        that are stored in the facts table.
-
-        Called async after fragmentary extraction.
-
-        Parameters
-        ----------
-        fact_items : list[MemoryItem]
-            Memory items with item_type="fact" from the current turn.
-        peer_id : str
-            The peer these facts are about.
-        request_id : str | None
-            Correlates this call's trace events with the enclosing
-            ``store_turn`` call.
-        session_id : str | None
-            Adapter-level conversation identifier, for trace filtering.
+        Normally triggered automatically from `store_turn` every N
+        turns (see step 7); exposed publicly so adapters/tools can also
+        trigger it manually (e.g. a `/consolidate` CLI command) without
+        waiting for the interval. No-ops if nothing new has accumulated
+        since the last successful pass — see `FactConsolidator`.
         """
-        if not fact_items:
-            return
+        self._fact_consolidator.consolidate(
+            peer_id, request_id=request_id or _new_request_id(), session_id=session_id
+        )
 
-        started = time.perf_counter()
-        try:
-            # Build a list of fact statements
-            statements = "\n".join(
-                f"- {item.content}" for item in fact_items
-            )
-
-            prompt = (
-                "Convert these facts about a user into structured (category, key, value) triples.\n\n"
-                f"Facts:\n{statements}\n\n"
-                "Rules:\n"
-                "- category: a broad domain like 'preferences', 'health', 'work', 'fitness', 'lifestyle'\n"
-                "- key: a specific, concise identifier (snake_case, 2-4 words)\n"
-                "- value: the fact itself (1 sentence)\n\n"
-                "Respond with a JSON array only. Example:\n"
-                '[\n'
-                '  {\n'
-                '    "category": "fitness",\n'
-                '    "key": "cardio_clothing_preference",\n'
-                '    "value": "dislikes heavy cotton shirts during cardio"\n'
-                '  }\n'
-                ']\n\n'
-                "If nothing to extract, respond with: []"
-            )
-
-            response = self._llm.complete(
-                prompt=prompt,
-                system_prompt=(
-                    "You extract structured facts from conversation fragments. "
-                    "Output JSON only."
-                ),
-                max_tokens=1000,
-            )
-
-            # Parse JSON response
-            import json
-            text = response.strip()
-            if text.startswith("```"):
-                start = text.find("[")
-                if start != -1:
-                    text = text[start:]
-                end = text.rfind("```")
-                if end != -1:
-                    text = text[:end]
-                text = text.strip()
-
-            structured = json.loads(text)
-            if not isinstance(structured, list):
-                structured = []
-
-            stored_facts: list[dict] = []
-            for fact in structured:
-                category = fact.get("category", "").strip()
-                key = fact.get("key", "").strip()
-                value = fact.get("value", "").strip()
-                if category and key and value:
-                    self._storage.set_fact(
-                        peer_id=peer_id,
-                        category=category,
-                        key=key,
-                        value=value,
-                        source="ai",
-                    )
-                    stored_facts.append({"category": category, "key": key, "value": value})
-
-            self._tracer.record(
-                "fact_extraction",
-                {
-                    "fact_items": [item.content for item in fact_items],
-                    "response": response,
-                    "stored_facts": stored_facts,
-                },
-                request_id=request_id,
-                session_id=session_id,
-                duration_ms=(time.perf_counter() - started) * 1000,
-            )
-        except Exception as exc:
-            self._tracer.record(
-                "error",
-                {"step": "fact_extraction", "exception": repr(exc)},
-                request_id=request_id,
-                session_id=session_id,
-                duration_ms=(time.perf_counter() - started) * 1000,
-            )
-            pass  # Fact extraction failure is non-critical
+    # ── Internal Helpers ────────────────────────────────────
 
     def _summarize_topic(
         self,

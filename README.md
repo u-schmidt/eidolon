@@ -14,6 +14,7 @@ eidolon/
 │   ├── detection/            #   Topic Detector (CONTINUE / NEW_TOPIC)
 │   ├── extraction/           #   Fragmentary Extractor (essence, facts, surprises, feelings)
 │   ├── retrieval/            #   Associative Retriever (semantic + tag + person + time)
+│   ├── consolidation/        #   Fact Consolidator — periodic durable-facts profile reconciliation
 │   ├── stores/               #   SQLite store with auto-migration
 │   ├── trace/                #   Debug tracer (NullTracer / SqliteTracer), off by default
 │   ├── providers/            #   Provider implementations (one class per service)
@@ -50,7 +51,7 @@ eidolon/
 
 | Layer | Description | Persistence |
 |---|---|---|
-| **Facts** | Structured, (near-)constant info about peers (identity, preferences) | Persistent across sessions |
+| **Facts** | A small, curated profile of durable identity-level facts about a peer (name, location, relationships, health, work, stable preferences) — reconciled periodically, not per-turn; see [Facts Consolidation](#facts-consolidation) | Persistent across sessions |
 | **Topics** | Episodic conversation segments with summaries, tags, embeddings | Persistent across sessions |
 | **Memory Items** | Extracted fragments (essence, fact, surprise, feeling) with perspective attribution | Persistent across sessions |
 
@@ -80,13 +81,31 @@ User Message
     ▼
 ┌─────────────────────────────────────┐
 │ 5. Fragmentary Extraction (LLM)     │  ← ASYNC (after LLM response)
-│ 6. Structured Fact Extraction (LLM) │
-│ 7. Topic Summary + Tags (LLM)       │
-│ 8. Embedding storage                │
-└─────────────────────────────────────┘
+│ 6. Topic Summary + Tags (LLM)       │
+│ 7. Embedding storage                │
+│ 8. Facts Consolidation (LLM)        │  ← every N turns, not every turn
+└─────────────────────────────────────┘  see Facts Consolidation below
 ```
 
 Every step above (prompts, responses, durations, retrieval score breakdowns, and otherwise-silent failures) can be recorded to a separate trace database for inspection — see [Debug Tracing](#debug-tracing) below. Off by default; zero behavior/performance impact unless enabled.
+
+## Facts Consolidation
+
+The facts profile is intentionally small (~50-100 entries) and curated, not a growing log — every `item_type="fact"` memory item is still stored and embedded as usual (searchable via associative retrieval, same as any other memory item), but converting a fact-shaped statement into a permanent profile row happens in a periodic **batch reconciliation pass** instead of immediately on every turn.
+
+Every `facts.consolidation_interval` user turns (default 20, see [Configuration](#configuration)), `FactConsolidator` ([`core/consolidation/fact_consolidator.py`](core/consolidation/fact_consolidator.py)) sends the LLM the *entire current profile* plus everything fact-shaped learned since the last pass, and asks for a diff — only what changed:
+
+```json
+{"upserts": [{"category": "location", "key": "city", "value": "Berlin"}], "deletes": [{"category": "lifestyle", "key": "smoking"}]}
+```
+
+Seeing the full existing profile each time lets the LLM reuse an existing `(category, key)` when the same concept is being confirmed or corrected — moving to Berlin updates the existing `location` entry in place instead of adding a duplicate — while omitted entries are left untouched. A checkpoint (the highest `memory_items.id` already incorporated) ensures a failed pass gets retried at the next trigger rather than silently dropping those facts.
+
+Trigger it manually any time — useful for testing without waiting N turns:
+
+```
+You > /consolidate
+```
 
 ## Quick Start
 
@@ -162,6 +181,10 @@ models:
     base_url: http://192.168.178.81:1234
     model: text-embedding-bge-m3
 
+facts:
+  consolidation_interval: 20  # See Facts Consolidation above
+  target_max: 100
+
 debug:
   enabled: false             # See Debug Tracing below
   trace_db_path: ~/.eidolon/trace.db
@@ -171,7 +194,7 @@ debug:
 
 ## Debug Tracing
 
-Off by default, zero behavior/performance impact unless enabled. When on, every step in the [Per-Turn Flow](#per-turn-flow) — topic detection, extraction, fact extraction, topic summarization, every embedding call, and retrieval (including per-candidate similarity scores *before and after* weighting) — is recorded as a structured event to a **separate** SQLite database, not the main memory DB. Previously-silent failures (extraction/summarization/embedding errors that would otherwise vanish into a bare `except: pass`) are recorded as `error` events instead of disappearing.
+Off by default, zero behavior/performance impact unless enabled. When on, every step in the [Per-Turn Flow](#per-turn-flow) — topic detection, extraction, facts consolidation, topic summarization, every embedding call, and retrieval (including per-candidate similarity scores *before and after* weighting) — is recorded as a structured event to a **separate** SQLite database, not the main memory DB. Previously-silent failures (extraction/summarization/embedding/consolidation errors that would otherwise vanish into a bare `except: pass`) are recorded as `error` events instead of disappearing.
 
 Enable it via `eidolon.yaml`:
 
@@ -232,7 +255,7 @@ uv run pytest tests/adapters/ -v
 
 | Phase | Status | What |
 |---|---|---|
-| **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, 255+ tests |
+| **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, batch facts consolidation, 297+ tests |
 | **Phase 2** | 🔜 Next | Topic-Only Mode, batch fact extraction, cluster summarization |
 | **Phase 3** | ⏳ TBD | Production deployment, performance optimization |
 
@@ -243,7 +266,6 @@ See [`plan.md`](plan.md) for the detailed Phase 1 implementation plan.
 ### Phase 2 (Planned)
 
 - **Topic-Only Mode** — Run alongside Honcho via pre_llm_call hook (fallback if Full Mode isn't sufficient; scaffolded in `adapters/hermes/llm_hook.py`, not yet wired to a live Hermes hook)
-- **Batch Fact Extraction (Cron)** — Collect fact-type items over multiple turns, extract in a single batch LLM call (cost optimization)
 - **Cluster Summarization** — Group related topics, generate cluster summaries
 - **Alternative Storage** — pgvector (already running in the target deployment; migration not yet started)
 
@@ -252,6 +274,7 @@ See [`plan.md`](plan.md) for the detailed Phase 1 implementation plan.
 - **Weighted Associations** — retrieval weights (`semantic`/`tag_overlap`/`person`/`temporal`) are configurable and actually wired into scoring
 - **Debug Tracing** — see [Debug Tracing](#debug-tracing) above
 - **TUI** — Textual-based interactive drill-down explorer over the trace database (`tools/trace_tui.py`), see [Debug Tracing](#debug-tracing)
+- **Batch Facts Consolidation** — turn-interval-triggered (not cron, since there's no scheduler concept yet) periodic reconciliation of the durable-facts profile, replacing per-turn extraction — see [Facts Consolidation](#facts-consolidation)
 
 ## License
 

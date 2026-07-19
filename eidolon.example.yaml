@@ -57,6 +57,14 @@ retrieval:
   person: 0.2                # Same peer/speaker weight
   temporal: 0.1              # Temporal closeness weight
 
+# ── Durable Facts Profile ───────────────────────────────────
+# The small, curated profile (name, location, partner, work, ...) is
+# reconciled in a periodic batch pass, not per-turn — see
+# core/consolidation/fact_consolidator.py.
+facts:
+  consolidation_interval: 20  # Reconcile every N user turns
+  target_max: 100             # Soft guidance to the LLM, not hard-enforced
+
 # ── Debug Tracing ──────────────────────────────────────────
 # Off by default — zero behavior/performance impact when disabled.
 # When enabled, records per-step trace events (prompts, responses,

@@ -46,6 +46,64 @@ class TestFacts:
         assert facts[0].value == "Alex Morgan"
         assert facts[0].source == "ai"
 
+    def test_delete_fact(self, store: SqliteStore):
+        store.set_fact("user", "basic", "name", "Alex", "user")
+        store.delete_fact("user", "basic", "name")
+        assert store.get_facts("user") == []
+
+    def test_delete_fact_missing_is_a_noop(self, store: SqliteStore):
+        store.delete_fact("user", "basic", "name")  # must not raise
+        assert store.get_facts("user") == []
+
+
+class TestFactsConsolidation:
+    def test_count_user_turns_only_counts_user_role(self, store: SqliteStore):
+        store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        store.store_message(turn_id=1, role="ai", content="hello", peer_id="ai")
+        store.store_message(turn_id=2, role="user", content="hi again", peer_id="user")
+
+        assert store.count_user_turns("user") == 2
+        assert store.count_user_turns("someone_else") == 0
+
+    def test_get_fact_items_since_filters_by_type_subject_and_id(self, store: SqliteStore):
+        fact_item = MemoryItem(
+            content="likes cats", item_type="fact",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+        )
+        essence_item = MemoryItem(
+            content="chatted about weather", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+        )
+        other_subject_item = MemoryItem(
+            content="ai likes helping", item_type="fact",
+            source_peer="ai", subject_peer="ai", attribution_type="ai_about_self",
+        )
+        fact_id = store.store_memory_item(fact_item)
+        store.store_memory_item(essence_item)
+        store.store_memory_item(other_subject_item)
+
+        results = store.get_fact_items_since("user", 0)
+        assert [r.content for r in results] == ["likes cats"]
+        assert results[0].id == fact_id
+
+        assert store.get_fact_items_since("user", fact_id) == []
+
+    def test_consolidation_checkpoint_defaults_to_zero(self, store: SqliteStore):
+        assert store.get_consolidation_checkpoint("user") == 0
+
+    def test_consolidation_checkpoint_set_and_get(self, store: SqliteStore):
+        store.set_consolidation_checkpoint("user", 5)
+        assert store.get_consolidation_checkpoint("user") == 5
+
+    def test_consolidation_checkpoint_upserts(self, store: SqliteStore):
+        store.set_consolidation_checkpoint("user", 5)
+        store.set_consolidation_checkpoint("user", 9)
+        assert store.get_consolidation_checkpoint("user") == 9
+
+    def test_consolidation_checkpoint_is_per_peer(self, store: SqliteStore):
+        store.set_consolidation_checkpoint("user", 5)
+        assert store.get_consolidation_checkpoint("other_peer") == 0
+
 
 class TestTopics:
     def test_create_and_get_topic(self, store: SqliteStore):

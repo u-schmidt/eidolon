@@ -34,8 +34,8 @@ class TestClassify:
     def test_extraction_is_sync_turn(self):
         assert classify(_event("extraction")) == SYNC_TURN
 
-    def test_fact_extraction_is_sync_turn(self):
-        assert classify(_event("fact_extraction")) == SYNC_TURN
+    def test_fact_consolidation_is_sync_turn(self):
+        assert classify(_event("fact_consolidation")) == SYNC_TURN
 
     def test_topic_summarization_is_sync_turn(self):
         assert classify(_event("topic_summarization")) == SYNC_TURN

@@ -85,6 +85,12 @@ Examples:
     parser.add_argument("--retrieval-person", type=float, default=None, help="Person weight (0-1)")
     parser.add_argument("--retrieval-temporal", type=float, default=None, help="Temporal weight (0-1)")
 
+    # Facts consolidation
+    parser.add_argument("--facts-consolidation-interval", type=int, default=None,
+                        help="Reconcile the durable facts profile every N user turns")
+    parser.add_argument("--facts-target-max", type=int, default=None,
+                        help="Soft target size for the durable facts profile")
+
     # General
     parser.add_argument("--language", default=None, help="Language code (default: en)")
     parser.add_argument("--db", "--db-path", dest="storage_path", default=None, help="Database path (alias for --storage-path)")
@@ -112,6 +118,7 @@ def print_help() -> None:
     print("    <message>     Send a message (topic detection + context retrieval)")
     print("    /topic        Show the current active topic")
     print("    /facts        Show stored facts")
+    print("    /consolidate  Manually reconcile the durable facts profile now")
     print("    /topics       List all topics")
     print("    /items        List stored memory items")
     print("    /new          Start a new session (reset active topic)")
@@ -160,6 +167,8 @@ def main() -> None:
             "person": config.retrieval.person,
             "temporal": config.retrieval.temporal,
         },
+        facts_consolidation_interval=config.facts.consolidation_interval,
+        facts_target_max=config.facts.target_max,
         tracer=tracer,
     )
 
@@ -218,6 +227,13 @@ def main() -> None:
                     print(f"  Facts ({len(facts)}):")
                     for f in facts:
                         print(f"    [{f.category}] {f.key} = {f.value} (source: {f.source})")
+                continue
+
+            if cmd == "consolidate":
+                before = len(store.get_facts("user"))
+                eidolon.consolidate_facts("user", request_id=uuid.uuid4().hex[:8])
+                after = len(store.get_facts("user"))
+                print(f"  Consolidated: {before} → {after} facts.")
                 continue
 
             if cmd == "topics":

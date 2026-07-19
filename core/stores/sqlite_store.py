@@ -104,6 +104,55 @@ class SqliteStore:
         )
         self._conn.commit()
 
+    def delete_fact(self, peer_id: str, category: str, key: str) -> None:
+        self._conn.execute(
+            "DELETE FROM facts WHERE peer_id = ? AND category = ? AND key = ?",
+            (peer_id, category, key),
+        )
+        self._conn.commit()
+
+    # ── Facts Consolidation ────────────────────────────────
+
+    def count_user_turns(self, peer_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE peer_id = ? AND role = 'user'",
+            (peer_id,),
+        ).fetchone()
+        return row[0]
+
+    def get_fact_items_since(self, subject_peer: str, since_item_id: int) -> list[MemoryItem]:
+        rows = self._conn.execute(
+            "SELECT id, content, item_type, source_peer, subject_peer, "
+            "attribution_type, topic_id, message_id, created_at "
+            "FROM memory_items "
+            "WHERE item_type = 'fact' AND subject_peer = ? AND id > ? "
+            "ORDER BY id ASC",
+            (subject_peer, since_item_id),
+        ).fetchall()
+        return [
+            MemoryItem(
+                id=r[0], content=r[1], item_type=r[2], source_peer=r[3], subject_peer=r[4],
+                attribution_type=r[5], topic_id=r[6], message_id=r[7], timestamp=r[8],
+            )
+            for r in rows
+        ]
+
+    def get_consolidation_checkpoint(self, peer_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT last_item_id FROM fact_consolidation_state WHERE peer_id = ?",
+            (peer_id,),
+        ).fetchone()
+        return row[0] if row else 0
+
+    def set_consolidation_checkpoint(self, peer_id: str, last_item_id: int) -> None:
+        self._conn.execute(
+            "INSERT INTO fact_consolidation_state (peer_id, last_item_id, last_run_at) "
+            "VALUES (?, ?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(peer_id) DO UPDATE SET last_item_id=excluded.last_item_id, last_run_at=excluded.last_run_at",
+            (peer_id, last_item_id),
+        )
+        self._conn.commit()
+
     # ── Topics ─────────────────────────────────────────────
 
     def create_topic(

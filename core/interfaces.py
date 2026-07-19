@@ -36,6 +36,38 @@ class StorageProvider(Protocol):
         """Store or update a single fact."""
         ...
 
+    def delete_fact(self, peer_id: str, category: str, key: str) -> None:
+        """Remove a single fact, if present. No-op if it doesn't exist."""
+        ...
+
+    def count_user_turns(self, peer_id: str) -> int:
+        """Return how many user messages this peer has sent in total.
+
+        Peer-scoped, not session-scoped — used to drive the facts
+        consolidation trigger (every N turns), matching how facts
+        themselves are peer-scoped.
+        """
+        ...
+
+    def get_fact_items_since(self, subject_peer: str, since_item_id: int) -> list[MemoryItem]:
+        """Return fact-type memory items about ``subject_peer`` with
+        id > ``since_item_id``, ordered oldest-first.
+
+        Bounds the window for the next facts-consolidation pass — see
+        ``core/consolidation/fact_consolidator.py``.
+        """
+        ...
+
+    def get_consolidation_checkpoint(self, peer_id: str) -> int:
+        """Return the highest memory_item id already incorporated into
+        ``peer_id``'s facts profile. 0 if consolidation has never run."""
+        ...
+
+    def set_consolidation_checkpoint(self, peer_id: str, last_item_id: int) -> None:
+        """Record the highest memory_item id incorporated into
+        ``peer_id``'s facts profile as of the most recent consolidation."""
+        ...
+
     # ── Topics ─────────────────────────────────────────────
 
     def create_topic(

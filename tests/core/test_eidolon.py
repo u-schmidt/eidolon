@@ -21,15 +21,40 @@ class MockStorage:
         self.stored_items: list[MemoryItem] = []
         self.messages: list[dict] = []
         self.topic_embeddings: dict[int, list[float]] = {}
+        self._checkpoints: dict[str, int] = {}
         # _summarize_topic updates tags via raw SQL (see core/__init__.py) —
         # not modeled in this mock beyond not raising.
         self._conn = MagicMock()
 
     def get_facts(self, peer_id: str) -> list[Fact]:
-        return self.facts
+        return [f for f in self.facts if f.peer_id == peer_id]
 
     def set_fact(self, peer_id: str, category: str, key: str, value: str, source: str) -> None:
+        self.facts = [
+            f for f in self.facts if not (f.peer_id == peer_id and f.category == category and f.key == key)
+        ]
         self.facts.append(Fact(peer_id=peer_id, category=category, key=key, value=value, source=source))
+
+    def delete_fact(self, peer_id: str, category: str, key: str) -> None:
+        self.facts = [
+            f for f in self.facts if not (f.peer_id == peer_id and f.category == category and f.key == key)
+        ]
+
+    def count_user_turns(self, peer_id: str) -> int:
+        return sum(1 for m in self.messages if m["peer_id"] == peer_id and m["role"] == "user")
+
+    def get_fact_items_since(self, subject_peer: str, since_item_id: int) -> list[MemoryItem]:
+        return [
+            item for item in self.stored_items
+            if item.item_type == "fact" and item.subject_peer == subject_peer
+            and item.id is not None and item.id > since_item_id
+        ]
+
+    def get_consolidation_checkpoint(self, peer_id: str) -> int:
+        return self._checkpoints.get(peer_id, 0)
+
+    def set_consolidation_checkpoint(self, peer_id: str, last_item_id: int) -> None:
+        self._checkpoints[peer_id] = last_item_id
 
     def create_topic(self, label: str, summary: str = "", tags: list[str] | None = None,
                      embedding: list[float] | None = None, peer_id: str | None = None) -> int:
@@ -64,7 +89,8 @@ class MockStorage:
 
     def store_memory_item(self, item: MemoryItem) -> int:
         self.stored_items.append(item)
-        return len(self.stored_items)
+        item.id = len(self.stored_items)
+        return item.id
 
     def search_memory_items(self, query_embedding=None, peer_id=None, limit=5, weights=None,
                              tracer=None, request_id=None):
@@ -92,12 +118,12 @@ class MockLLM:
         detection_response: str = "CONTINUE",
         extraction_response: str = "[]",
         summary_response: str = "",
-        fact_response: str = "[]",
+        consolidation_response: str = '{"upserts": [], "deletes": []}',
     ):
         self.detection_response = detection_response
         self.extraction_response = extraction_response
         self.summary_response = summary_response
-        self.fact_response = fact_response
+        self.consolidation_response = consolidation_response
 
     def complete(self, prompt: str, system_prompt: str | None = None, max_tokens: int = 100) -> str:
         sp = (system_prompt or "").lower()
@@ -107,8 +133,8 @@ class MockLLM:
             return self.extraction_response
         if "summarizer" in sp:
             return self.summary_response
-        if "structured facts" in sp:
-            return self.fact_response
+        if "durable facts" in sp:
+            return self.consolidation_response
         return ""
 
 
@@ -495,11 +521,14 @@ class TestEidolonTracing:
         llm = MockLLM(
             extraction_response='[{"content": "fact-worthy", "item_type": "fact", '
             '"source_peer": "user", "subject_peer": "user", "attribution_type": "self_statement"}]',
-            fact_response='[{"category": "fitness", "key": "gym_frustration", "value": "crowded gym"}]',
+            consolidation_response='{"upserts": [{"category": "fitness", "key": "gym_frustration", '
+            '"value": "crowded gym"}], "deletes": []}',
         )
         embedder = MockEmbedder()
         tracer = SpyTracer()
-        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+        # interval=1 so consolidation also fires this turn, so its event's
+        # request_id gets exercised by this test too, not just skipped.
+        eidolon = Eidolon(storage, llm, embedder, facts_consolidation_interval=1, tracer=tracer)
 
         eidolon.store_turn(
             user_message="FitZone ist voll",
@@ -509,6 +538,7 @@ class TestEidolonTracing:
             new_topic_label="Bello Features",
         )
 
+        assert tracer.events_of_type("fact_consolidation")  # consolidation did fire
         request_ids = {e["request_id"] for e in tracer.events}
         assert len(request_ids) == 1
         assert None not in request_ids
@@ -596,48 +626,49 @@ class TestEidolonTracing:
         error_events = tracer.events_of_type("error")
         assert any(e["payload"]["step"] == "memory_item_embedding" for e in error_events)
 
-    def test_extract_facts_records_fact_extraction_event(self):
+    def test_store_turn_triggers_consolidation_on_interval_multiple(self):
         storage = MockStorage()
         llm = MockLLM(
-            fact_response='[{"category": "fitness", "key": "gym_frustration", "value": "crowded gym"}]'
+            extraction_response='[{"content": "fact-worthy", "item_type": "fact", '
+            '"source_peer": "user", "subject_peer": "user", "attribution_type": "self_statement"}]',
+            consolidation_response='{"upserts": [{"category": "fitness", "key": "gym_frustration", '
+            '"value": "crowded gym"}], "deletes": []}',
         )
         embedder = MockEmbedder()
         tracer = SpyTracer()
-        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+        eidolon = Eidolon(storage, llm, embedder, facts_consolidation_interval=2, tracer=tracer)
 
-        fact_item = MemoryItem(
-            content="User is frustrated with crowded gym", item_type="fact",
-            source_peer="user", subject_peer="user", attribution_type="self_statement",
+        eidolon.store_turn(
+            user_message="turn 1", ai_response="ok", peer_id="user", environment=EnvironmentSnapshot(),
         )
-        eidolon._extract_facts([fact_item], "user", request_id="req1", session_id="sess1")
+        assert tracer.events_of_type("fact_consolidation") == []  # turn 1, not a multiple of 2
 
-        events = tracer.events_of_type("fact_extraction")
-        assert len(events) == 1
-        event = events[0]
-        assert event["request_id"] == "req1"
-        assert event["session_id"] == "sess1"
-        assert event["payload"]["stored_facts"] == [
-            {"category": "fitness", "key": "gym_frustration", "value": "crowded gym"}
-        ]
-        assert storage.facts  # actually persisted too
+        eidolon.store_turn(
+            user_message="turn 2", ai_response="ok", peer_id="user", environment=EnvironmentSnapshot(),
+        )
+        events = tracer.events_of_type("fact_consolidation")
+        assert len(events) == 1  # turn 2, fires
+        assert storage.get_facts("user")  # actually persisted too
 
-    def test_extract_facts_records_error_on_malformed_json(self):
+    def test_consolidate_facts_records_error_on_malformed_json(self):
         storage = MockStorage()
-        llm = MockLLM(fact_response="not json at all")
+        llm = MockLLM(
+            extraction_response='[{"content": "fact-worthy", "item_type": "fact", '
+            '"source_peer": "user", "subject_peer": "user", "attribution_type": "self_statement"}]',
+            consolidation_response="not json at all",
+        )
         embedder = MockEmbedder()
         tracer = SpyTracer()
-        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+        eidolon = Eidolon(storage, llm, embedder, facts_consolidation_interval=1, tracer=tracer)
 
-        fact_item = MemoryItem(
-            content="User is frustrated with crowded gym", item_type="fact",
-            source_peer="user", subject_peer="user", attribution_type="self_statement",
+        eidolon.store_turn(
+            user_message="turn 1", ai_response="ok", peer_id="user", environment=EnvironmentSnapshot(),
         )
-        eidolon._extract_facts([fact_item], "user")
 
         error_events = tracer.events_of_type("error")
-        assert any(e["payload"]["step"] == "fact_extraction" for e in error_events)
-        assert tracer.events_of_type("fact_extraction") == []  # never got that far
-        assert storage.facts == []
+        assert any(e["payload"]["step"] == "fact_consolidation" for e in error_events)
+        assert tracer.events_of_type("fact_consolidation") == []  # never got that far
+        assert storage.get_facts("user") == []
 
     def test_summarize_topic_records_topic_summarization_event(self):
         storage = MockStorage()

@@ -98,6 +98,8 @@ class ConfigLoader:
             "retrieval_tag_overlap": ("retrieval", "tag_overlap"),
             "retrieval_person": ("retrieval", "person"),
             "retrieval_temporal": ("retrieval", "temporal"),
+            "facts_consolidation_interval": ("facts", "consolidation_interval"),
+            "facts_target_max": ("facts", "target_max"),
             "debug_enabled": ("debug", "enabled"),
             "debug_trace_db_path": ("debug", "trace_db_path"),
             "language": ("language",),
@@ -147,6 +149,8 @@ class ConfigLoader:
             "retrieval_tag_overlap": ("retrieval", "tag_overlap"),
             "retrieval_person": ("retrieval", "person"),
             "retrieval_temporal": ("retrieval", "temporal"),
+            "facts_consolidation_interval": ("facts", "consolidation_interval"),
+            "facts_target_max": ("facts", "target_max"),
             "debug_enabled": ("debug", "enabled"),
             "debug_trace_db_path": ("debug", "trace_db_path"),
             "language": ("language",),
@@ -217,6 +221,8 @@ class ConfigLoader:
                 self._merge_models_yaml(config, value)
             elif key == "retrieval" and isinstance(value, dict):
                 self._merge_into(config.retrieval, value)
+            elif key == "facts" and isinstance(value, dict):
+                self._merge_into(config.facts, value)
             elif key == "debug" and isinstance(value, dict):
                 self._merge_into(config.debug, value)
             elif hasattr(config, key):

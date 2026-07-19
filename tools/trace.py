@@ -194,11 +194,18 @@ class TracePrinter:
             lines.append(f"    raw response: {_truncate(p.get('response'))}")
         return "\n".join(lines)
 
-    def _format_fact_extraction(self, p: dict) -> str:
-        facts = p.get("stored_facts", [])
-        lines = [f"    stored_facts ({len(facts)}):"]
-        lines += [f"      - {f.get('category')}.{f.get('key')} = {f.get('value')}" for f in facts]
-        if not facts:
+    def _format_fact_consolidation(self, p: dict) -> str:
+        upserts = p.get("upserts", [])
+        deletes = p.get("deletes", [])
+        lines = [
+            f"    peer_id: {p.get('peer_id')}  new_items: {p.get('new_item_count')}  "
+            f"total_facts_after: {p.get('total_facts_after')}",
+            f"    upserts ({len(upserts)}):",
+        ]
+        lines += [f"      + {u.get('category')}.{u.get('key')} = {u.get('value')}" for u in upserts]
+        lines.append(f"    deletes ({len(deletes)}):")
+        lines += [f"      - {d.get('category')}.{d.get('key')}" for d in deletes]
+        if not upserts and not deletes:
             lines.append(f"    raw response: {_truncate(p.get('response'))}")
         return "\n".join(lines)
 
@@ -281,8 +288,11 @@ class TracePrinter:
     def _summary_extraction(self, p: dict) -> str:
         return f"extracted {len(p.get('items', []))} item(s)"
 
-    def _summary_fact_extraction(self, p: dict) -> str:
-        return f"stored {len(p.get('stored_facts', []))} fact(s)"
+    def _summary_fact_consolidation(self, p: dict) -> str:
+        return (
+            f"consolidated → {len(p.get('upserts', []))} upsert(s), "
+            f"{len(p.get('deletes', []))} delete(s)"
+        )
 
     def _summary_topic_summarization(self, p: dict) -> str:
         return f"summarized topic #{p.get('topic_id')}"

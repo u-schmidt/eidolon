@@ -105,6 +105,17 @@ class RetrievalConfig:
 
 
 @dataclass
+class FactsConfig:
+    """Durable-facts profile consolidation configuration.
+
+    See ``core/consolidation/fact_consolidator.py``.
+    """
+
+    consolidation_interval: int = 20  # reconcile every N user turns
+    target_max: int = 100  # soft guidance to the LLM, not hard-enforced
+
+
+@dataclass
 class DebugConfig:
     """Debug-tracing configuration.
 
@@ -129,6 +140,7 @@ class EidolonConfig:
     storage: StorageConfig = field(default_factory=StorageConfig)
     models: dict[str, ModelConfig] = field(default_factory=default_models)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
+    facts: FactsConfig = field(default_factory=FactsConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     language: str = "en"
 
@@ -170,6 +182,10 @@ class EidolonConfig:
                 "tag_overlap": self.retrieval.tag_overlap,
                 "person": self.retrieval.person,
                 "temporal": self.retrieval.temporal,
+            },
+            "facts": {
+                "consolidation_interval": self.facts.consolidation_interval,
+                "target_max": self.facts.target_max,
             },
             "debug": {
                 "enabled": self.debug.enabled,

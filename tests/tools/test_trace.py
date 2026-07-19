@@ -104,6 +104,16 @@ class TestTracePrinterFormatSummary:
         event = {"event_type": "mystery", "payload": {}}
         assert TracePrinter().format_summary(event) == "mystery"
 
+    def test_format_summary_fact_consolidation(self):
+        event = {
+            "event_type": "fact_consolidation",
+            "payload": {
+                "upserts": [{"category": "location", "key": "city", "value": "Berlin"}],
+                "deletes": [{"category": "lifestyle", "key": "smoking"}],
+            },
+        }
+        assert TracePrinter().format_summary(event) == "consolidated → 1 upsert(s), 1 delete(s)"
+
 
 class TestTracePrinterFormatDetail:
     def test_format_detail_includes_header_and_body(self, trace_db):
@@ -124,3 +134,22 @@ class TestTracePrinterFormatDetail:
         detail = TracePrinter().format_detail(cr_event)
         assert "fitness.gym = FitZone" in detail
         assert "topic #1" in detail
+
+    def test_format_detail_fact_consolidation(self):
+        event = {
+            "event_type": "fact_consolidation",
+            "duration_ms": 12.5,
+            "created_at": "2026-07-19 12:00:00",
+            "payload": {
+                "peer_id": "user",
+                "new_item_count": 2,
+                "total_facts_after": 3,
+                "upserts": [{"category": "location", "key": "city", "value": "Berlin"}],
+                "deletes": [{"category": "lifestyle", "key": "smoking"}],
+                "response": '{"upserts": [...], "deletes": [...]}',
+            },
+        }
+        detail = TracePrinter().format_detail(event)
+        assert "location.city = Berlin" in detail
+        assert "lifestyle.smoking" in detail
+        assert "total_facts_after: 3" in detail

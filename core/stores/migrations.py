@@ -61,6 +61,13 @@ MIGRATIONS: dict[int, str] = {
 
     ALTER TABLE memory_items ADD COLUMN message_id INTEGER REFERENCES messages(id);
     """,
+    3: """
+    CREATE TABLE IF NOT EXISTS fact_consolidation_state (
+        peer_id TEXT PRIMARY KEY,
+        last_item_id INTEGER NOT NULL DEFAULT 0,
+        last_run_at TIMESTAMP
+    );
+    """,
 }
 
 

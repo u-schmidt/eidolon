@@ -89,6 +89,8 @@ Eidolon loads its configuration from `eidolon.yaml` in the profile root director
 | `retrieval.tag_overlap` | float | Tag overlap weight (0-1) |
 | `retrieval.person` | float | Same peer weight (0-1) |
 | `retrieval.temporal` | float | Temporal closeness weight (0-1) |
+| `facts.consolidation_interval` | int | Reconcile the durable-facts profile every N user turns (default 20) |
+| `facts.target_max` | int | Soft guidance to the LLM for the target profile size (default 100), not hard-enforced |
 | `language` | string | Language code for stop word filtering (`en`, `de`) |
 
 ## How It Works
@@ -102,15 +104,15 @@ Eidolon loads its configuration from `eidolon.yaml` in the profile root director
 
 2. **`sync_turn(user, assistant, session_id, messages)`** — Called **after** each turn (async).
    - Stores user + assistant messages
-   - Extracts memory fragments (essence, facts, surprises, feelings)
-   - Extracts structured facts from fact-type items
+   - Extracts memory fragments (essence, facts, surprises, feelings) — fact-type items are stored and embedded like any other memory item
    - Manages topic lifecycle (close old topic, create new topic, generate summary + tags)
+   - Every `facts.consolidation_interval` turns, reconciles the durable-facts profile in one batch LLM call against everything fact-shaped learned since the last pass — see the main [README's Facts Consolidation section](../../README.md#facts-consolidation)
 
 ### Memory layers
 
 | Layer | Description | Persistence |
 |---|---|---|
-| **Facts** | Structured, (near-)constant info about peers (identity, preferences) | Persistent across sessions |
+| **Facts** | A small, curated profile of durable identity-level facts about a peer (name, location, relationships, health, work, stable preferences) — reconciled periodically, not per-turn | Persistent across sessions |
 | **Topics** | Episodic conversation segments with summaries, tags, embeddings | Persistent across sessions |
 | **Memory Items** | Extracted fragments (essence, fact, surprise, feeling) with perspective attribution | Persistent across sessions |
 | **Messages** | Raw conversation turns, linked to topics and memory items | Persistent across sessions |
@@ -123,10 +125,10 @@ Eidolon loads its configuration from `eidolon.yaml` in the profile root director
 | Embedding | — | Sync (local) |
 | Associative Retrieval | — | Sync (SQL + vector search) |
 | Fragmentary Extraction | ~100 | Async (after LLM) |
-| Structured Fact Extraction | ~100 | Async (after LLM) |
 | Topic Summary + Tags | ~200 | Async (on topic close) |
+| Facts Consolidation | ~200-2000 | Async, only every `facts.consolidation_interval` turns |
 
-**Total per turn:** ~250-350 tokens + 2 embedding calls.
+**Total per turn:** ~150-250 tokens + 2 embedding calls, plus one larger consolidation call every N turns.
 
 ## Development
 

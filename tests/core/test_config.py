@@ -13,6 +13,7 @@ from core.config import (
     ConfigError,
     DebugConfig,
     EidolonConfig,
+    FactsConfig,
     ModelConfig,
     RetrievalConfig,
     StorageConfig,
@@ -43,6 +44,8 @@ class TestEidolonConfig:
         assert config.models["llm"].provider == "simulated"
         assert config.models["embedder"].provider == "simulated"
         assert config.retrieval.semantic == 0.4
+        assert config.facts.consolidation_interval == 20
+        assert config.facts.target_max == 100
         assert config.language == "en"
         assert config.debug.enabled is False
 
@@ -292,6 +295,42 @@ models:
 
         del os.environ["EIDOLON_LLM_MAX_TOKENS"]
         del os.environ["EIDOLON_RETRIEVAL_SEMANTIC"]
+
+    def test_yaml_facts_section(self):
+        yaml_content = """
+facts:
+  consolidation_interval: 15
+  target_max: 75
+"""
+        tmp = tempfile.mkdtemp()
+        yaml_path = str(Path(tmp) / "config.yaml")
+        with open(yaml_path, "w") as f:
+            f.write(yaml_content)
+
+        config = ConfigLoader(config_path=yaml_path).load()
+        assert config.facts.consolidation_interval == 15
+        assert config.facts.target_max == 75
+
+    def test_env_facts_vars(self):
+        os.environ["EIDOLON_FACTS_CONSOLIDATION_INTERVAL"] = "10"
+        os.environ["EIDOLON_FACTS_TARGET_MAX"] = "50"
+
+        config = ConfigLoader().load()
+
+        assert config.facts.consolidation_interval == 10
+        assert config.facts.target_max == 50
+
+        del os.environ["EIDOLON_FACTS_CONSOLIDATION_INTERVAL"]
+        del os.environ["EIDOLON_FACTS_TARGET_MAX"]
+
+    def test_cli_facts_args(self):
+        args = Namespace(
+            facts_consolidation_interval=5, facts_target_max=30,
+            storage_provider=None, storage_path=None,
+        )
+        config = ConfigLoader(cli_args=args).load()
+        assert config.facts.consolidation_interval == 5
+        assert config.facts.target_max == 30
 
     def test_yaml_debug_section(self):
         yaml_content = """
