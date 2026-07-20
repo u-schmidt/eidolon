@@ -87,7 +87,7 @@ class MockStorage:
             self.topics[topic_id]["tags"] = tags
 
     def search_topics(self, query_embedding=None, tags=None, peer_id=None, limit=5, weights=None,
-                       tracer=None, request_id=None):
+                       tracer=None, request_id=None, now=None):
         return [t for t in self.topics.values() if t["status"] == "closed"][:limit]
 
     def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
@@ -99,7 +99,7 @@ class MockStorage:
         return item.id
 
     def search_memory_items(self, query_embedding=None, peer_id=None, limit=5, weights=None,
-                             tracer=None, request_id=None):
+                             tracer=None, request_id=None, now=None):
         return self.memory_items[:limit]
 
     def store_message(self, turn_id, role, content, peer_id, topic_id=None):

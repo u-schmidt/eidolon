@@ -7,6 +7,7 @@ Combines semantic similarity (embedding), tag overlap, person-bound, and tempora
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 
 from core.interfaces import EmbedderProvider, StorageProvider, Tracer
 from core.models import ContextBundle, EnvironmentSnapshot, RelatedTopic
@@ -30,9 +31,9 @@ class AssociativeRetriever:
         Optional weight overrides for retrieval dimensions, passed through
         to the storage backend's search methods.
         Defaults: semantic=0.4, tag_overlap=0.3, person=0.2, temporal=0.1
-        NOTE: ``temporal`` is not yet applied by any storage backend —
-        there is no recency scoring term implemented yet. It is kept
-        here (rather than dropped) so the dimension isn't forgotten.
+        ``temporal`` is a recency re-ranking signal applied by the storage
+        backend over already-relevant candidates — set it to 0 to disable
+        recency weighting entirely.
     language : str
         Language code for stop word filtering (default: "en").
         Prompts to the LLM are always in English regardless of this setting.
@@ -142,6 +143,11 @@ class AssociativeRetriever:
         # 3. Extract potential tags from the message (simple keyword extraction)
         tags = self._extract_tags(message, stop_words=self._stop_words)
 
+        # Reference time for recency scoring — the turn's own timestamp when
+        # the adapter supplied one (keeps it consistent with the item-age the
+        # ContextFormatter later displays), otherwise the current UTC time.
+        now = environment.time or datetime.now(UTC)
+
         # 4. Search topics
         topic_limit = (
             self._limits["related_topics_new"] if is_new_topic else self._limits["related_topics_continue"]
@@ -154,6 +160,7 @@ class AssociativeRetriever:
             weights=self._weights,
             tracer=self._tracer,
             request_id=request_id,
+            now=now,
         )
 
         related_topics = [
@@ -199,6 +206,7 @@ class AssociativeRetriever:
             weights=self._weights,
             tracer=self._tracer,
             request_id=request_id,
+            now=now,
         )
 
         self._tracer.record(

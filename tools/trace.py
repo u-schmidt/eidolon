@@ -259,7 +259,8 @@ class TracePrinter:
                 f"      [{mark}] #{c.get('candidate_id')}  final={c.get('final_score', 0):.3f}  "
                 f"semantic={c.get('semantic_raw', 0):.3f}→{c.get('semantic_weighted', 0):.3f}  "
                 f"tag_overlap={c.get('tag_overlap_raw', 0):.3f}→{c.get('tag_overlap_weighted', 0):.3f}  "
-                f"person={c.get('person_weighted', 0):.3f}"
+                f"person={c.get('person_weighted', 0):.3f}  "
+                f"temporal={c.get('temporal_raw', 0):.3f}→{c.get('temporal_weighted', 0):.3f}"
             )
         return "\n".join(lines)
 

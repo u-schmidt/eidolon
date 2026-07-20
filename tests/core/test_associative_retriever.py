@@ -58,6 +58,7 @@ class MockStorage:
         weights: dict[str, float] | None = None,
         tracer=None,
         request_id: str | None = None,
+        now=None,
     ) -> list[dict]:
         self.last_query_embedding = query_embedding
         self.last_tags = tags
@@ -65,6 +66,7 @@ class MockStorage:
         self.last_weights = weights
         self.last_tracer = tracer
         self.last_request_id = request_id
+        self.last_now = now
         return self.topics[:limit]
 
     def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
@@ -83,10 +85,12 @@ class MockStorage:
         weights: dict[str, float] | None = None,
         tracer=None,
         request_id: str | None = None,
+        now=None,
     ) -> list[MemoryItem]:
         self.last_weights = weights
         self.last_tracer = tracer
         self.last_request_id = request_id
+        self.last_now = now
         return self.memory_items[:limit]
 
 

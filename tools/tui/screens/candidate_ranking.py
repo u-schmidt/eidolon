@@ -37,7 +37,10 @@ class CandidateRankingScreen(Screen):
         candidates = summary_event["payload"]["top_candidates"] if summary_event else []
 
         table = self.query_one("#candidates", DataTable)
-        table.add_columns("ID", "Final", "Semantic raw→weighted", "Tag overlap raw→weighted", "Person", "Included")
+        table.add_columns(
+            "ID", "Final", "Semantic raw→weighted", "Tag overlap raw→weighted",
+            "Person", "Temporal raw→weighted", "Included",
+        )
         for c in candidates:
             table.add_row(
                 str(c.get("candidate_id")),
@@ -45,6 +48,7 @@ class CandidateRankingScreen(Screen):
                 f"{c.get('semantic_raw', 0):.3f}→{c.get('semantic_weighted', 0):.3f}",
                 f"{c.get('tag_overlap_raw', 0):.3f}→{c.get('tag_overlap_weighted', 0):.3f}",
                 f"{c.get('person_weighted', 0):.3f}",
+                f"{c.get('temporal_raw', 0):.3f}→{c.get('temporal_weighted', 0):.3f}",
                 "✓" if c.get("included") else "",
             )
         if not candidates:

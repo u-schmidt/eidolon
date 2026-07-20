@@ -7,6 +7,7 @@ The core never imports a specific provider directly.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from core.models import Fact, MemoryItem
@@ -138,13 +139,16 @@ class StorageProvider(Protocol):
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
         request_id: str | None = None,
+        now: datetime | None = None,
     ) -> list[dict]:
-        """Search topics by embedding similarity, tag overlap, and/or peer.
+        """Search topics by embedding similarity, tag overlap, peer, and recency.
 
         ``weights`` overrides the per-dimension scoring weights
-        (semantic, tag_overlap, person, temporal) when provided.
-        NOTE: ``temporal`` is accepted for forward-compat but not yet
-        applied by any backend — there is no recency scoring term yet.
+        (semantic, tag_overlap, person, temporal) when provided. The
+        ``temporal`` term is a recency *re-ranking* signal — it only
+        re-orders candidates that already have relevance, never surfacing a
+        merely-recent one. ``now`` is the reference time for the recency
+        decay (defaults to the current UTC time).
 
         When ``tracer`` is given, one ``retrieval_scoring_summary`` event
         is recorded for the whole call, carrying the top scored candidates
@@ -177,13 +181,15 @@ class StorageProvider(Protocol):
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
         request_id: str | None = None,
+        now: datetime | None = None,
     ) -> list[MemoryItem]:
-        """Search memory items by embedding similarity and/or peer.
+        """Search memory items by embedding similarity, peer, and recency.
 
         ``weights`` overrides the per-dimension scoring weights when
-        provided. NOTE: ``tag_overlap`` (memory items carry no tags) and
-        ``temporal`` (no recency scoring yet) are accepted but currently
-        have no effect.
+        provided. ``tag_overlap`` has no effect (memory items carry no
+        tags); ``temporal`` is a recency *re-ranking* signal over already-
+        relevant items (see ``search_topics``). ``now`` is the reference
+        time for the decay (defaults to the current UTC time).
 
         When ``tracer`` is given, one ``retrieval_scoring_summary`` event
         is recorded for the whole call — see ``search_topics``.

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import struct
+from datetime import UTC, datetime
 from pathlib import Path
 
 from core.interfaces import Tracer
@@ -22,11 +23,13 @@ from core.stores.migrations import migrate
 # `weights` override (e.g. from EidolonConfig.retrieval). Shared by both
 # search_topics and search_memory_items, matching AssociativeRetriever's
 # own defaults so a configured value means the same thing everywhere.
-#
-# NOTE: "temporal" is accepted in the weights dict for forward-compat but is
-# NOT applied anywhere below — there is no recency scoring term implemented
-# yet. Don't assume configuring it has any effect until that lands.
 _DEFAULT_WEIGHTS = {"semantic": 0.4, "tag_overlap": 0.3, "person": 0.2, "temporal": 0.1}
+
+# Recency half-life: a candidate's temporal score halves for every this-many
+# days of age (see `_recency_score`). The *shape* of the decay is fixed here;
+# how much it matters is the tunable "temporal" weight above. 30 days is a
+# sensible default until real chat data suggests otherwise.
+_TEMPORAL_HALF_LIFE_DAYS = 30.0
 
 # How many extra scored candidates beyond `limit` to persist in a
 # retrieval_scoring_summary trace event, so near-misses just below the
@@ -56,6 +59,30 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     if na == 0 or nb == 0:
         return 0.0
     return dot / (na * nb)
+
+
+def _recency_score(timestamp: str | None, now: datetime, half_life_days: float) -> float:
+    """Exponential recency decay in (0, 1]: ~1.0 for "just now", halving
+    every ``half_life_days`` of age.
+
+    Timestamps are the raw SQLite strings (e.g. "2026-07-20 16:57:00"),
+    stored in UTC. An unknown/unparseable timestamp scores 0.0 (no recency
+    signal), and a future timestamp (host clock skew) is clamped to 1.0.
+    """
+    if not timestamp:
+        return 0.0
+    try:
+        ts = datetime.fromisoformat(timestamp)
+    except ValueError:
+        return 0.0
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    age_days = (now - ts).total_seconds() / 86400.0
+    if age_days <= 0:
+        return 1.0
+    return 0.5 ** (age_days / half_life_days)
 
 
 class SqliteStore:
@@ -286,12 +313,18 @@ class SqliteStore:
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
         request_id: str | None = None,
+        now: datetime | None = None,
     ) -> list[dict]:
-        """Search topics by embedding similarity, tag overlap, and/or peer.
+        """Search topics by embedding similarity, tag overlap, peer, and recency.
 
-        `weights` overrides the semantic/tag_overlap/person scoring weights
-        when provided (see `_DEFAULT_WEIGHTS`). `temporal` is accepted
-        but currently unused — no recency term exists yet.
+        `weights` overrides the semantic/tag_overlap/person/temporal scoring
+        weights when provided (see `_DEFAULT_WEIGHTS`). The `temporal` term is
+        a recency *re-ranking* signal: it's added only to candidates that
+        already have some semantic/tag/person relevance, so it re-orders
+        relevant topics by recency but never pulls in a merely-recent one.
+        `now` is the reference time for the recency decay (defaults to the
+        current UTC time); a topic's recency uses its `closed_at` (last
+        active) falling back to `created_at`.
 
         When `tracer` is given, one `retrieval_scoring_summary` event is
         recorded for the whole call, carrying the top `limit + _TRACE_TOP_K_PADDING`
@@ -301,6 +334,9 @@ class SqliteStore:
         Returns topic dicts ordered by relevance (highest first).
         """
         w = weights or _DEFAULT_WEIGHTS
+        now = now or datetime.now(UTC)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
         rows = self._conn.execute(
             "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
             "FROM topics WHERE status='closed'"
@@ -347,7 +383,14 @@ class SqliteStore:
                 person_weighted = w.get("person", _DEFAULT_WEIGHTS["person"])
                 score += person_weighted
 
-            # NOTE: no temporal/recency term yet — w.get("temporal") is unused.
+            # Temporal recency — a re-ranking signal, not a relevance source:
+            # only added to candidates that already have relevance (score > 0),
+            # so a merely-recent-but-irrelevant topic is never pulled in.
+            temporal_raw = _recency_score(
+                topic["closed_at"] or topic["created_at"], now, _TEMPORAL_HALF_LIFE_DAYS
+            )
+            temporal_weighted = temporal_raw * w.get("temporal", _DEFAULT_WEIGHTS["temporal"])
+            final_score = score + temporal_weighted if score > 0 else 0.0
 
             breakdown = {
                 "candidate_type": "topic",
@@ -357,9 +400,11 @@ class SqliteStore:
                 "tag_overlap_raw": tag_overlap_raw,
                 "tag_overlap_weighted": tag_overlap_weighted,
                 "person_weighted": person_weighted,
-                "final_score": score,
+                "temporal_raw": temporal_raw,
+                "temporal_weighted": temporal_weighted,
+                "final_score": final_score,
             }
-            scored.append((score, topic, breakdown))
+            scored.append((final_score, topic, breakdown))
 
         scored.sort(key=lambda x: x[0], reverse=True)
         results = [(s, t) for s, t, _ in scored if s > 0][:limit]
@@ -404,18 +449,25 @@ class SqliteStore:
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
         request_id: str | None = None,
+        now: datetime | None = None,
     ) -> list[MemoryItem]:
-        """Search memory items by embedding similarity and/or peer.
+        """Search memory items by embedding similarity, peer, and recency.
 
-        `weights` overrides the semantic/person scoring weights when
-        provided (see `_DEFAULT_WEIGHTS`). `tag_overlap` doesn't apply
-        (memory items carry no tags) and `temporal` is unused — no recency
-        term exists yet.
+        `weights` overrides the semantic/person/temporal scoring weights when
+        provided (see `_DEFAULT_WEIGHTS`). `tag_overlap` doesn't apply (memory
+        items carry no tags). The `temporal` term is a recency *re-ranking*
+        signal, added only to candidates that already have semantic/person
+        relevance (see `search_topics`); an item's recency uses its
+        `created_at`. `now` is the reference time for the decay (defaults to
+        the current UTC time).
 
         When `tracer` is given, one `retrieval_scoring_summary` event is
         recorded for the whole call — see `search_topics` for the shape.
         """
         w = weights or _DEFAULT_WEIGHTS
+        now = now or datetime.now(UTC)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
         rows = self._conn.execute(
             "SELECT id, content, item_type, source_peer, subject_peer, "
             "attribution_type, topic_id, message_id, embedding, created_at "
@@ -452,8 +504,13 @@ class SqliteStore:
                 person_weighted = w.get("person", _DEFAULT_WEIGHTS["person"])
                 score += person_weighted
 
-            # NOTE: no tag_overlap (items have no tags) or temporal/recency
-            # term yet — w.get("tag_overlap") / w.get("temporal") are unused.
+            # NOTE: no tag_overlap — items carry no tags.
+            # Temporal recency re-ranks relevant items only (see search_topics).
+            # row[9] is the raw created_at string (item.timestamp is typed
+            # datetime but actually carries this same string at runtime).
+            temporal_raw = _recency_score(row[9], now, _TEMPORAL_HALF_LIFE_DAYS)
+            temporal_weighted = temporal_raw * w.get("temporal", _DEFAULT_WEIGHTS["temporal"])
+            final_score = score + temporal_weighted if score > 0 else 0.0
 
             breakdown = {
                 "candidate_type": "memory_item",
@@ -461,9 +518,11 @@ class SqliteStore:
                 "semantic_raw": semantic_raw,
                 "semantic_weighted": semantic_weighted,
                 "person_weighted": person_weighted,
-                "final_score": score,
+                "temporal_raw": temporal_raw,
+                "temporal_weighted": temporal_weighted,
+                "final_score": final_score,
             }
-            scored.append((score, item, breakdown))
+            scored.append((final_score, item, breakdown))
 
         scored.sort(key=lambda x: x[0], reverse=True)
         results = [(s, i) for s, i, _ in scored if s > 0][:limit]

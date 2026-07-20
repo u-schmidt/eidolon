@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from core.models import Fact, MemoryItem
-from core.stores.sqlite_store import SqliteStore
+from core.stores.sqlite_store import SqliteStore, _recency_score
 from tests.mocks import SpyTracer
 
 
@@ -258,9 +259,10 @@ class TestTopics:
         store.close_topic(tid, "")
 
         tracer = SpyTracer()
+        # temporal=0 isolates the semantic term for an exact final_score.
         store.search_topics(
             query_embedding=[1.0, 0.0, 0.0],
-            weights={"semantic": 0.5, "tag_overlap": 0.3, "person": 0.2, "temporal": 0.1},
+            weights={"semantic": 0.5, "tag_overlap": 0.3, "person": 0.2, "temporal": 0.0},
             tracer=tracer,
         )
 
@@ -268,6 +270,7 @@ class TestTopics:
         candidate = event["payload"]["top_candidates"][0]
         assert candidate["semantic_raw"] == pytest.approx(1.0)
         assert candidate["semantic_weighted"] == pytest.approx(0.5)
+        assert candidate["temporal_weighted"] == pytest.approx(0.0)
         assert candidate["final_score"] == pytest.approx(0.5)
 
     def test_search_topics_scoring_summary_caps_top_candidates(self, store: SqliteStore):
@@ -454,3 +457,77 @@ class TestSchema:
         detail = " ".join(str(row[3]) for row in plan)
         assert "idx_topics_peer_status" in detail
         assert "SCAN" not in detail or "USING INDEX" in detail
+
+
+class TestRecencyScore:
+    _NOW = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def test_just_now_scores_one(self):
+        assert _recency_score("2026-01-01 00:00:00", self._NOW, 30.0) == pytest.approx(1.0)
+
+    def test_one_half_life_scores_half(self):
+        # 30 days before _NOW, half_life 30 -> 0.5
+        assert _recency_score("2025-12-02 00:00:00", self._NOW, 30.0) == pytest.approx(0.5)
+
+    def test_two_half_lives_scores_quarter(self):
+        # 60 days before _NOW, half_life 30 -> 0.25
+        assert _recency_score("2025-11-02 00:00:00", self._NOW, 30.0) == pytest.approx(0.25)
+
+    def test_none_scores_zero(self):
+        assert _recency_score(None, self._NOW, 30.0) == 0.0
+
+    def test_unparseable_scores_zero(self):
+        assert _recency_score("not-a-date", self._NOW, 30.0) == 0.0
+
+    def test_future_timestamp_clamps_to_one(self):
+        assert _recency_score("2027-01-01 00:00:00", self._NOW, 30.0) == 1.0
+
+    def test_naive_now_is_treated_as_utc(self):
+        # A naive `now` must not raise on the aware/naive subtraction.
+        assert _recency_score("2020-01-01 00:00:00", datetime(2026, 1, 1), 30.0) < 0.01
+
+
+class TestTemporalScoring:
+    _NOW = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def _backdate_topic(self, store: SqliteStore, topic_id: int, when: str) -> None:
+        store._conn.execute("UPDATE topics SET closed_at = ? WHERE id = ?", (when, topic_id))
+        store._conn.commit()
+
+    def test_reranks_equally_relevant_topics_by_recency(self, store: SqliteStore):
+        """Two topics with identical tag relevance must be ordered newest-first
+        once the temporal term breaks the tie."""
+        old = store.create_topic("Old", tags=["fitness"])
+        store.close_topic(old, "old")
+        new = store.create_topic("New", tags=["fitness"])
+        store.close_topic(new, "new")
+        self._backdate_topic(store, old, "2020-01-01 00:00:00")
+        self._backdate_topic(store, new, "2025-12-31 00:00:00")
+
+        results = store.search_topics(tags=["fitness"], now=self._NOW)
+        assert [r["id"] for r in results] == [new, old]
+
+    def test_does_not_surface_irrelevant_recent_topic(self, store: SqliteStore):
+        """A brand-new topic with no tag/semantic/peer overlap must stay out —
+        temporal re-ranks relevant candidates, it never creates relevance."""
+        t = store.create_topic("Unrelated", tags=["cooking"])
+        store.close_topic(t, "unrelated")  # closed_at = now, i.e. very recent
+
+        results = store.search_topics(tags=["fitness"], now=self._NOW)
+        assert results == []
+
+    def test_reranks_equally_relevant_memory_items_by_recency(self, store: SqliteStore):
+        old_id = store.store_memory_item(MemoryItem(
+            content="old", item_type="essence", source_peer="user",
+            subject_peer="user", attribution_type="self_statement",
+        ))
+        new_id = store.store_memory_item(MemoryItem(
+            content="new", item_type="essence", source_peer="user",
+            subject_peer="user", attribution_type="self_statement",
+        ))
+        store._conn.execute("UPDATE memory_items SET created_at = ? WHERE id = ?", ("2020-01-01 00:00:00", old_id))
+        store._conn.execute("UPDATE memory_items SET created_at = ? WHERE id = ?", ("2025-12-31 00:00:00", new_id))
+        store._conn.commit()
+
+        results = store.search_memory_items(peer_id="user", now=self._NOW)
+        assert [item.id for item in results] == [new_id, old_id]
