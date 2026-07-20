@@ -135,7 +135,7 @@ class MockLLM:
         self.summary_response = summary_response
         self.consolidation_response = consolidation_response
 
-    def complete(self, prompt: str, system_prompt: str | None = None, max_tokens: int = 100) -> str:
+    def complete(self, prompt: str, system_prompt: str | None = None, max_tokens: int | None = None) -> str:
         sp = (system_prompt or "").lower()
         if "topic detection" in sp:
             return self.detection_response

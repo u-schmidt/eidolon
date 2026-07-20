@@ -79,6 +79,7 @@ class ProviderFactory:
                 llm_model=cfg.model,
                 api_key=cfg.api_key,
                 timeout=cfg.timeout,
+                max_tokens=cfg.max_tokens,
             )
 
         if cfg.provider == "ollama":
@@ -87,6 +88,7 @@ class ProviderFactory:
                 base_url=cfg.base_url,
                 llm_model=cfg.model,
                 timeout=cfg.timeout,
+                max_tokens=cfg.max_tokens,
             )
 
         raise ValueError(f"Unknown LLM provider: {cfg.provider}")

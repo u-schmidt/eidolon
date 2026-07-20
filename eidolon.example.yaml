@@ -31,7 +31,13 @@ models:
     provider: ollama            # ollama | lm_studio | simulated
     base_url: http://192.168.178.81:11434
     model: deepseek-v4-flash:cloud
-    max_tokens: 4096             # Max response tokens
+    max_tokens: 4096             # Response cap for all LLM calls (detection,
+                                 # summarization, consolidation, chat). Give a
+                                 # reasoning/"thinking" model generous headroom —
+                                 # it bills hidden reasoning against this budget.
+                                 # Fact extraction overrides this internally with
+                                 # a larger cap (its JSON output grows with turn
+                                 # richness).
     timeout: 60
 
   embedder:

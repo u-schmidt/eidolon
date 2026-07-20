@@ -516,6 +516,19 @@ class TestProviderFactory:
         with pytest.raises(ConfigError):
             factory.create_embedder()
 
+    def test_create_llm_wires_configured_max_tokens(self):
+        """The configured ModelConfig.max_tokens must reach the provider —
+        it used to be dead config, ignored in favor of a hardcoded default."""
+        config = EidolonConfig(models={
+            "llm": ModelConfig(
+                provider="ollama", base_url="http://localhost:11434",
+                model="deepseek", max_tokens=12345,
+            ),
+        })
+        factory = ProviderFactory(config)
+        llm = factory.create_llm()
+        assert llm._max_tokens == 12345
+
     def test_create_llm_for_additional_role(self):
         config = EidolonConfig(models={
             "llm": ModelConfig(provider="simulated", base_url="local", model="simulated"),

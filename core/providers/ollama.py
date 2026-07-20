@@ -17,6 +17,12 @@ from __future__ import annotations
 
 import requests
 
+# Fallback response cap when neither the caller nor the factory supplies
+# one. Matches ModelConfig.max_tokens' default so a bare provider (no
+# config) behaves like a configured one, and is generous enough to give
+# a reasoning model headroom instead of truncating mid-answer.
+_DEFAULT_MAX_TOKENS = 4096
+
 
 class Ollama:
     """Provider for Ollama / OpenAI-compatible endpoints.
@@ -44,12 +50,14 @@ class Ollama:
         embedder_model: str = "nomic-embed-text",
         api_key: str = "",
         timeout: int = 60,
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._llm_model = llm_model
         self._embedder_model = embedder_model
         self._api_key = api_key
         self._timeout = timeout
+        self._max_tokens = max_tokens
 
     # ── LLMProvider ─────────────────────────────────────────
 
@@ -57,7 +65,7 @@ class Ollama:
         self,
         prompt: str,
         system_prompt: str | None = None,
-        max_tokens: int = 100,
+        max_tokens: int | None = None,
     ) -> str:
         """Send a chat completion request via OpenAI-compatible /v1/chat/completions.
 
@@ -67,14 +75,16 @@ class Ollama:
             The user/assistant prompt.
         system_prompt : str | None
             Optional system prompt.
-        max_tokens : int
-            Maximum tokens in the response.
+        max_tokens : int | None
+            Cap on the response. ``None`` uses this provider's configured
+            default (``self._max_tokens``, from ``ModelConfig.max_tokens``).
 
         Returns
         -------
         str
             The completion text.
         """
+        tokens = max_tokens if max_tokens is not None else self._max_tokens
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -89,7 +99,7 @@ class Ollama:
             json={
                 "model": self._llm_model,
                 "messages": messages,
-                "max_tokens": max_tokens,
+                "max_tokens": tokens,
                 "stream": False,
             },
             headers=headers,

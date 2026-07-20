@@ -212,9 +212,18 @@ class LLMProvider(Protocol):
         self,
         prompt: str,
         system_prompt: str | None = None,
-        max_tokens: int = 100,
+        max_tokens: int | None = None,
     ) -> str:
-        """Send a completion request and return the response text."""
+        """Send a completion request and return the response text.
+
+        ``max_tokens`` is the cap on the response. ``None`` (the default)
+        means "use the provider's own configured cap" — wired from
+        ``ModelConfig.max_tokens`` via the provider factory — so callers
+        don't each hard-code a guess. A caller only passes an explicit
+        value to deliberately override that cap for one call (e.g. the
+        fragmentary extractor, whose JSON output grows with turn richness
+        and needs more headroom than ordinary calls).
+        """
         ...
 
 

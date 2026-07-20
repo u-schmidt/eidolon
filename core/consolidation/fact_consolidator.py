@@ -157,7 +157,6 @@ class FactConsolidator:
             response = self._llm.complete(
                 prompt=prompt,
                 system_prompt=_consolidation_system_prompt(self._target_max),
-                max_tokens=2000,
             )
             upserts, deletes = _parse_consolidation_response(response)
 

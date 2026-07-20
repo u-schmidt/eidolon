@@ -14,13 +14,6 @@ import time
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
 from core.trace.null_tracer import NullTracer
 
-# Historical value carried over unchanged from Eidolon._summarize_topic.
-# NOTE: extraction was raised to 32000 for reasoning-model headroom; this
-# path still has the same mid-output truncation risk (lower, since
-# summaries are short) but is left at 1000 for now — a deliberate
-# behavior-preserving carry-over, not an endorsement of the value.
-_SUMMARY_MAX_TOKENS = 1000
-
 _SUMMARY_SYSTEM_PROMPT = (
     "You are a conversation summarizer. "
     "Output a concise summary and relevant tags only."
@@ -136,7 +129,6 @@ class TopicSummarizer:
             response = self._llm.complete(
                 prompt=prompt,
                 system_prompt=_SUMMARY_SYSTEM_PROMPT,
-                max_tokens=_SUMMARY_MAX_TOKENS,
             )
             summary, tags = _parse_summary_response(response)
 

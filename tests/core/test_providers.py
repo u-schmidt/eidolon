@@ -86,6 +86,19 @@ class TestLMStudio:
             assert call_kwargs["json"]["max_tokens"] == 50
             assert len(call_kwargs["json"]["messages"]) == 2
 
+    def test_default_max_tokens(self):
+        assert LMStudio()._max_tokens == 4096
+        assert LMStudio(max_tokens=9000)._max_tokens == 9000
+
+    def test_complete_uses_configured_max_tokens_when_omitted(self):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        mock_response.raise_for_status.return_value = None
+
+        with patch("core.providers.lm_studio.requests.post", return_value=mock_response) as mock_post:
+            LMStudio(max_tokens=7777).complete("Hi")
+            assert mock_post.call_args[1]["json"]["max_tokens"] == 7777
+
     def test_embed_sends_embedding_request(self):
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -167,6 +180,19 @@ class TestOllama:
 
             headers = mock_post.call_args[1]["headers"]
             assert headers["Authorization"] == "Bearer sk-secret"
+
+    def test_default_max_tokens(self):
+        assert Ollama()._max_tokens == 4096
+        assert Ollama(max_tokens=9000)._max_tokens == 9000
+
+    def test_complete_uses_configured_max_tokens_when_omitted(self):
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+
+        with patch("core.providers.ollama.requests.post", return_value=mock_response) as mock_post:
+            Ollama(max_tokens=7777).complete("Hi")
+            assert mock_post.call_args[1]["json"]["max_tokens"] == 7777
 
     def test_embed_sends_embedding_request(self):
         mock_response = MagicMock()

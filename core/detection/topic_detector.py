@@ -165,7 +165,6 @@ class TopicDetector:
             response = self._llm.complete(
                 prompt=prompt,
                 system_prompt=_DETECTION_SYSTEM_PROMPT,
-                max_tokens=500,
             )
         except Exception as exc:
             self._tracer.record(

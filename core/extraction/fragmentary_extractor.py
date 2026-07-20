@@ -72,13 +72,15 @@ Respond with a JSON array only. Example:
 
 If nothing worth extracting, respond with an empty array: []"""
 
-# Generous headroom, not a token-count guess for the JSON output itself —
-# a reasoning/thinking model can spend a large chunk of its budget on
-# hidden reasoning before ever emitting the actual array, and a truncated
+# The one deliberate override of the provider's configured max_tokens cap
+# (ModelConfig.max_tokens): extraction's JSON array grows with turn
+# richness, and a reasoning/thinking model can spend a large chunk of its
+# budget on hidden reasoning before ever emitting the array — a truncated
 # mid-JSON response fails to parse (see the "error" trace event this
-# produces, step=extraction). A live incident hit exactly this with
-# max_tokens=1000 on a rich turn; the model here has a 1M context window,
-# so this is cheap headroom, not a real cost/latency constraint.
+# produces, step=extraction). A live incident hit exactly this with a
+# ~1000-token cap on a rich turn; the model here has a 1M context window,
+# so this is cheap headroom, not a real cost/latency constraint. Every
+# other core LLM call defers to the configured cap instead.
 _EXTRACTION_MAX_TOKENS = 32000
 
 

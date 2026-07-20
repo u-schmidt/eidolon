@@ -399,15 +399,14 @@ def main() -> None:
         )
 
         full_prompt = f"{context_prompt}\n{history_text}User: {text}\nAI:"
+        # No max_tokens override — use the provider's configured cap
+        # (ModelConfig.max_tokens). Reasoning models bill their internal
+        # reasoning against the same completion budget as the visible
+        # reply, so the cap must be generous; that's now a single
+        # configurable knob rather than a per-call-site guess.
         ai_response = llm.complete(
             prompt=full_prompt,
             system_prompt=system_prompt,
-            # Reasoning models (e.g. Ollama's "thinking"-capable models) bill
-            # their internal reasoning against the same completion budget as
-            # the visible reply, so a low ceiling here can truncate the
-            # visible answer by a variable amount per prompt. Matches the
-            # budget already used for extraction/fact/summary calls.
-            max_tokens=1000,
         )
 
         # Update rolling chat history (keep last 5 turns)

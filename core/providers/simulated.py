@@ -23,7 +23,7 @@ class SimulatedLLM:
         self,
         prompt: str,
         system_prompt: str | None = None,
-        max_tokens: int = 100,
+        max_tokens: int | None = None,
     ) -> str:
         self._turn_count += 1
 
