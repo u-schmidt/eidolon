@@ -27,7 +27,8 @@ def trace_db(tmp_path):
             "topic_label": "Bello Features",
             "is_new_topic": False,
             "facts": [{"category": "work", "key": "role", "value": "engineer"}],
-            "related_topics": [{"id": 1, "summary": "Discussed the EFB project", "tags": ["efb", "aviation"]}],
+            "related_topics": [{"id": 1, "label": "EFB Project", "summary": "Discussed the EFB project",
+                                "tags": ["efb", "aviation"]}],
             "memory_items": [
                 {"content": "User loves Bello", "item_type": "essence",
                  "source_peer": "user", "subject_peer": "user"}
@@ -83,7 +84,7 @@ class TestSimulate:
         assert result.injection == (
             "[Current topic: Bello Features]\n\n"
             "[Known facts]\n- work: role = engineer\n\n"
-            "[Related topics]\n- Discussed the EFB project (efb, aviation)\n\n"
+            "[Related topics]\n- EFB Project: Discussed the EFB project (efb, aviation)\n\n"
             "[Memory fragments]\n- [essence] (user about user): User loves Bello"
         )
 

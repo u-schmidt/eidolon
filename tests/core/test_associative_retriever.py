@@ -143,6 +143,23 @@ class TestAssociativeRetriever:
         )
         assert len(bundle.related_topics) == 3  # all 3 returned
 
+    def test_retrieve_populates_related_topic_label(self):
+        storage = MockStorage()
+        storage.topics = [
+            {"id": 1, "label": "Bello", "summary": "About Bello", "tags": ["bello"]},
+        ]
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="Lass uns über Bello sprechen",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            topic_label="Bello",
+            is_new_topic=True,
+        )
+        assert bundle.related_topics[0].label == "Bello"
+
     def test_retrieve_continue_returns_fewer_results(self):
         storage = MockStorage()
         storage.topics = [
@@ -344,7 +361,7 @@ class TestAssociativeRetriever:
         assert event["duration_ms"] is not None
         assert event["payload"]["message"] == "Lass uns über Bello sprechen"
         assert event["payload"]["related_topics"] == [
-            {"id": 1, "summary": "About Bello", "tags": ["bello"], "timestamp": None}
+            {"id": 1, "label": "Bello", "summary": "About Bello", "tags": ["bello"], "timestamp": None}
         ]
 
     def test_context_retrieval_event_carries_full_content_not_counts(self):

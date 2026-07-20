@@ -261,10 +261,10 @@ class SqliteStore:
                 "label": row[1],
                 "summary": row[2],
                 "tags": json.loads(row[3]),
-                "status": row[4],
-                "peer_id": row[5],
-                "created_at": row[6],
-                "closed_at": row[7],
+                "status": row[5],
+                "peer_id": row[6],
+                "created_at": row[7],
+                "closed_at": row[8],
             }
             score = 0.0
             semantic_raw = semantic_weighted = 0.0

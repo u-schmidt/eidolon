@@ -36,6 +36,16 @@ class TestContextFormatter:
             "- No tags here"
         )
 
+    def test_formats_related_topic_with_label(self):
+        bundle = ContextBundle(
+            related_topics=[
+                RelatedTopic(topic_id=1, label="Gym Routine", summary="Discussed gym routine", tags=["fitness"]),
+            ]
+        )
+        assert ContextFormatter.format(bundle) == (
+            "[Related topics]\n- Gym Routine: Discussed gym routine (fitness)"
+        )
+
     def test_formats_memory_items(self):
         bundle = ContextBundle(
             memory_items=[
@@ -124,7 +134,7 @@ class TestContextFormatterRelativeAge:
                         source="user", created_at="2026-06-28 10:00:00")]
         )
         assert ContextFormatter.format(bundle, now=self.NOW) == (
-            "[Known facts]\n- work: role = engineer (3 weeks ago)"
+            "[Known facts]\n- work: role = engineer [3 weeks ago]"
         )
 
     def test_related_topic_age_suffix_with_tags(self):
@@ -134,7 +144,7 @@ class TestContextFormatterRelativeAge:
             ]
         )
         assert ContextFormatter.format(bundle, now=self.NOW) == (
-            "[Related topics]\n- Gym routine (fitness) (yesterday)"
+            "[Related topics]\n- Gym routine (fitness) [yesterday]"
         )
 
     def test_memory_item_age_suffix(self):
@@ -145,7 +155,7 @@ class TestContextFormatterRelativeAge:
             ]
         )
         assert ContextFormatter.format(bundle, now=self.NOW) == (
-            "[Memory fragments]\n- [essence] (user about user): Loves Bello (today)"
+            "[Memory fragments]\n- [essence] (user about user): Loves Bello [today]"
         )
 
     def test_no_age_suffix_when_timestamp_missing(self):
@@ -168,4 +178,4 @@ class TestContextFormatterRelativeAge:
                 facts=[Fact(peer_id="user", category="c", key="k", value="v", source="user", created_at=created_at)]
             )
             result = ContextFormatter.format(bundle, now=self.NOW)
-            assert result.endswith(f"({expected})"), f"{created_at} -> expected '{expected}', got: {result}"
+            assert result.endswith(f"[{expected}]"), f"{created_at} -> expected '{expected}', got: {result}"

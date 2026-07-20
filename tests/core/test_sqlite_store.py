@@ -178,6 +178,30 @@ class TestTopics:
         )
         assert zeroed_results == []
 
+    def test_search_topics_applies_person_weight_for_matching_peer(self, store: SqliteStore):
+        """A topic with no tag/semantic match still surfaces on peer_id
+        alone once the person weight applies — this is the exact path a
+        row-index bug in the dict construction used to silently break
+        (topic["peer_id"] was reading the wrong column, so it could never
+        equal the caller's peer_id and this boost never fired)."""
+        store.create_topic("Bello", summary="", peer_id="user")
+        store.close_topic(1, "")
+
+        results = store.search_topics(peer_id="user")
+        assert len(results) == 1
+        assert results[0]["peer_id"] == "user"
+
+    def test_search_topics_returns_correct_created_at(self, store: SqliteStore):
+        store.create_topic("Bello", summary="", tags=["fitness"])
+        store.close_topic(1, "")
+
+        results = store.search_topics(tags=["fitness"])
+        assert len(results) == 1
+        # A real timestamp string, not a stray peer_id/status value.
+        assert results[0]["created_at"] is not None
+        assert results[0]["created_at"] != "user"
+        assert results[0]["status"] == "closed"
+
     def test_search_topics_records_candidate_scored_events(self, store: SqliteStore):
         store.create_topic("Bello", summary="", tags=["bello", "fitness"])
         store.create_topic("Fitness", summary="", tags=["fitness", "health"])

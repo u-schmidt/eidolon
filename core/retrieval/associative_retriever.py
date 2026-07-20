@@ -135,6 +135,7 @@ class AssociativeRetriever:
                 summary=t["summary"],
                 tags=t.get("tags", []),
                 timestamp=t.get("created_at"),
+                label=t.get("label"),
             )
             for t in topic_results
         ]
@@ -169,7 +170,8 @@ class AssociativeRetriever:
                     for f in facts
                 ],
                 "related_topics": [
-                    {"id": t.topic_id, "summary": t.summary, "tags": t.tags, "timestamp": t.timestamp}
+                    {"id": t.topic_id, "label": t.label, "summary": t.summary,
+                     "tags": t.tags, "timestamp": t.timestamp}
                     for t in related_topics
                 ],
                 "memory_items": [

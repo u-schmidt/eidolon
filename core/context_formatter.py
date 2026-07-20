@@ -56,7 +56,8 @@ class ContextFormatter:
                 tags = ", ".join(rt.tags) if rt.tags else ""
                 tag_str = f" ({tags})" if tags else ""
                 age = ContextFormatter._age_suffix(rt.timestamp, now)
-                topic_lines.append(f"- {rt.summary}{tag_str}{age}")
+                summary = f"{rt.label}: {rt.summary}" if rt.label else rt.summary
+                topic_lines.append(f"- {summary}{tag_str}{age}")
             parts.append("[Related topics]\n" + "\n".join(topic_lines))
 
         if bundle.memory_items:
@@ -108,7 +109,7 @@ class ContextFormatter:
         dt = ContextFormatter._parse_timestamp(value)
         if dt is None:
             return ""
-        return f" ({ContextFormatter._relative_age(dt, now)})"
+        return f" [{ContextFormatter._relative_age(dt, now)}]"
 
     @staticmethod
     def _parse_timestamp(value: object) -> datetime | None:

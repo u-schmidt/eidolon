@@ -106,7 +106,7 @@ class InjectionSimulator:
         ]
         related_topics = [
             RelatedTopic(topic_id=t["id"], summary=t["summary"], tags=t.get("tags", []),
-                         timestamp=t.get("timestamp"))
+                         timestamp=t.get("timestamp"), label=t.get("label"))
             for t in payload.get("related_topics", [])
         ]
         memory_items = [

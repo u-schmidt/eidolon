@@ -64,6 +64,7 @@ class RelatedTopic:
     tags: list[str] = field(default_factory=list)
     cluster_label: str | None = None
     timestamp: datetime | None = None
+    label: str | None = None
 
 
 @dataclass
