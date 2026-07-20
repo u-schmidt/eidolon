@@ -167,11 +167,11 @@ class TestFragmentaryExtractor:
         assert llm.last_system is not None
         assert "memory extraction" in llm.last_system.lower()
 
-    def test_max_tokens_is_1000(self):
+    def test_max_tokens_is_32000(self):
         llm = MockLLM()
         extractor = FragmentaryExtractor(llm)
         extractor.extract(user_message="Hi", ai_response="Hello")
-        assert llm.last_max_tokens == 1000
+        assert llm.last_max_tokens == 32000
 
     def test_language_parameter_accepted(self):
         llm = MockLLM(response="[]")

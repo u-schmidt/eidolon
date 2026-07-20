@@ -72,6 +72,15 @@ Respond with a JSON array only. Example:
 
 If nothing worth extracting, respond with an empty array: []"""
 
+# Generous headroom, not a token-count guess for the JSON output itself —
+# a reasoning/thinking model can spend a large chunk of its budget on
+# hidden reasoning before ever emitting the actual array, and a truncated
+# mid-JSON response fails to parse (see the "error" trace event this
+# produces, step=extraction). A live incident hit exactly this with
+# max_tokens=1000 on a rich turn; the model here has a 1M context window,
+# so this is cheap headroom, not a real cost/latency constraint.
+_EXTRACTION_MAX_TOKENS = 32000
+
 
 def _build_extraction_prompt(
     user_message: str,
@@ -218,7 +227,7 @@ class FragmentaryExtractor:
             response = self._llm.complete(
                 prompt=prompt,
                 system_prompt=_EXTRACTION_SYSTEM_PROMPT,
-                max_tokens=1000,
+                max_tokens=_EXTRACTION_MAX_TOKENS,
             )
             raw_items = _parse_extraction_response(response)
         except Exception as exc:
