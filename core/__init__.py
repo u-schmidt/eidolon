@@ -214,25 +214,33 @@ class Eidolon:
             request_id=request_id or _new_request_id(), session_id=session_id,
         )
 
-    def get_active_topic(self, peer_id: str) -> int | None:
-        """Look up the peer's currently open topic in storage, if any.
+    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
+        """Look up the currently open topic for this peer *and* session, if any.
 
-        Adapters call this once at startup to resume their in-memory
-        active-topic tracking — otherwise a restart mid-topic silently
-        forgets about it, leaving it open (and unretrievable, since search
-        only considers closed topics) forever.
+        Adapters call this whenever a session is first seen (not just once
+        at startup) to resume its own in-memory active-topic tracking —
+        otherwise a restart, or a session that was never seen before,
+        silently forgets about an open topic, leaving it open (and
+        unretrievable, since search only considers closed topics) forever.
+        Scoped per session so a peer's concurrent sessions (web, Telegram,
+        CLI, ...) each track their own topic thread independently.
 
         Parameters
         ----------
         peer_id : str
             Who the active topic belongs to.
+        session_id : str | None
+            Which session's topic thread to resume. None matches only
+            topics created with no session (legacy rows, single-session
+            callers) — not a wildcard across all of the peer's sessions.
 
         Returns
         -------
         int | None
-            The open topic's id, or None if the peer has no open topic.
+            The open topic's id, or None if there's no open topic for
+            this (peer_id, session_id).
         """
-        return self._storage.get_active_topic(peer_id)
+        return self._storage.get_active_topic(peer_id, session_id)
 
     def retrieve_context(
         self,
@@ -360,6 +368,7 @@ class Eidolon:
             new_topic_id = self._storage.create_topic(
                 label=new_topic_label,
                 peer_id=peer_id,
+                session_id=session_id,
             )
 
         # 3. Store messages

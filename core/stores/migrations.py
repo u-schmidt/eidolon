@@ -68,6 +68,9 @@ MIGRATIONS: dict[int, str] = {
         last_run_at TIMESTAMP
     );
     """,
+    4: """
+    ALTER TABLE topics ADD COLUMN session_id TEXT;
+    """,
 }
 
 

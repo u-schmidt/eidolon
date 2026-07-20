@@ -91,9 +91,25 @@ class EidolonMemoryProvider(MemoryProvider):
         return self._current_session_id
 
     def _get_or_create_session(self, session_id: str) -> SessionState:
+        """Get this session's state, creating and resuming it if new.
+
+        `topics.status` in storage is the source of truth for what's
+        open, scoped per (peer_id, session_id) — not just once at plugin
+        load, but for every session_id seen for the first time, so a
+        peer's concurrent sessions (web, Telegram, CLI, ...) each resume
+        their own topic thread instead of starting blind and silently
+        orphaning whatever another session still has open.
+        """
         resolved = self._resolve_session_id(session_id)
         if resolved not in self._sessions:
-            self._sessions[resolved] = SessionState()
+            session = SessionState()
+            try:
+                session.active_topic_id = self._eidolon.get_active_topic(
+                    self._peer_id, session_id=resolved
+                )
+            except Exception as e:
+                logger.debug("Failed to resume active topic for session %s (non-fatal): %s", resolved, e)
+            self._sessions[resolved] = session
         return self._sessions[resolved]
 
     @property
@@ -179,17 +195,11 @@ class EidolonMemoryProvider(MemoryProvider):
             tracer=tracer,
         )
 
-        # Resume the peer's currently open topic, if any — `topics.status`
-        # in storage is the source of truth, not this in-memory field, so a
-        # restart shouldn't silently orphan a topic that was still open.
         # Seed the current-session fallback before resolving so an empty
         # session_id from a later prefetch() call still lands here.
-        session = self._get_or_create_session(session_id)
-        try:
-            session.active_topic_id = self._eidolon.get_active_topic(self._peer_id)
-        except Exception as e:
-            logger.debug("Failed to resume active topic (non-fatal): %s", e)
-            session.active_topic_id = None
+        # _get_or_create_session() itself resumes this session's active
+        # topic from storage — see its docstring.
+        self._get_or_create_session(session_id)
 
         self._initialized = True
 

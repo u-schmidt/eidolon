@@ -77,8 +77,13 @@ class StorageProvider(Protocol):
         tags: list[str] | None = None,
         embedding: list[float] | None = None,
         peer_id: str | None = None,
+        session_id: str | None = None,
     ) -> int:
-        """Create a new topic and return its id."""
+        """Create a new topic and return its id.
+
+        ``session_id`` tags which conversation session opened this topic —
+        see ``get_active_topic`` for why that matters.
+        """
         ...
 
     def get_topic(self, topic_id: int) -> dict | None:
@@ -89,12 +94,18 @@ class StorageProvider(Protocol):
         """Mark a topic as closed and set its final summary."""
         ...
 
-    def get_active_topic(self, peer_id: str) -> int | None:
-        """Return the id of the peer's currently open ('active') topic, if any.
+    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
+        """Return the id of the currently open ('active') topic for
+        ``peer_id`` *and* ``session_id``, if any.
 
-        `topics.status` is the source of truth for what's open — adapters
-        use this to resume their in-memory active-topic tracking after a
-        restart instead of assuming there's no open topic.
+        A peer can have multiple concurrent sessions (web, Telegram, CLI,
+        ...), each continuing its own topic thread — the active topic is
+        scoped per (peer_id, session_id), not per peer_id alone, so one
+        session's topic detection never clobbers or orphans another
+        session's still-open topic. `topics.status` is the source of
+        truth for what's open — adapters use this to resume their
+        in-memory active-topic tracking after a restart instead of
+        assuming there's no open topic.
         """
         ...
 

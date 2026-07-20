@@ -145,6 +145,29 @@ class TestTopics:
         newer = store.create_topic("Newer", summary="", peer_id="user")
         assert store.get_active_topic("user") == newer
 
+    def test_get_active_topic_scoped_per_session(self, store: SqliteStore):
+        """A peer's concurrent sessions (web, Telegram, CLI, ...) must each
+        get their own active topic, not share whichever is newest."""
+        web_topic = store.create_topic("Web thread", summary="", peer_id="user", session_id="web")
+        telegram_topic = store.create_topic("Telegram thread", summary="", peer_id="user", session_id="telegram")
+
+        assert store.get_active_topic("user", session_id="web") == web_topic
+        assert store.get_active_topic("user", session_id="telegram") == telegram_topic
+
+    def test_get_active_topic_with_no_session_id_only_matches_sessionless_topics(self, store: SqliteStore):
+        """None is not a wildcard across sessions — it only matches topics
+        created with no session_id (legacy rows, single-session callers
+        like the CLI)."""
+        store.create_topic("Web thread", summary="", peer_id="user", session_id="web")
+        sessionless = store.create_topic("CLI thread", summary="", peer_id="user")
+
+        assert store.get_active_topic("user") == sessionless
+        assert store.get_active_topic("user", session_id="web") != sessionless
+
+    def test_create_topic_stores_session_id(self, store: SqliteStore):
+        tid = store.create_topic("Web thread", summary="", peer_id="user", session_id="web")
+        assert store.get_active_topic("user", session_id="web") == tid
+
     def test_search_topics_by_tags(self, store: SqliteStore):
         store.create_topic("Bello", summary="", tags=["bello", "fitness"])
         store.create_topic("Mampfi", summary="", tags=["mampfi", "shopping"])

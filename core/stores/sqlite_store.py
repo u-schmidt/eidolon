@@ -168,12 +168,13 @@ class SqliteStore:
         tags: list[str] | None = None,
         embedding: list[float] | None = None,
         peer_id: str | None = None,
+        session_id: str | None = None,
     ) -> int:
         tags_json = json.dumps(tags or [])
         embed_blob = _serialize_embedding(embedding) if embedding else None
         cur = self._conn.execute(
-            "INSERT INTO topics (label, summary, tags, embedding, peer_id) VALUES (?, ?, ?, ?, ?)",
-            (label, summary, tags_json, embed_blob, peer_id),
+            "INSERT INTO topics (label, summary, tags, embedding, peer_id, session_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (label, summary, tags_json, embed_blob, peer_id, session_id),
         )
         self._conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
@@ -204,20 +205,29 @@ class SqliteStore:
         )
         self._conn.commit()
 
-    def get_active_topic(self, peer_id: str) -> int | None:
-        """Return the id of the peer's most recently opened 'active' topic.
+    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
+        """Return the id of the most recently opened 'active' topic for
+        this peer *and* session.
 
-        If more than one is somehow left 'active' (e.g. a crash mid topic
-        transition), the most recent wins; older orphans stay open until
-        explicitly closed — no automatic cleanup here.
+        Scoped per (peer_id, session_id) — a peer with several concurrent
+        sessions (web, Telegram, CLI, ...) gets one independent active
+        topic per session, not one shared across all of them. Passing no
+        session_id matches only topics created with none (e.g. legacy
+        rows from before this column existed, or single-session callers
+        like the CLI) — it is not a wildcard across sessions.
+
+        If more than one is somehow left 'active' for the same
+        (peer_id, session_id) (e.g. a crash mid topic transition), the
+        most recent wins; older orphans stay open until explicitly
+        closed — no automatic cleanup here.
         """
         # `id DESC` breaks ties from CURRENT_TIMESTAMP's second-level
         # resolution — two topics created within the same second would
         # otherwise sort ambiguously.
         row = self._conn.execute(
-            "SELECT id FROM topics WHERE peer_id = ? AND status = 'active' "
+            "SELECT id FROM topics WHERE peer_id = ? AND session_id IS ? AND status = 'active' "
             "ORDER BY created_at DESC, id DESC LIMIT 1",
-            (peer_id,),
+            (peer_id, session_id),
         ).fetchone()
         return row[0] if row else None
 

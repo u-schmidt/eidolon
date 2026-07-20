@@ -26,8 +26,11 @@ class MockEidolon:
         self.last_old_topic_id: int | None = None
         self.last_new_topic_label: str | None = None
         self.active_topic_to_resume: int | None = None
+        self.active_topics_by_session: dict[str | None, int] = {}
         self.get_active_topic_calls = 0
         self.last_get_active_topic_peer_id: str | None = None
+        self.last_get_active_topic_session_id: str | None = None
+        self.get_active_topic_session_ids_seen: list[str | None] = []
         self.last_session_id: str | None = None
         self.last_peer_id: str | None = None
         self.last_request_id: str | None = None
@@ -35,9 +38,13 @@ class MockEidolon:
         self.correct_fact_calls = 0
         self.last_correct_fact_args: tuple | None = None
 
-    def get_active_topic(self, peer_id: str) -> int | None:
+    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
         self.get_active_topic_calls += 1
         self.last_get_active_topic_peer_id = peer_id
+        self.last_get_active_topic_session_id = session_id
+        self.get_active_topic_session_ids_seen.append(session_id)
+        if session_id in self.active_topics_by_session:
+            return self.active_topics_by_session[session_id]
         return self.active_topic_to_resume
 
     def detect_topic(
@@ -531,6 +538,32 @@ class TestEidolonMemoryProvider:
             p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
 
         assert p._sessions["sess_1"].active_topic_id is None
+
+    def test_concurrent_sessions_resume_independent_active_topics(self, provider):
+        """A peer's concurrent sessions (web, Telegram, CLI, ...) must each
+        resume their own topic thread — not share one, and not clobber
+        each other. _get_or_create_session() resumes per (peer, session),
+        not just once at plugin load (see adapters/hermes/__init__.py)."""
+        provider._eidolon.active_topics_by_session = {"web": 5, "telegram": 9}
+
+        web_session = provider._get_or_create_session("web")
+        telegram_session = provider._get_or_create_session("telegram")
+
+        assert web_session.active_topic_id == 5
+        assert telegram_session.active_topic_id == 9
+        # Each resume call was scoped to its own session_id, not a shared
+        # "current session" fallback.
+        assert provider._eidolon.get_active_topic_session_ids_seen == ["web", "telegram"]
+
+    def test_second_session_first_message_does_not_touch_first_sessions_topic(self, provider):
+        """Getting a brand-new session must not perturb another session's
+        already-tracked state."""
+        provider._sessions["web"] = SessionState(active_topic_id=5)
+        provider._eidolon.active_topics_by_session = {"telegram": None}
+
+        provider._get_or_create_session("telegram")
+
+        assert provider._sessions["web"].active_topic_id == 5
 
     def test_initialize_falls_back_to_user_when_no_identity_kwargs(self, tmp_path):
         from adapters.hermes import EidolonMemoryProvider

@@ -57,11 +57,12 @@ class MockStorage:
         self._checkpoints[peer_id] = last_item_id
 
     def create_topic(self, label: str, summary: str = "", tags: list[str] | None = None,
-                     embedding: list[float] | None = None, peer_id: str | None = None) -> int:
+                     embedding: list[float] | None = None, peer_id: str | None = None,
+                     session_id: str | None = None) -> int:
         tid = self._next_topic_id
         self._next_topic_id += 1
         self.topics[tid] = {"id": tid, "label": label, "summary": summary, "tags": tags or [],
-                           "status": "active", "peer_id": peer_id}
+                           "status": "active", "peer_id": peer_id, "session_id": session_id}
         return tid
 
     def get_topic(self, topic_id: int) -> dict | None:
@@ -73,10 +74,11 @@ class MockStorage:
             self.topics[topic_id]["summary"] = summary
             self.closed_topics.append(topic_id)
 
-    def get_active_topic(self, peer_id: str) -> int | None:
+    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
         active = [
             t for t in self.topics.values()
             if t["status"] == "active" and t.get("peer_id") == peer_id
+            and t.get("session_id") == session_id
         ]
         return active[-1]["id"] if active else None
 
