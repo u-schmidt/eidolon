@@ -160,12 +160,23 @@ class TopicDetector:
         """
         prompt = _build_detection_prompt(message, current_topic_summary, recent_messages)
         started = time.perf_counter()
-        response = self._llm.complete(
-            prompt=prompt,
-            system_prompt=_DETECTION_SYSTEM_PROMPT,
-            max_tokens=500,
-        )
+        response = ""
+        try:
+            response = self._llm.complete(
+                prompt=prompt,
+                system_prompt=_DETECTION_SYSTEM_PROMPT,
+                max_tokens=500,
+            )
+        except Exception as exc:
+            self._tracer.record(
+                "error",
+                {"step": "topic_detection", "exception": repr(exc)},
+                request_id=request_id, session_id=session_id,
+            )
         duration_ms = (time.perf_counter() - started) * 1000
+        # An empty response (from a failed call above) naturally falls
+        # through to CONTINUE — the same designed fallback as any other
+        # unparseable response, see _parse_detection_response.
         result = _parse_detection_response(response)
 
         self._tracer.record(

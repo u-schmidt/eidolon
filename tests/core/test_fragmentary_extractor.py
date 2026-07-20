@@ -14,10 +14,11 @@ from tests.mocks import SpyTracer
 
 
 class MockLLM:
-    """A mock LLM that returns a predefined JSON response."""
+    """A mock LLM that returns a predefined JSON response, or raises."""
 
-    def __init__(self, response: str = "[]") -> None:
+    def __init__(self, response: str = "[]", should_raise: bool = False) -> None:
         self.response = response
+        self.should_raise = should_raise
         self.last_prompt: str | None = None
         self.last_system: str | None = None
         self.last_max_tokens: int | None = None
@@ -31,6 +32,8 @@ class MockLLM:
         self.last_prompt = prompt
         self.last_system = system_prompt
         self.last_max_tokens = max_tokens
+        if self.should_raise:
+            raise RuntimeError("LLM backend unavailable")
         return self.response
 
 
@@ -73,13 +76,13 @@ class TestParseExtractionResponse:
         assert len(result) == 1
         assert result[0]["content"] == "No lang"
 
-    def test_malformed_json_returns_empty(self):
-        result = _parse_extraction_response("not json at all")
-        assert result == []
+    def test_malformed_json_raises(self):
+        with pytest.raises(ValueError, match="malformed extraction response"):
+            _parse_extraction_response("not json at all")
 
-    def test_not_a_list_returns_empty(self):
-        result = _parse_extraction_response('{"not": "a list"}')
-        assert result == []
+    def test_not_a_list_raises(self):
+        with pytest.raises(ValueError, match="not a JSON array"):
+            _parse_extraction_response('{"not": "a list"}')
 
 
 class TestBuildExtractionPrompt:
@@ -232,3 +235,42 @@ class TestFragmentaryExtractor:
         llm = MockLLM(response="[]")
         extractor = FragmentaryExtractor(llm)
         extractor.extract(user_message="Hello", ai_response="Hi!")
+
+    def test_extract_llm_call_failure_returns_empty_and_records_error(self):
+        llm = MockLLM(should_raise=True)
+        tracer = SpyTracer()
+        extractor = FragmentaryExtractor(llm, tracer=tracer)
+
+        items = extractor.extract(
+            user_message="FitZone ist immer voll", ai_response="Das klingt frustrierend!",
+            request_id="req1", session_id="sess1",
+        )
+
+        assert items == []
+        error_events = tracer.events_of_type("error")
+        assert len(error_events) == 1
+        assert error_events[0]["payload"]["step"] == "extraction"
+        assert "LLM backend unavailable" in error_events[0]["payload"]["exception"]
+        assert error_events[0]["request_id"] == "req1"
+        assert error_events[0]["session_id"] == "sess1"
+        # The normal extraction event still fires — items just reads 0.
+        extraction_events = tracer.events_of_type("extraction")
+        assert len(extraction_events) == 1
+        assert extraction_events[0]["payload"]["items"] == []
+
+    def test_extract_malformed_response_returns_empty_and_records_error(self):
+        llm = MockLLM(response="not json at all")
+        tracer = SpyTracer()
+        extractor = FragmentaryExtractor(llm, tracer=tracer)
+
+        items = extractor.extract(user_message="Hello", ai_response="Hi!")
+
+        assert items == []
+        error_events = tracer.events_of_type("error")
+        assert len(error_events) == 1
+        assert error_events[0]["payload"]["step"] == "extraction"
+        assert "malformed extraction response" in error_events[0]["payload"]["exception"]
+        assert error_events[0]["payload"]["response"] == "not json at all"
+        extraction_events = tracer.events_of_type("extraction")
+        assert len(extraction_events) == 1
+        assert extraction_events[0]["payload"]["items"] == []

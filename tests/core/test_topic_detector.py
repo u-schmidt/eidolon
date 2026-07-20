@@ -10,10 +10,11 @@ from tests.mocks import SpyTracer
 
 
 class MockLLM:
-    """A mock LLM that returns a predefined response."""
+    """A mock LLM that returns a predefined response, or raises."""
 
-    def __init__(self, response: str = "CONTINUE") -> None:
+    def __init__(self, response: str = "CONTINUE", should_raise: bool = False) -> None:
         self.response = response
+        self.should_raise = should_raise
         self.last_prompt: str | None = None
         self.last_system: str | None = None
 
@@ -25,6 +26,8 @@ class MockLLM:
     ) -> str:
         self.last_prompt = prompt
         self.last_system = system_prompt
+        if self.should_raise:
+            raise RuntimeError("LLM backend unavailable")
         return self.response
 
 
@@ -168,6 +171,26 @@ class TestTopicDetector:
         llm = MockLLM(response="CONTINUE")
         detector = TopicDetector(llm)
         detector.detect("hello")
+
+    def test_detect_llm_call_failure_defaults_to_continue_and_records_error(self):
+        llm = MockLLM(should_raise=True)
+        tracer = SpyTracer()
+        detector = TopicDetector(llm, tracer=tracer)
+
+        result = detector.detect("hello", request_id="req1", session_id="sess1")
+
+        assert result == TopicChange(type="CONTINUE")
+        error_events = tracer.events_of_type("error")
+        assert len(error_events) == 1
+        assert error_events[0]["payload"]["step"] == "topic_detection"
+        assert "LLM backend unavailable" in error_events[0]["payload"]["exception"]
+        assert error_events[0]["request_id"] == "req1"
+        assert error_events[0]["session_id"] == "sess1"
+        # The normal topic_detection event still fires, with an empty response.
+        detection_events = tracer.events_of_type("topic_detection")
+        assert len(detection_events) == 1
+        assert detection_events[0]["payload"]["response"] == ""
+        assert detection_events[0]["payload"]["result_type"] == "CONTINUE"
 
     def test_recent_messages_passed_into_prompt(self):
         llm = MockLLM(response="CONTINUE")

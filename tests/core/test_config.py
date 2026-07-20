@@ -21,6 +21,7 @@ from core.config import (
 from core.config_loader import ConfigLoader
 from core.provider_factory import ProviderFactory
 from core.trace.null_tracer import NullTracer
+from core.trace.safe_tracer import SafeTracer
 from core.trace.sqlite_tracer import SqliteTracer
 
 
@@ -536,5 +537,8 @@ class TestProviderFactory:
         )
         factory = ProviderFactory(config)
         tracer = factory.create_tracer()
-        assert isinstance(tracer, SqliteTracer)
+        # Wrapped in SafeTracer so a broken trace backend can never take
+        # down real extraction/storage — see core/trace/safe_tracer.py.
+        assert isinstance(tracer, SafeTracer)
+        assert isinstance(tracer._wrapped, SqliteTracer)
         tracer.close()

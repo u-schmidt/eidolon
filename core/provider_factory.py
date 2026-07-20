@@ -14,6 +14,7 @@ from core.config import EidolonConfig, ModelConfig
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
 from core.stores.sqlite_store import SqliteStore
 from core.trace.null_tracer import NullTracer
+from core.trace.safe_tracer import SafeTracer
 from core.trace.sqlite_tracer import SqliteTracer
 
 
@@ -49,11 +50,14 @@ class ProviderFactory:
     # ── Tracer ─────────────────────────────────────────────
 
     def create_tracer(self) -> Tracer:
-        """Create the debug tracer — a connected ``SqliteTracer`` when
-        ``config.debug.enabled``, otherwise a no-op ``NullTracer``."""
+        """Create the debug tracer — a connected ``SqliteTracer`` wrapped
+        in ``SafeTracer`` when ``config.debug.enabled``, otherwise a
+        no-op ``NullTracer``. ``SafeTracer`` ensures a broken trace
+        backend degrades to "no tracing" instead of taking down real
+        extraction/storage."""
         if not self._config.debug.enabled:
             return NullTracer()
-        tracer = SqliteTracer(self._config.debug.trace_db_path)
+        tracer = SafeTracer(SqliteTracer(self._config.debug.trace_db_path))
         tracer.connect()
         return tracer
 

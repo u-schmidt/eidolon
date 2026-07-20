@@ -273,10 +273,13 @@ class TracePrinter:
         ])
 
     def _format_error(self, p: dict) -> str:
-        return "\n".join([
+        lines = [
             f"    step: {p.get('step')}",
             f"    exception: {_truncate(p.get('exception'))}",
-        ])
+        ]
+        if p.get("response") is not None:
+            lines.append(f"    response: {_truncate(p.get('response'))}")
+        return "\n".join(lines)
 
     # ── Summary formatters (used by format_summary) ────────────────
 

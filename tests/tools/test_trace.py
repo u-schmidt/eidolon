@@ -221,3 +221,31 @@ class TestTracePrinterFormatDetail:
         assert "topic: 3 scored, 1 included (showing top 2)" in detail
         assert "[✓] #5" in detail
         assert "[ ] #6" in detail
+
+    def test_format_detail_error_without_response(self):
+        event = {
+            "event_type": "error",
+            "duration_ms": None,
+            "created_at": "2026-07-19 12:00:00",
+            "payload": {"step": "topic_detection", "exception": "RuntimeError('LLM backend unavailable')"},
+        }
+        detail = TracePrinter().format_detail(event)
+        assert "step: topic_detection" in detail
+        assert "exception: RuntimeError" in detail
+        assert "response:" not in detail
+
+    def test_format_detail_error_with_response(self):
+        event = {
+            "event_type": "error",
+            "duration_ms": None,
+            "created_at": "2026-07-19 12:00:00",
+            "payload": {"step": "extraction", "exception": "ValueError('malformed extraction response')",
+                        "response": "not json at all"},
+        }
+        detail = TracePrinter().format_detail(event)
+        assert "step: extraction" in detail
+        assert "response: not json at all" in detail
+
+    def test_summary_error(self):
+        event = {"event_type": "error", "payload": {"step": "extraction", "exception": "boom"}}
+        assert TracePrinter().format_summary(event) == "ERROR in extraction"

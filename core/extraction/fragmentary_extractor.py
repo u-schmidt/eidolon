@@ -113,7 +113,14 @@ def _parse_extraction_response(response: str) -> list[dict]:
     Returns
     -------
     list[dict]
-        Parsed extraction items, or empty list on parse failure.
+        Parsed extraction items.
+
+    Raises
+    ------
+    ValueError
+        If the response isn't valid JSON, or isn't a JSON array — the
+        caller's error handling treats that as a failed pass (visible as
+        an ``error`` trace event), not as "nothing to extract".
     """
     text = response.strip()
     # Remove markdown code fences if present
@@ -132,11 +139,11 @@ def _parse_extraction_response(response: str) -> list[dict]:
 
     try:
         items = json.loads(text)
-        if isinstance(items, list):
-            return items
-        return []
-    except (json.JSONDecodeError, TypeError):
-        return []
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ValueError(f"malformed extraction response: {text!r}") from exc
+    if not isinstance(items, list):
+        raise ValueError(f"extraction response is not a JSON array: {text!r}")
+    return items
 
 
 class FragmentaryExtractor:
@@ -206,14 +213,22 @@ class FragmentaryExtractor:
         """
         prompt = _build_extraction_prompt(user_message, ai_response, topic_label)
         started = time.perf_counter()
-        response = self._llm.complete(
-            prompt=prompt,
-            system_prompt=_EXTRACTION_SYSTEM_PROMPT,
-            max_tokens=1000,
-        )
+        response = ""
+        try:
+            response = self._llm.complete(
+                prompt=prompt,
+                system_prompt=_EXTRACTION_SYSTEM_PROMPT,
+                max_tokens=1000,
+            )
+            raw_items = _parse_extraction_response(response)
+        except Exception as exc:
+            raw_items = []
+            self._tracer.record(
+                "error",
+                {"step": "extraction", "exception": repr(exc), "response": response},
+                request_id=request_id, session_id=session_id,
+            )
         duration_ms = (time.perf_counter() - started) * 1000
-
-        raw_items = _parse_extraction_response(response)
 
         items = [
             MemoryItem(
