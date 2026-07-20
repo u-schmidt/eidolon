@@ -418,3 +418,39 @@ class TestMemoryItems:
         ))
         results = store.search_memory_items(peer_id="user")
         assert len(results) == 1
+
+
+class TestSchema:
+    def test_expected_indexes_exist(self, store: SqliteStore):
+        names = {
+            row[0]
+            for row in store._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            ).fetchall()
+        }
+        assert {
+            "idx_messages_topic",
+            "idx_messages_peer_role",
+            "idx_topics_peer_status",
+            "idx_memory_items_subject_type",
+        } <= names
+
+    def test_user_version_is_current(self, store: SqliteStore):
+        from core.stores.migrations import MIGRATIONS
+
+        version = store._conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version == max(MIGRATIONS)
+
+    def test_active_topic_query_uses_index(self, store: SqliteStore):
+        """The per-turn get_active_topic lookup must be an index seek, not
+        a full table scan — regression guard for the topics index."""
+        store.create_topic("Ongoing", peer_id="user", session_id="web")
+        plan = store._conn.execute(
+            "EXPLAIN QUERY PLAN "
+            "SELECT id FROM topics WHERE peer_id = ? AND session_id IS ? "
+            "AND status = 'active' ORDER BY created_at DESC, id DESC LIMIT 1",
+            ("user", "web"),
+        ).fetchall()
+        detail = " ".join(str(row[3]) for row in plan)
+        assert "idx_topics_peer_status" in detail
+        assert "SCAN" not in detail or "USING INDEX" in detail

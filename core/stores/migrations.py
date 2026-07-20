@@ -71,6 +71,17 @@ MIGRATIONS: dict[int, str] = {
     4: """
     ALTER TABLE topics ADD COLUMN session_id TEXT;
     """,
+    5: """
+    -- Indexes for the exact-match / range / order-by query paths hit on
+    -- every turn (session resume, message loads, turn counting) and during
+    -- consolidation. These do NOT speed up the associative search
+    -- (search_topics / search_memory_items), which score every row in
+    -- Python — that needs a vector index, tracked separately.
+    CREATE INDEX IF NOT EXISTS idx_messages_topic ON messages(topic_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_peer_role ON messages(peer_id, role);
+    CREATE INDEX IF NOT EXISTS idx_topics_peer_status ON topics(peer_id, status);
+    CREATE INDEX IF NOT EXISTS idx_memory_items_subject_type ON memory_items(subject_peer, item_type);
+    """,
 }
 
 
