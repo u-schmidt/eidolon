@@ -45,12 +45,13 @@ class StepDetailScreen(Screen):
             ("Related Topics", "topic"),
             ("Memory Items", "memory_item"),
         ):
-            count = sum(
-                1
-                for e in self._phase_events
-                if e["event_type"] == "retrieval_candidate_scored"
-                and e["payload"].get("candidate_type") == candidate_type
+            summary_event = next(
+                (e for e in self._phase_events
+                 if e["event_type"] == "retrieval_scoring_summary"
+                 and e["payload"].get("candidate_type") == candidate_type),
+                None,
             )
+            count = summary_event["payload"]["total_scored"] if summary_event else 0
             table.add_row(label, str(count), key=candidate_type)
         # The VerticalScroll above is focusable too (it handles scroll
         # keys) and would otherwise steal focus on mount, leaving the

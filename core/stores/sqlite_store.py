@@ -28,6 +28,12 @@ from core.stores.migrations import migrate
 # yet. Don't assume configuring it has any effect until that lands.
 _DEFAULT_WEIGHTS = {"semantic": 0.4, "tag_overlap": 0.3, "person": 0.2, "temporal": 0.1}
 
+# How many extra scored candidates beyond `limit` to persist in a
+# retrieval_scoring_summary trace event, so near-misses just below the
+# cutoff are visible when tuning weights — without persisting every
+# positively-scored candidate (which scales with DB size, not turn count).
+_TRACE_TOP_K_PADDING = 10
+
 
 def _serialize_embedding(vec: list[float]) -> bytes:
     """Pack a float list into a binary BLOB (little-endian f64)."""
@@ -241,9 +247,10 @@ class SqliteStore:
         when provided (see `_DEFAULT_WEIGHTS`). `temporal` is accepted
         but currently unused — no recency term exists yet.
 
-        When `tracer` is given, one `retrieval_candidate_scored` event is
-        recorded per candidate with score, once the final top-`limit` cut
-        is known.
+        When `tracer` is given, one `retrieval_scoring_summary` event is
+        recorded for the whole call, carrying the top `limit + _TRACE_TOP_K_PADDING`
+        positively-scored candidates (with breakdown) plus total/included counts —
+        not one event per candidate, which doesn't scale with DB size.
 
         Returns topic dicts ordered by relevance (highest first).
         """
@@ -313,13 +320,20 @@ class SqliteStore:
         included_ids = {t["id"] for _, t in results}
 
         if tracer is not None:
-            for score, topic, breakdown in scored:
-                if score <= 0:
-                    continue
-                breakdown["included"] = topic["id"] in included_ids
-                tracer.record(
-                    "retrieval_candidate_scored", breakdown, request_id=request_id,
-                )
+            positively_scored = [(s, b) for s, _, b in scored if s > 0]
+            top = positively_scored[: limit + _TRACE_TOP_K_PADDING]
+            for _, breakdown in top:
+                breakdown["included"] = breakdown["candidate_id"] in included_ids
+            tracer.record(
+                "retrieval_scoring_summary",
+                {
+                    "candidate_type": "topic",
+                    "total_scored": len(positively_scored),
+                    "included_count": len(included_ids),
+                    "top_candidates": [b for _, b in top],
+                },
+                request_id=request_id,
+            )
 
         return [t for _, t in results]
 
@@ -352,8 +366,8 @@ class SqliteStore:
         (memory items carry no tags) and `temporal` is unused — no recency
         term exists yet.
 
-        When `tracer` is given, one `retrieval_candidate_scored` event is
-        recorded per candidate, once the final top-`limit` cut is known.
+        When `tracer` is given, one `retrieval_scoring_summary` event is
+        recorded for the whole call — see `search_topics` for the shape.
         """
         w = weights or _DEFAULT_WEIGHTS
         rows = self._conn.execute(
@@ -410,13 +424,20 @@ class SqliteStore:
         included_ids = {i.id for _, i in results}
 
         if tracer is not None:
-            for score, item, breakdown in scored:
-                if score <= 0:
-                    continue
-                breakdown["included"] = item.id in included_ids
-                tracer.record(
-                    "retrieval_candidate_scored", breakdown, request_id=request_id,
-                )
+            positively_scored = [(s, b) for s, _, b in scored if s > 0]
+            top = positively_scored[: limit + _TRACE_TOP_K_PADDING]
+            for _, breakdown in top:
+                breakdown["included"] = breakdown["candidate_id"] in included_ids
+            tracer.record(
+                "retrieval_scoring_summary",
+                {
+                    "candidate_type": "memory_item",
+                    "total_scored": len(positively_scored),
+                    "included_count": len(included_ids),
+                    "top_candidates": [b for _, b in top],
+                },
+                request_id=request_id,
+            )
 
         return [item for _, item in results]
 

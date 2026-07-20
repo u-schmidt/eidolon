@@ -22,9 +22,9 @@ from tools.tui.screens.turn_list import TurnListScreen
 
 @pytest.fixture
 def trace_db(tmp_path):
-    """One full turn: every prefetch event_type once, two scored
-    memory_item candidates (different scores, to verify ranking order),
-    and the sync_turn tail."""
+    """One full turn: every prefetch event_type once, a batched
+    memory_item scoring summary with two candidates (different scores, to
+    verify ranking order), and the sync_turn tail."""
     db_path = str(tmp_path / "trace.db")
     tracer = SqliteTracer(db_path)
     tracer.connect()
@@ -41,22 +41,24 @@ def trace_db(tmp_path):
         request_id="req1", session_id="sess1", duration_ms=1.0,
     )
     tracer.record(
-        "retrieval_candidate_scored",
-        {"candidate_type": "memory_item", "candidate_id": 1, "semantic_raw": 0.3,
-         "semantic_weighted": 0.12, "person_weighted": 0.2, "final_score": 0.32, "included": False},
+        "retrieval_scoring_summary",
+        {"candidate_type": "memory_item", "total_scored": 2, "included_count": 1,
+         "top_candidates": [
+             {"candidate_id": 2, "semantic_raw": 0.7, "semantic_weighted": 0.28,
+              "person_weighted": 0.2, "final_score": 0.48, "included": True},
+             {"candidate_id": 1, "semantic_raw": 0.3, "semantic_weighted": 0.12,
+              "person_weighted": 0.2, "final_score": 0.32, "included": False},
+         ]},
         request_id="req1", session_id="sess1",
     )
     tracer.record(
-        "retrieval_candidate_scored",
-        {"candidate_type": "memory_item", "candidate_id": 2, "semantic_raw": 0.7,
-         "semantic_weighted": 0.28, "person_weighted": 0.2, "final_score": 0.48, "included": True},
-        request_id="req1", session_id="sess1",
-    )
-    tracer.record(
-        "retrieval_candidate_scored",
-        {"candidate_type": "topic", "candidate_id": 9, "semantic_raw": 0.4,
-         "semantic_weighted": 0.16, "tag_overlap_raw": 0.0, "tag_overlap_weighted": 0.0,
-         "person_weighted": 0.0, "final_score": 0.16, "included": True},
+        "retrieval_scoring_summary",
+        {"candidate_type": "topic", "total_scored": 1, "included_count": 1,
+         "top_candidates": [
+             {"candidate_id": 9, "semantic_raw": 0.4, "semantic_weighted": 0.16,
+              "tag_overlap_raw": 0.0, "tag_overlap_weighted": 0.0,
+              "person_weighted": 0.0, "final_score": 0.16, "included": True},
+         ]},
         request_id="req1", session_id="sess1",
     )
     tracer.record(
@@ -114,8 +116,9 @@ class TestFullDrillDown:
             table = app.screen.query_one("#phases", DataTable)
             assert table.row_count == 2
             assert table.get_cell_at(Coordinate(0, 0)) == "Prefetch"
-            # topic_detection, embedding(retrieval_query), 3x retrieval_candidate_scored, context_retrieval
-            assert table.get_cell_at(Coordinate(0, 1)) == "6"
+            # topic_detection, embedding(retrieval_query), retrieval_scoring_summary(memory_item),
+            # retrieval_scoring_summary(topic), context_retrieval
+            assert table.get_cell_at(Coordinate(0, 1)) == "5"
             assert table.get_cell_at(Coordinate(1, 0)) == "Sync Turn"
 
             # d) select prefetch -> e) step list
@@ -123,12 +126,12 @@ class TestFullDrillDown:
             await pilot.pause()
             assert isinstance(app.screen, PhaseStepsScreen)
             table = app.screen.query_one("#steps", DataTable)
-            assert table.row_count == 6
+            assert table.row_count == 5
             assert table.get_cell_at(Coordinate(0, 0)) == "topic_detection"
             assert "CONTINUE" in table.get_cell_at(Coordinate(0, 1))
 
             # select context_retrieval (last row) -> f) step detail
-            table.cursor_coordinate = Coordinate(5, 0)
+            table.cursor_coordinate = Coordinate(4, 0)
             await pilot.press("enter")
             await pilot.pause()
             assert isinstance(app.screen, StepDetailScreen)

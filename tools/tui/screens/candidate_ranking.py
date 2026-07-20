@@ -7,13 +7,12 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header
 
-_TOP_N = 10
-
 
 class CandidateRankingScreen(Screen):
-    """Top-N scored candidates of one type ("topic" or "memory_item")
-    for a turn — the full ranking behind context_retrieval's included
-    subset."""
+    """Scored candidates of one type ("topic" or "memory_item") for a
+    turn — the ranking behind context_retrieval's included subset, as
+    persisted by the storage layer's retrieval_scoring_summary event
+    (already sorted and capped there, so no re-sort/slice needed here)."""
 
     BINDINGS = [("escape", "app.pop_screen", "Back")]
 
@@ -29,17 +28,17 @@ class CandidateRankingScreen(Screen):
 
     def on_mount(self) -> None:
         self.sub_title = f"{self._candidate_type} candidates"
-        candidates = [
-            e["payload"]
-            for e in self._phase_events
-            if e["event_type"] == "retrieval_candidate_scored"
-            and e["payload"].get("candidate_type") == self._candidate_type
-        ]
-        candidates.sort(key=lambda p: p.get("final_score", 0), reverse=True)
+        summary_event = next(
+            (e for e in self._phase_events
+             if e["event_type"] == "retrieval_scoring_summary"
+             and e["payload"].get("candidate_type") == self._candidate_type),
+            None,
+        )
+        candidates = summary_event["payload"]["top_candidates"] if summary_event else []
 
         table = self.query_one("#candidates", DataTable)
         table.add_columns("ID", "Final", "Semantic raw→weighted", "Tag overlap raw→weighted", "Person", "Included")
-        for c in candidates[:_TOP_N]:
+        for c in candidates:
             table.add_row(
                 str(c.get("candidate_id")),
                 f"{c.get('final_score', 0):.3f}",

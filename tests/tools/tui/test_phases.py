@@ -13,8 +13,8 @@ class TestClassify:
     def test_topic_detection_is_prefetch(self):
         assert classify(_event("topic_detection")) == PREFETCH
 
-    def test_retrieval_candidate_scored_is_prefetch(self):
-        assert classify(_event("retrieval_candidate_scored")) == PREFETCH
+    def test_retrieval_scoring_summary_is_prefetch(self):
+        assert classify(_event("retrieval_scoring_summary")) == PREFETCH
 
     def test_context_retrieval_is_prefetch(self):
         assert classify(_event("context_retrieval")) == PREFETCH
@@ -58,7 +58,7 @@ class TestSplitByPhase:
         events = [
             _event("topic_detection"),
             _event("embedding", purpose="retrieval_query"),
-            _event("retrieval_candidate_scored"),
+            _event("retrieval_scoring_summary"),
             _event("context_retrieval"),
             _event("embedding", purpose="memory_item"),
             _event("extraction"),
@@ -67,7 +67,7 @@ class TestSplitByPhase:
         prefetch_events, sync_turn_events = split_by_phase(events)
 
         assert [e["event_type"] for e in prefetch_events] == [
-            "topic_detection", "embedding", "retrieval_candidate_scored", "context_retrieval",
+            "topic_detection", "embedding", "retrieval_scoring_summary", "context_retrieval",
         ]
         assert [e["event_type"] for e in sync_turn_events] == [
             "embedding", "extraction", "turn_complete",

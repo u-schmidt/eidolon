@@ -247,15 +247,21 @@ class TracePrinter:
         ]
         return "\n".join(lines)
 
-    def _format_retrieval_candidate_scored(self, p: dict) -> str:
-        mark = "✓" if p.get("included") else " "
-        return (
-            f"    [{mark}] {p.get('candidate_type')} #{p.get('candidate_id')}  "
-            f"final={p.get('final_score', 0):.3f}  "
-            f"semantic={p.get('semantic_raw', 0):.3f}→{p.get('semantic_weighted', 0):.3f}  "
-            f"tag_overlap={p.get('tag_overlap_raw', 0):.3f}→{p.get('tag_overlap_weighted', 0):.3f}  "
-            f"person={p.get('person_weighted', 0):.3f}"
-        )
+    def _format_retrieval_scoring_summary(self, p: dict) -> str:
+        top = p.get("top_candidates", [])
+        lines = [
+            f"    {p.get('candidate_type')}: {p.get('total_scored')} scored, "
+            f"{p.get('included_count')} included (showing top {len(top)})",
+        ]
+        for c in top:
+            mark = "✓" if c.get("included") else " "
+            lines.append(
+                f"      [{mark}] #{c.get('candidate_id')}  final={c.get('final_score', 0):.3f}  "
+                f"semantic={c.get('semantic_raw', 0):.3f}→{c.get('semantic_weighted', 0):.3f}  "
+                f"tag_overlap={c.get('tag_overlap_raw', 0):.3f}→{c.get('tag_overlap_weighted', 0):.3f}  "
+                f"person={c.get('person_weighted', 0):.3f}"
+            )
+        return "\n".join(lines)
 
     def _format_turn_complete(self, p: dict) -> str:
         return "\n".join([
@@ -281,9 +287,8 @@ class TracePrinter:
     def _summary_embedding(self, p: dict) -> str:
         return f"embedded [{p.get('purpose')}] → dim {p.get('dimension')}"
 
-    def _summary_retrieval_candidate_scored(self, p: dict) -> str:
-        mark = "included" if p.get("included") else "scored"
-        return f"{p.get('candidate_type')} #{p.get('candidate_id')} {mark} → {p.get('final_score', 0):.3f}"
+    def _summary_retrieval_scoring_summary(self, p: dict) -> str:
+        return f"{p.get('candidate_type')} scoring → {p.get('included_count')}/{p.get('total_scored')} included"
 
     def _summary_context_retrieval(self, p: dict) -> str:
         return (

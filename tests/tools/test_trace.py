@@ -28,16 +28,22 @@ def trace_db(tmp_path):
         request_id="req1", session_id="sess1", duration_ms=1.0,
     )
     tracer.record(
-        "retrieval_candidate_scored",
-        {"candidate_type": "topic", "candidate_id": 1, "semantic_raw": 0.5,
-         "semantic_weighted": 0.2, "tag_overlap_raw": 0.0, "tag_overlap_weighted": 0.0,
-         "person_weighted": 0.0, "final_score": 0.2, "included": True},
+        "retrieval_scoring_summary",
+        {"candidate_type": "topic", "total_scored": 1, "included_count": 1,
+         "top_candidates": [
+             {"candidate_id": 1, "semantic_raw": 0.5, "semantic_weighted": 0.2,
+              "tag_overlap_raw": 0.0, "tag_overlap_weighted": 0.0,
+              "person_weighted": 0.0, "final_score": 0.2, "included": True},
+         ]},
         request_id="req1", session_id="sess1",
     )
     tracer.record(
-        "retrieval_candidate_scored",
-        {"candidate_type": "memory_item", "candidate_id": 7, "semantic_raw": 0.6,
-         "semantic_weighted": 0.24, "person_weighted": 0.2, "final_score": 0.44, "included": True},
+        "retrieval_scoring_summary",
+        {"candidate_type": "memory_item", "total_scored": 1, "included_count": 1,
+         "top_candidates": [
+             {"candidate_id": 7, "semantic_raw": 0.6, "semantic_weighted": 0.24,
+              "person_weighted": 0.2, "final_score": 0.44, "included": True},
+         ]},
         request_id="req1", session_id="sess1",
     )
     tracer.record(
@@ -122,6 +128,14 @@ class TestTracePrinterFormatSummary:
         }
         assert TracePrinter().format_summary(event) == "corrected fact → upsert location.city"
 
+    def test_format_summary_retrieval_scoring_summary(self):
+        event = {
+            "event_type": "retrieval_scoring_summary",
+            "payload": {"candidate_type": "topic", "total_scored": 5, "included_count": 2,
+                        "top_candidates": []},
+        }
+        assert TracePrinter().format_summary(event) == "topic scoring → 2/5 included"
+
 
 class TestTracePrinterFormatDetail:
     def test_format_detail_topic_detection_shows_recent_message_count(self):
@@ -185,3 +199,25 @@ class TestTracePrinterFormatDetail:
         detail = TracePrinter().format_detail(event)
         assert "action: upsert" in detail
         assert "location.city = Berlin" in detail
+
+    def test_format_detail_retrieval_scoring_summary(self):
+        event = {
+            "event_type": "retrieval_scoring_summary",
+            "duration_ms": 1.0,
+            "created_at": "2026-07-19 12:00:00",
+            "payload": {
+                "candidate_type": "topic", "total_scored": 3, "included_count": 1,
+                "top_candidates": [
+                    {"candidate_id": 5, "final_score": 0.6, "semantic_raw": 0.5, "semantic_weighted": 0.2,
+                     "tag_overlap_raw": 0.1, "tag_overlap_weighted": 0.03, "person_weighted": 0.2,
+                     "included": True},
+                    {"candidate_id": 6, "final_score": 0.1, "semantic_raw": 0.1, "semantic_weighted": 0.04,
+                     "tag_overlap_raw": 0.0, "tag_overlap_weighted": 0.0, "person_weighted": 0.0,
+                     "included": False},
+                ],
+            },
+        }
+        detail = TracePrinter().format_detail(event)
+        assert "topic: 3 scored, 1 included (showing top 2)" in detail
+        assert "[✓] #5" in detail
+        assert "[ ] #6" in detail

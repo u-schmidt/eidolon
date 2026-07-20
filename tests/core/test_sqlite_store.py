@@ -202,7 +202,7 @@ class TestTopics:
         assert results[0]["created_at"] != "user"
         assert results[0]["status"] == "closed"
 
-    def test_search_topics_records_candidate_scored_events(self, store: SqliteStore):
+    def test_search_topics_records_scoring_summary_event(self, store: SqliteStore):
         store.create_topic("Bello", summary="", tags=["bello", "fitness"])
         store.create_topic("Fitness", summary="", tags=["fitness", "health"])
         store.close_topic(1, "")
@@ -212,12 +212,16 @@ class TestTopics:
         results = store.search_topics(tags=["fitness"], limit=1, tracer=tracer, request_id="req1")
 
         assert len(results) == 1
-        events = tracer.events_of_type("retrieval_candidate_scored")
-        assert len(events) == 2  # both candidates scored, even though only 1 was included
-        for e in events:
-            assert e["request_id"] == "req1"
-            assert e["payload"]["candidate_type"] == "topic"
-        included_flags = [e["payload"]["included"] for e in events]
+        events = tracer.events_of_type("retrieval_scoring_summary")
+        assert len(events) == 1  # one batched event for the whole call, not one per candidate
+        event = events[0]
+        assert event["request_id"] == "req1"
+        assert event["payload"]["candidate_type"] == "topic"
+        assert event["payload"]["total_scored"] == 2  # both candidates scored positively
+        assert event["payload"]["included_count"] == 1  # only 1 made the limit=1 cut
+        top = event["payload"]["top_candidates"]
+        assert len(top) == 2  # both fit within limit + padding
+        included_flags = [c["included"] for c in top]
         assert included_flags.count(True) == 1
         assert included_flags.count(False) == 1
 
@@ -232,10 +236,25 @@ class TestTopics:
             tracer=tracer,
         )
 
-        event = tracer.events_of_type("retrieval_candidate_scored")[0]
-        assert event["payload"]["semantic_raw"] == pytest.approx(1.0)
-        assert event["payload"]["semantic_weighted"] == pytest.approx(0.5)
-        assert event["payload"]["final_score"] == pytest.approx(0.5)
+        event = tracer.events_of_type("retrieval_scoring_summary")[0]
+        candidate = event["payload"]["top_candidates"][0]
+        assert candidate["semantic_raw"] == pytest.approx(1.0)
+        assert candidate["semantic_weighted"] == pytest.approx(0.5)
+        assert candidate["final_score"] == pytest.approx(0.5)
+
+    def test_search_topics_scoring_summary_caps_top_candidates(self, store: SqliteStore):
+        """More positively-scored candidates than limit + padding must still
+        only persist the top slice — this is the whole point of the change."""
+        for i in range(20):
+            store.create_topic(f"Topic {i}", summary="", tags=["fitness"])
+            store.close_topic(i + 1, "")
+
+        tracer = SpyTracer()
+        store.search_topics(tags=["fitness"], limit=1, tracer=tracer)
+
+        event = tracer.events_of_type("retrieval_scoring_summary")[0]
+        assert event["payload"]["total_scored"] == 20
+        assert len(event["payload"]["top_candidates"]) == 1 + 10  # limit + _TRACE_TOP_K_PADDING
 
     def test_search_topics_no_tracer_does_not_raise(self, store: SqliteStore):
         store.create_topic("Bello", summary="", tags=["fitness"])
@@ -300,7 +319,7 @@ class TestMemoryItems:
         results = store.search_memory_items(peer_id="user")
         assert len(results) >= 1
 
-    def test_search_memory_items_records_candidate_scored_events(self, store: SqliteStore):
+    def test_search_memory_items_records_scoring_summary_event(self, store: SqliteStore):
         store.store_memory_item(MemoryItem(
             content="About Bello", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
@@ -314,12 +333,14 @@ class TestMemoryItems:
         results = store.search_memory_items(peer_id="user", limit=1, tracer=tracer, request_id="req1")
 
         assert len(results) == 1
-        events = tracer.events_of_type("retrieval_candidate_scored")
-        assert len(events) == 2
-        for e in events:
-            assert e["request_id"] == "req1"
-            assert e["payload"]["candidate_type"] == "memory_item"
-        included_flags = [e["payload"]["included"] for e in events]
+        events = tracer.events_of_type("retrieval_scoring_summary")
+        assert len(events) == 1  # one batched event, not one per candidate
+        event = events[0]
+        assert event["request_id"] == "req1"
+        assert event["payload"]["candidate_type"] == "memory_item"
+        assert event["payload"]["total_scored"] == 2
+        assert event["payload"]["included_count"] == 1
+        included_flags = [c["included"] for c in event["payload"]["top_candidates"]]
         assert included_flags.count(True) == 1
         assert included_flags.count(False) == 1
 

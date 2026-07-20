@@ -38,6 +38,8 @@ from core.config_loader import ConfigLoader
 from core.context_formatter import ContextFormatter
 from core.models import EnvironmentSnapshot
 from core.provider_factory import ProviderFactory
+from core.trace.in_memory_tracer import InMemoryTracer
+from tools.trace import TracePrinter
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -133,6 +135,7 @@ def print_help() -> None:
     print("    /consolidate  Manually reconcile the durable facts profile now")
     print("    /topics       List all topics")
     print("    /items        List stored memory items")
+    print("    /score <text> Show the full live scored ranking for a query (not just top-K trace summary)")
     print("    /new          Start a new session (reset active topic)")
     print("    /help         Show this help")
     print("    /quit         Exit")
@@ -284,6 +287,39 @@ def main() -> None:
                     print(f"  Memory items ({len(rows)}):")
                     for row in rows:
                         print(f"    [#{row[0]}] [{row[2]}] {row[1][:80]}")
+                continue
+
+            if cmd.startswith("score "):
+                # Recomputes the full scored ranking live against current
+                # DB state — the on-demand counterpart to the top-K summary
+                # that's actually persisted to the trace db per turn.
+                query_text = text[len("/score "):].strip()
+                if not query_text:
+                    print("  Usage: /score <query text>")
+                    continue
+                query_embedding = embedder.embed(query_text)
+                weights = {
+                    "semantic": config.retrieval.semantic,
+                    "tag_overlap": config.retrieval.tag_overlap,
+                    "person": config.retrieval.person,
+                    "temporal": config.retrieval.temporal,
+                }
+                spy = InMemoryTracer()
+                request_id = uuid.uuid4().hex[:8]
+                store.search_topics(
+                    query_embedding=query_embedding, peer_id="user", limit=100000,
+                    weights=weights, tracer=spy, request_id=request_id,
+                )
+                store.search_memory_items(
+                    query_embedding=query_embedding, peer_id="user", limit=100000,
+                    weights=weights, tracer=spy, request_id=request_id,
+                )
+                printer = TracePrinter()
+                events = spy.events_of_type("retrieval_scoring_summary")
+                if not events:
+                    print("  No scored candidates.")
+                for event in events:
+                    print(printer.format_detail(event))
                 continue
 
             print(f"  Unknown command: {cmd}")
