@@ -173,6 +173,10 @@ class StorageProvider(Protocol):
         """Return all messages for a given topic, ordered by turn_id."""
         ...
 
+    def get_recent_messages_by_topic(self, topic_id: int, limit: int) -> list[dict]:
+        """Return the most recent `limit` messages for a topic, oldest first."""
+        ...
+
 
 class LLMProvider(Protocol):
     """Abstract LLM backend.

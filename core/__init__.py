@@ -51,6 +51,12 @@ def _new_request_id() -> str:
     return uuid.uuid4().hex[:8]
 
 
+# How many of a topic's most recent messages to show the detector alongside
+# its (possibly still-generic, since it's only ever refreshed on close)
+# label — real, evolving content instead of a frozen string. ~2 exchanges.
+_TOPIC_DETECTION_MESSAGE_WINDOW = 4
+
+
 class Eidolon:
     """Eidolon topic memory system — main facade.
 
@@ -149,8 +155,10 @@ class Eidolon:
 
         # 1. Detect topic change
         current_topic_summary = self._get_topic_summary(active_topic_id)
+        recent_messages = self._recent_messages_for_topic(active_topic_id)
         topic_change = self._detector.detect(
-            message, current_topic_summary, request_id=request_id, session_id=session_id
+            message, current_topic_summary, recent_messages,
+            request_id=request_id, session_id=session_id,
         )
 
         # 2. Retrieve context
@@ -195,8 +203,9 @@ class Eidolon:
             CONTINUE or NEW_TOPIC with a label.
         """
         current_topic_summary = self._get_topic_summary(active_topic_id)
+        recent_messages = self._recent_messages_for_topic(active_topic_id)
         return self._detector.detect(
-            message, current_topic_summary,
+            message, current_topic_summary, recent_messages,
             request_id=request_id or _new_request_id(), session_id=session_id,
         )
 
@@ -389,8 +398,8 @@ class Eidolon:
         # 6. Store memory items with topic + message association + embeddings
         fact_items: list[MemoryItem] = []
         for item in items:
-            if new_topic_id is not None:
-                item.topic_id = new_topic_id
+            if resolved_topic_id is not None:
+                item.topic_id = resolved_topic_id
             # Link items to the message they were extracted from
             if item.source_peer == "ai":
                 item.message_id = ai_msg_id
@@ -649,3 +658,14 @@ class Eidolon:
         if topic is None:
             return None
         return topic.get("summary") or topic.get("label")
+
+    def _recent_messages_for_topic(self, topic_id: int | None) -> list[dict]:
+        """Fetch a small window of `topic_id`'s most recent messages, for
+        the topic detector — see `_TOPIC_DETECTION_MESSAGE_WINDOW`.
+
+        Runs before the current turn's message is stored, so there's no
+        risk of it leaking into its own "recent history".
+        """
+        if topic_id is None:
+            return []
+        return self._storage.get_recent_messages_by_topic(topic_id, _TOPIC_DETECTION_MESSAGE_WINDOW)

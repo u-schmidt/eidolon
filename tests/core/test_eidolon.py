@@ -111,6 +111,10 @@ class MockStorage:
     def get_messages_by_topic(self, topic_id: int) -> list[dict]:
         return [m for m in self.messages if m["topic_id"] == topic_id]
 
+    def get_recent_messages_by_topic(self, topic_id: int, limit: int) -> list[dict]:
+        matching = [m for m in self.messages if m["topic_id"] == topic_id]
+        return matching[-limit:]
+
 
 class MockLLM:
     def __init__(
@@ -205,6 +209,53 @@ class TestEidolon:
         result = eidolon.detect_topic("Lass uns über Bello sprechen")
         assert result.type == "NEW_TOPIC"
         assert result.label == "Bello"
+
+    def test_detect_topic_passes_recent_messages_for_active_topic(self):
+        """The topic detector's only anchor for an open topic is its
+        static creation-time label (summaries only exist once closed) —
+        detect_topic must also feed it the topic's recent real messages so
+        it isn't stuck comparing against a frozen generic string forever."""
+        storage = MockStorage()
+        tid = storage.create_topic("General conversation", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="earlier message", peer_id="user", topic_id=tid)
+        storage.store_message(turn_id=1, role="ai", content="earlier reply", peer_id="ai", topic_id=tid)
+        llm = MockLLM(detection_response="CONTINUE")
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.detect_topic("new message", active_topic_id=tid)
+
+        event = tracer.events_of_type("topic_detection")[0]
+        assert event["payload"]["recent_message_count"] == 2
+
+    def test_detect_topic_no_recent_messages_without_active_topic(self):
+        storage = MockStorage()
+        llm = MockLLM(detection_response="NEW_TOPIC:Bello")
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.detect_topic("first message", active_topic_id=None)
+
+        event = tracer.events_of_type("topic_detection")[0]
+        assert event["payload"]["recent_message_count"] == 0
+
+    def test_prepare_context_passes_recent_messages_for_active_topic(self):
+        storage = MockStorage()
+        tid = storage.create_topic("General conversation", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="earlier message", peer_id="user", topic_id=tid)
+        llm = MockLLM(detection_response="CONTINUE")
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.prepare_context(
+            message="new message", peer_id="user", environment=EnvironmentSnapshot(), active_topic_id=tid,
+        )
+
+        event = tracer.events_of_type("topic_detection")[0]
+        assert event["payload"]["recent_message_count"] == 1
 
     def test_retrieve_context(self):
         storage = MockStorage()
@@ -328,6 +379,31 @@ class TestEidolon:
         assert len(storage.stored_items) == 1
         assert storage.stored_items[0].content == "User wants to discuss Bello"
         assert storage.stored_items[0].topic_id is not None
+
+    def test_store_turn_extracts_items_with_topic_id_on_continue(self):
+        """Items extracted during a CONTINUE turn (no new topic created)
+        must still be linked to the existing active topic, not left with
+        topic_id=None — the same resolved_topic_id messages already use."""
+        storage = MockStorage()
+        tid = storage.create_topic("Bello Features", peer_id="user")
+        llm = MockLLM(
+            extraction_response='[{"content": "User is happy about the gym", '
+            '"item_type": "feeling", "source_peer": "user", '
+            '"subject_peer": "user", "attribution_type": "self_statement"}]'
+        )
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        eidolon.store_turn(
+            user_message="Ich freu mich schon aufs Training",
+            ai_response="Nice!",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            old_topic_id=tid,
+        )
+
+        assert len(storage.stored_items) == 1
+        assert storage.stored_items[0].topic_id == tid
 
     def test_store_turn_no_topic_change(self):
         storage = MockStorage()

@@ -179,6 +179,7 @@ class TracePrinter:
         return "\n".join([
             f"    message: {_truncate(p.get('message'))}",
             f"    current_topic_summary: {_truncate(p.get('current_topic_summary'))}",
+            f"    recent_messages: {p.get('recent_message_count', 0)}",
             f"    result: {p.get('result_type')} {p.get('result_label') or ''}",
             f"    response: {_truncate(p.get('response'))}",
         ])

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.detection.topic_detector import TopicDetector, _parse_detection_response
+from core.detection.topic_detector import TopicDetector, _build_detection_prompt, _parse_detection_response
 from core.models import TopicChange
 from tests.mocks import SpyTracer
 
@@ -67,6 +67,36 @@ class TestParseDetectionResponse:
     def test_empty_response_defaults_to_continue(self):
         result = _parse_detection_response("")
         assert result.type == "CONTINUE"
+
+
+class TestBuildDetectionPrompt:
+    def test_includes_recent_conversation_block(self):
+        recent = [
+            {"role": "user", "content": "das war nur ein test"},
+            {"role": "ai", "content": "alles klar"},
+        ]
+        prompt = _build_detection_prompt("und jetzt?", "General conversation", recent)
+        assert prompt == (
+            "Current topic: General conversation\n"
+            "Recent conversation:\n"
+            "user: das war nur ein test\n"
+            "ai: alles klar\n"
+            "User: und jetzt?\n"
+            "→"
+        )
+
+    def test_omits_recent_conversation_block_when_none(self):
+        prompt = _build_detection_prompt("ok", "Bello features", None)
+        assert "Recent conversation:" not in prompt
+        assert prompt == "Current topic: Bello features\nUser: ok\n→"
+
+    def test_omits_recent_conversation_block_when_empty(self):
+        prompt = _build_detection_prompt("ok", "Bello features", [])
+        assert "Recent conversation:" not in prompt
+
+    def test_no_current_topic_and_no_recent_messages(self):
+        prompt = _build_detection_prompt("Hello", None, None)
+        assert prompt == "User: Hello\n→"
 
 
 class TestTopicDetector:
@@ -138,3 +168,30 @@ class TestTopicDetector:
         llm = MockLLM(response="CONTINUE")
         detector = TopicDetector(llm)
         detector.detect("hello")
+
+    def test_recent_messages_passed_into_prompt(self):
+        llm = MockLLM(response="CONTINUE")
+        detector = TopicDetector(llm)
+        recent = [{"role": "user", "content": "vorher gesagt"}, {"role": "ai", "content": "verstanden"}]
+        detector.detect("und weiter?", current_topic_summary="General conversation", recent_messages=recent)
+        assert "Recent conversation:" in llm.last_prompt
+        assert "user: vorher gesagt" in llm.last_prompt
+
+    def test_recent_message_count_recorded_in_trace(self):
+        llm = MockLLM(response="CONTINUE")
+        tracer = SpyTracer()
+        detector = TopicDetector(llm, tracer=tracer)
+        recent = [{"role": "user", "content": "a"}, {"role": "ai", "content": "b"}]
+        detector.detect("c", current_topic_summary="topic", recent_messages=recent)
+
+        event = tracer.events_of_type("topic_detection")[0]
+        assert event["payload"]["recent_message_count"] == 2
+
+    def test_recent_message_count_zero_when_none(self):
+        llm = MockLLM(response="CONTINUE")
+        tracer = SpyTracer()
+        detector = TopicDetector(llm, tracer=tracer)
+        detector.detect("c")
+
+        event = tracer.events_of_type("topic_detection")[0]
+        assert event["payload"]["recent_message_count"] == 0

@@ -220,6 +220,36 @@ class TestTopics:
         assert len(results) == 1
 
 
+class TestRecentMessagesByTopic:
+    def test_returns_most_recent_within_limit_oldest_first(self, store: SqliteStore):
+        tid = store.create_topic("Bello", summary="")
+        for i in range(5):
+            store.store_message(turn_id=i, role="user", content=f"msg {i}", peer_id="user", topic_id=tid)
+
+        recent = store.get_recent_messages_by_topic(tid, limit=2)
+        assert [m["content"] for m in recent] == ["msg 3", "msg 4"]
+
+    def test_returns_all_when_fewer_than_limit(self, store: SqliteStore):
+        tid = store.create_topic("Bello", summary="")
+        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+
+        recent = store.get_recent_messages_by_topic(tid, limit=10)
+        assert len(recent) == 1
+
+    def test_empty_for_topic_with_no_messages(self, store: SqliteStore):
+        tid = store.create_topic("Bello", summary="")
+        assert store.get_recent_messages_by_topic(tid, limit=4) == []
+
+    def test_only_messages_for_given_topic(self, store: SqliteStore):
+        t1 = store.create_topic("First", summary="")
+        t2 = store.create_topic("Second", summary="")
+        store.store_message(turn_id=1, role="user", content="about first", peer_id="user", topic_id=t1)
+        store.store_message(turn_id=2, role="user", content="about second", peer_id="user", topic_id=t2)
+
+        recent = store.get_recent_messages_by_topic(t1, limit=10)
+        assert [m["content"] for m in recent] == ["about first"]
+
+
 class TestMemoryItems:
     def test_store_and_search(self, store: SqliteStore):
         item = MemoryItem(

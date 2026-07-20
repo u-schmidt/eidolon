@@ -29,7 +29,11 @@ Rules:
 - If there is no current topic (first message), always respond with NEW_TOPIC:<label>"""
 
 
-def _build_detection_prompt(message: str, current_topic_summary: str | None) -> str:
+def _build_detection_prompt(
+    message: str,
+    current_topic_summary: str | None,
+    recent_messages: list[dict] | None = None,
+) -> str:
     """Build the prompt for the topic detection LLM call.
 
     Parameters
@@ -38,22 +42,28 @@ def _build_detection_prompt(message: str, current_topic_summary: str | None) -> 
         The user's message to classify.
     current_topic_summary : str | None
         Summary of the current/active topic, or None if no topic exists yet.
+    recent_messages : list[dict] | None
+        The current topic's most recent messages (oldest first), if any.
+        A topic's `summary` is only ever set when it closes, so while it
+        stays open the only anchor is its short, static creation-time
+        label — recent_messages gives the detector real, evolving content
+        to compare the new message against instead of just that frozen
+        string.
 
     Returns
     -------
     str
         The prompt string to send to the LLM.
     """
+    lines: list[str] = []
     if current_topic_summary:
-        return (
-            f"Current topic: {current_topic_summary}\n"
-            f"User: {message}\n"
-            f"→"
-        )
-    return (
-        f"User: {message}\n"
-        f"→"
-    )
+        lines.append(f"Current topic: {current_topic_summary}")
+    if recent_messages:
+        lines.append("Recent conversation:")
+        lines.extend(f"{m['role']}: {m['content']}" for m in recent_messages)
+    lines.append(f"User: {message}")
+    lines.append("→")
+    return "\n".join(lines)
 
 
 def _parse_detection_response(response: str) -> TopicChange:
@@ -121,6 +131,7 @@ class TopicDetector:
         self,
         message: str,
         current_topic_summary: str | None = None,
+        recent_messages: list[dict] | None = None,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
@@ -133,6 +144,9 @@ class TopicDetector:
             The user's message to classify.
         current_topic_summary : str | None
             Summary of the current topic, or None if this is the first message.
+        recent_messages : list[dict] | None
+            The current topic's most recent messages (oldest first), if any
+            — see ``_build_detection_prompt`` for why this matters.
         request_id : str | None
             Correlates this call's trace event with others from the same
             top-level ``Eidolon`` call.
@@ -144,7 +158,7 @@ class TopicDetector:
         TopicChange
             CONTINUE or NEW_TOPIC with a label.
         """
-        prompt = _build_detection_prompt(message, current_topic_summary)
+        prompt = _build_detection_prompt(message, current_topic_summary, recent_messages)
         started = time.perf_counter()
         response = self._llm.complete(
             prompt=prompt,
@@ -159,6 +173,7 @@ class TopicDetector:
             {
                 "message": message,
                 "current_topic_summary": current_topic_summary,
+                "recent_message_count": len(recent_messages or []),
                 "prompt": prompt,
                 "response": response,
                 "result_type": result.type,

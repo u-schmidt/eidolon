@@ -124,6 +124,18 @@ class TestTracePrinterFormatSummary:
 
 
 class TestTracePrinterFormatDetail:
+    def test_format_detail_topic_detection_shows_recent_message_count(self):
+        event = {
+            "event_type": "topic_detection",
+            "duration_ms": 5.0,
+            "created_at": "2026-07-20 12:00:00",
+            "payload": {"message": "hi", "current_topic_summary": "General conversation",
+                        "recent_message_count": 4, "response": "CONTINUE",
+                        "result_type": "CONTINUE", "result_label": None},
+        }
+        detail = TracePrinter().format_detail(event)
+        assert "recent_messages: 4" in detail
+
     def test_format_detail_includes_header_and_body(self, trace_db):
         reader = TraceReader(trace_db)
         events = reader.events_for_request("req1")
