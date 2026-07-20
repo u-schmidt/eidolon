@@ -47,6 +47,7 @@ class TestEidolonConfig:
         assert config.facts.consolidation_interval == 20
         assert config.facts.target_max == 100
         assert config.language == "en"
+        assert config.timezone == "UTC"
         assert config.debug.enabled is False
 
     def test_zero_config_models_are_complete(self):
@@ -70,6 +71,7 @@ class TestEidolonConfig:
             },
             retrieval=RetrievalConfig(semantic=0.5, tag_overlap=0.3, person=0.1, temporal=0.1),
             language="de",
+            timezone="Europe/Berlin",
         )
         assert config.storage.path == "/tmp/test.db"
         assert config.models["llm"].provider == "ollama"
@@ -79,6 +81,7 @@ class TestEidolonConfig:
         assert config.models["embedder"].model == "bge-m3"
         assert config.retrieval.semantic == 0.5
         assert config.language == "de"
+        assert config.timezone == "Europe/Berlin"
 
     def test_require_model_returns_complete_config(self):
         config = EidolonConfig(
@@ -130,6 +133,7 @@ retrieval:
   semantic: 0.5
   tag_overlap: 0.3
 language: de
+timezone: Europe/Berlin
 """
         tmp = tempfile.mkdtemp()
         yaml_path = str(Path(tmp) / "config.yaml")
@@ -148,6 +152,7 @@ language: de
         assert config.models["embedder"].model == "bge-m3"
         assert config.retrieval.semantic == 0.5
         assert config.language == "de"
+        assert config.timezone == "Europe/Berlin"
 
     def test_yaml_models_block_replaces_zero_config_default(self):
         """A YAML llm: block must fully replace the zero-config `simulated`
@@ -247,6 +252,7 @@ models:
             embedder_base_url="http://localhost:11434",
             embedder_model="nomic-embed-text",
             language="de",
+            timezone="Europe/Berlin",
             storage_provider=None,
             storage_path="/cli/test.db",
         )
@@ -260,6 +266,7 @@ models:
         assert config.models["embedder"].provider == "ollama"
         assert config.models["embedder"].model == "nomic-embed-text"
         assert config.language == "de"
+        assert config.timezone == "Europe/Berlin"
         assert config.storage.path == "/cli/test.db"
         assert config.storage.provider == "sqlite"
 
@@ -331,6 +338,19 @@ facts:
         config = ConfigLoader(cli_args=args).load()
         assert config.facts.consolidation_interval == 5
         assert config.facts.target_max == 30
+
+    def test_env_timezone(self):
+        os.environ["EIDOLON_TIMEZONE"] = "Europe/Berlin"
+
+        config = ConfigLoader().load()
+        assert config.timezone == "Europe/Berlin"
+
+        del os.environ["EIDOLON_TIMEZONE"]
+
+    def test_cli_timezone(self):
+        args = Namespace(timezone="Europe/Berlin", storage_provider=None, storage_path=None)
+        config = ConfigLoader(cli_args=args).load()
+        assert config.timezone == "Europe/Berlin"
 
     def test_yaml_debug_section(self):
         yaml_content = """

@@ -77,3 +77,6 @@ debug:
 # ── General ───────────────────────────────────────────────
 language: en                 # Language for stop word filtering (en | de)
                                # Note: LLM prompts are always in English
+timezone: UTC                 # IANA zone name (e.g. Europe/Berlin) used to
+                               # display the injected [Environment] time.
+                               # Stored timestamps stay UTC regardless.

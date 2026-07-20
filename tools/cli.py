@@ -24,7 +24,7 @@ from __future__ import annotations
 import argparse
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Ensure the project root is on sys.path for direct execution
@@ -93,6 +93,8 @@ Examples:
 
     # General
     parser.add_argument("--language", default=None, help="Language code (default: en)")
+    parser.add_argument("--timezone", default=None,
+                        help="IANA zone name for displaying injected time, e.g. Europe/Berlin (default: UTC)")
     parser.add_argument("--db", "--db-path", dest="storage_path", default=None, help="Database path (alias for --storage-path)")
 
     # Debug tracing
@@ -141,6 +143,7 @@ def main() -> None:
     for role, m in config.models.items():
         print(f"  {role.capitalize()}: {m.provider} / {m.model} ({m.base_url or '(no base_url)'})")
     print(f"  Language: {config.language}")
+    print(f"  Timezone: {config.timezone}")
     if config.debug.enabled:
         print(f"  Debug tracing: ON ({config.debug.trace_db_path})")
 
@@ -274,8 +277,10 @@ def main() -> None:
         turn_count += 1
         # Captured once and reused for both the injected "current time" and
         # ContextFormatter's relative-age calculations below, so they can't
-        # drift apart within a single turn.
-        turn_now = datetime.now()
+        # drift apart within a single turn. Explicitly UTC so it's correct
+        # regardless of the host's OS timezone — ContextFormatter converts
+        # it to config.timezone only for display.
+        turn_now = datetime.now(timezone.utc)
         env = EnvironmentSnapshot(
             time=turn_now,
             day_of_week=turn_now.strftime("%A"),
@@ -317,7 +322,7 @@ def main() -> None:
             print(f"  Memory items: {len(bundle.memory_items)}")
 
         # Step 3: Generate AI response using the LLM provider
-        context_prompt = ContextFormatter.format(bundle, now=turn_now)
+        context_prompt = ContextFormatter.format(bundle, now=turn_now, timezone=config.timezone)
 
         # Build chat history into the prompt (last 5 turns)
         history_text = ""

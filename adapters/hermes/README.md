@@ -92,6 +92,7 @@ Eidolon loads its configuration from `eidolon.yaml` in the profile root director
 | `facts.consolidation_interval` | int | Reconcile the durable-facts profile every N user turns (default 20) |
 | `facts.target_max` | int | Soft guidance to the LLM for the target profile size (default 100), not hard-enforced |
 | `language` | string | Language code for stop word filtering (`en`, `de`) |
+| `timezone` | string | IANA zone name (e.g. `Europe/Berlin`) for displaying the injected `[Environment]` time (default `UTC`); stored timestamps stay UTC internally |
 
 ## How It Works
 

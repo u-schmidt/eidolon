@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timezone as dt_timezone
 
 from core.context_formatter import ContextFormatter
 from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, RelatedTopic
@@ -67,7 +68,7 @@ class TestContextFormatterEnvironment:
     def test_renders_time_with_day_of_week_folded_in(self):
         env = EnvironmentSnapshot(time=datetime(2026, 7, 19, 17, 52))
         bundle = ContextBundle(environment=env)
-        assert ContextFormatter.format(bundle) == "[Environment]\n- time: Sunday, 2026-07-19 17:52"
+        assert ContextFormatter.format(bundle) == "[Environment]\n- time: Sunday, 2026-07-19 17:52 UTC"
 
     def test_falls_back_to_day_of_week_when_no_time(self):
         env = EnvironmentSnapshot(day_of_week="Sunday")
@@ -93,7 +94,25 @@ class TestContextFormatterEnvironment:
     def test_parses_sqlite_string_timestamp_for_environment_time(self):
         env = EnvironmentSnapshot(time="2026-07-19 17:52:00")
         bundle = ContextBundle(environment=env)
-        assert ContextFormatter.format(bundle) == "[Environment]\n- time: Sunday, 2026-07-19 17:52"
+        assert ContextFormatter.format(bundle) == "[Environment]\n- time: Sunday, 2026-07-19 17:52 UTC"
+
+    def test_converts_time_to_configured_display_timezone(self):
+        env = EnvironmentSnapshot(time=datetime(2026, 7, 19, 17, 52, tzinfo=dt_timezone.utc))
+        bundle = ContextBundle(environment=env)
+        result = ContextFormatter.format(bundle, timezone="Europe/Berlin")
+        assert result == "[Environment]\n- time: Sunday, 2026-07-19 19:52 CEST"
+
+    def test_converts_naive_time_assuming_utc(self):
+        env = EnvironmentSnapshot(time=datetime(2026, 1, 19, 17, 52))
+        bundle = ContextBundle(environment=env)
+        result = ContextFormatter.format(bundle, timezone="Europe/Berlin")
+        assert result == "[Environment]\n- time: Monday, 2026-01-19 18:52 CET"
+
+    def test_unknown_timezone_falls_back_without_raising(self):
+        env = EnvironmentSnapshot(time=datetime(2026, 7, 19, 17, 52))
+        bundle = ContextBundle(environment=env)
+        result = ContextFormatter.format(bundle, timezone="Not/AZone")
+        assert result == "[Environment]\n- time: Sunday, 2026-07-19 17:52 Not/AZone"
 
 
 class TestContextFormatterRelativeAge:

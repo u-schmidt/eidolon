@@ -199,9 +199,13 @@ facts:
 debug:
   enabled: false             # See Debug Tracing below
   trace_db_path: ~/.eidolon/trace.db
+
+timezone: Europe/Berlin      # IANA zone for displaying injected time (default: UTC)
 ```
 
 `llm` and `embedder` have dedicated CLI flags/env vars for quick overrides without touching YAML: `--llm-provider`/`--llm-base-url`/`--llm-model`/`--llm-max-tokens`/`--llm-timeout` (and the `embedder-`/`EIDOLON_LLM_*`/`EIDOLON_EMBEDDER_*` equivalents). Other roles are YAML-only for now.
+
+`timezone` only affects how the `[Environment]` time is *displayed* to the LLM — stored timestamps (facts, topics, memory items) stay UTC internally, so relative-age suffixes like "3 weeks ago" are unaffected. Defaults to `UTC` for backward compatibility; set it to your own IANA zone (e.g. `Europe/Berlin`) so the LLM sees an unambiguous, correctly-labeled local time instead of an unlabeled UTC one.
 
 ## Debug Tracing
 

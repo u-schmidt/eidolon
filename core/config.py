@@ -143,6 +143,7 @@ class EidolonConfig:
     facts: FactsConfig = field(default_factory=FactsConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     language: str = "en"
+    timezone: str = "UTC"  # IANA name (e.g. "Europe/Berlin"); used to display env time
 
     def require_model(self, role: str) -> ModelConfig:
         """Return the fully-specified ``ModelConfig`` for ``role``.
@@ -192,4 +193,5 @@ class EidolonConfig:
                 "trace_db_path": self.debug.trace_db_path,
             },
             "language": self.language,
+            "timezone": self.timezone,
         }

@@ -47,8 +47,9 @@ class InjectionSimulator:
     what actually happened.
     """
 
-    def __init__(self, reader: TraceReader) -> None:
+    def __init__(self, reader: TraceReader, timezone: str = "UTC") -> None:
         self._reader = reader
+        self._timezone = timezone
 
     def resolve_request_id(self, request_id: str | None, session_id: str | None) -> str | None:
         """Return `request_id` if given, else the most recent one available
@@ -77,7 +78,7 @@ class InjectionSimulator:
         return SimulationResult(
             request_id=request_id,
             user_message=payload.get("message", ""),
-            injection=ContextFormatter.format(bundle, now=now),
+            injection=ContextFormatter.format(bundle, now=now, timezone=self._timezone),
         )
 
     @staticmethod
@@ -130,6 +131,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--db", default="~/.eidolon/trace.db", help="Trace database path")
     parser.add_argument("--request-id", default=None, help="Specific request_id (default: most recent)")
     parser.add_argument("--session", default=None, help="Restrict 'most recent' lookup to one session_id")
+    parser.add_argument("--timezone", default="UTC",
+                        help="IANA zone name for displaying the injected time, e.g. Europe/Berlin (default: UTC)")
     return parser
 
 
@@ -142,7 +145,7 @@ def main() -> None:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    simulator = InjectionSimulator(reader)
+    simulator = InjectionSimulator(reader, timezone=args.timezone)
     request_id = simulator.resolve_request_id(args.request_id, args.session)
     if request_id is None:
         reader.close()

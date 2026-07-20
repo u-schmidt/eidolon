@@ -16,7 +16,7 @@ import json
 import logging
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -73,6 +73,9 @@ class EidolonMemoryProvider(MemoryProvider):
         # back to the literal "user" for CLI-attached sessions, which
         # Hermes never gives an identity for.
         self._peer_id: str = "user"
+        # IANA zone name (e.g. "Europe/Berlin") for displaying the injected
+        # [Environment] time — resolved once in initialize() from config.
+        self._timezone: str = "UTC"
         self._initialized = False
 
     def _resolve_session_id(self, session_id: str) -> str:
@@ -150,6 +153,7 @@ class EidolonMemoryProvider(MemoryProvider):
         # Store references for shutdown
         self._store = store
         self._tracer = tracer
+        self._timezone = config.timezone
 
         # Eidolon core
         self._eidolon = Eidolon(
@@ -216,8 +220,11 @@ class EidolonMemoryProvider(MemoryProvider):
             turn_request_id = uuid.uuid4().hex[:8]
             # Captured once and reused for both the injected "current time"
             # and the relative-age calculations in ContextFormatter, so
-            # they can't drift apart within a single turn.
-            turn_now = datetime.now()
+            # they can't drift apart within a single turn. Explicitly UTC
+            # (not bare datetime.now()) so it's correct regardless of the
+            # host's own OS timezone — ContextFormatter converts it to
+            # self._timezone only for display.
+            turn_now = datetime.now(timezone.utc)
 
             # Detect topic — the user's message is the only input that
             # ever matters here (see sync_turn(), which reuses this
@@ -246,7 +253,7 @@ class EidolonMemoryProvider(MemoryProvider):
                 request_id=turn_request_id,
             )
 
-            return ContextFormatter.format(bundle, now=turn_now)
+            return ContextFormatter.format(bundle, now=turn_now, timezone=self._timezone)
 
         except Exception as e:
             logger.debug("Eidolon prefetch failed (non-fatal): %s", e)

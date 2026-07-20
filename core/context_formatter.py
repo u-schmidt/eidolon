@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
+from zoneinfo import ZoneInfo
 
 from core.models import ContextBundle, EnvironmentSnapshot
 
@@ -17,7 +18,7 @@ class ContextFormatter:
     """
 
     @staticmethod
-    def format(bundle: ContextBundle, now: datetime | None = None) -> str:
+    def format(bundle: ContextBundle, now: datetime | None = None, timezone: str = "UTC") -> str:
         """Render `bundle` as injected text.
 
         `now` is the reference point for the relative-age suffixes on
@@ -25,12 +26,16 @@ class ContextFormatter:
         actual current time, but callers replaying a past turn should pass
         that turn's own timestamp so ages reflect how old things were
         *then*, not how old they are today.
+
+        `timezone` is an IANA zone name (e.g. "Europe/Berlin") used only to
+        display the `[Environment]` time — stored timestamps stay UTC
+        internally, so relative-age math is unaffected by this setting.
         """
-        now = now or datetime.now()
+        now = now or datetime.now(dt_timezone.utc)
         parts: list[str] = []
 
         if bundle.environment:
-            env_lines = ContextFormatter._format_environment(bundle.environment)
+            env_lines = ContextFormatter._format_environment(bundle.environment, timezone)
             if env_lines:
                 parts.append("[Environment]\n" + "\n".join(env_lines))
 
@@ -65,11 +70,13 @@ class ContextFormatter:
         return "\n\n".join(parts)
 
     @staticmethod
-    def _format_environment(env: EnvironmentSnapshot) -> list[str]:
+    def _format_environment(env: EnvironmentSnapshot, display_timezone: str) -> list[str]:
         lines: list[str] = []
         parsed_time = ContextFormatter._parse_timestamp(env.time)
         if parsed_time:
-            lines.append(f"- time: {parsed_time.strftime('%A, %Y-%m-%d %H:%M')}")
+            local_time = ContextFormatter._to_display_timezone(parsed_time, display_timezone)
+            tz_label = local_time.tzname() or display_timezone
+            lines.append(f"- time: {local_time.strftime('%A, %Y-%m-%d %H:%M')} {tz_label}")
         elif env.day_of_week:
             lines.append(f"- day: {env.day_of_week}")
         if env.location:
@@ -79,6 +86,22 @@ class ContextFormatter:
         if env.rules:
             lines.append("- rules: " + ", ".join(env.rules))
         return lines
+
+    @staticmethod
+    def _to_display_timezone(dt: datetime, tz_name: str) -> datetime:
+        """Convert dt to tz_name for display. A naive dt is assumed UTC —
+        matches how every timestamp in this system is stored/captured
+        (SQLite CURRENT_TIMESTAMP is always UTC; live captures use
+        datetime.now(timezone.utc)). Falls back to dt unconverted if
+        tz_name isn't a recognized IANA zone.
+        """
+        try:
+            target = ZoneInfo(tz_name)
+        except Exception:
+            return dt
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+        return dt.astimezone(target)
 
     @staticmethod
     def _age_suffix(value: object, now: datetime) -> str:

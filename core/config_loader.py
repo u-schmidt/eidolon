@@ -103,6 +103,7 @@ class ConfigLoader:
             "debug_enabled": ("debug", "enabled"),
             "debug_trace_db_path": ("debug", "trace_db_path"),
             "language": ("language",),
+            "timezone": ("timezone",),
         }
 
         for env_suffix, attr_path in _map.items():
@@ -154,6 +155,7 @@ class ConfigLoader:
             "debug_enabled": ("debug", "enabled"),
             "debug_trace_db_path": ("debug", "trace_db_path"),
             "language": ("language",),
+            "timezone": ("timezone",),
         }
 
         for cli_attr, attr_path in cli_map.items():
