@@ -39,8 +39,9 @@ class AssociativeRetriever:
         Prompts to the LLM are always in English regardless of this setting.
     limits : dict | None
         Optional result-count overrides, keyed by "related_topics_new",
-        "related_topics_continue", "memory_items_new", "memory_items_continue".
-        Defaults: 5/2 for topics, 3/1 for items (new-topic/continue).
+        "related_topics_continue", "memory_items_new", "memory_items_continue",
+        "recent_topics". Defaults: 5/2 for topics, 3/1 for items
+        (new-topic/continue), 2 for recent_topics.
     tracer : Tracer | None
         Debug tracer recording the retrieval summary and (when the storage
         backend supports it) per-candidate score breakdowns. Defaults to a
@@ -69,6 +70,7 @@ class AssociativeRetriever:
             "related_topics_continue": 2,
             "memory_items_new": 3,
             "memory_items_continue": 1,
+            "recent_topics": 2,
         }
         self._stop_words = get_stop_words(language)
         self._tracer = tracer or NullTracer()
@@ -80,6 +82,7 @@ class AssociativeRetriever:
         environment: EnvironmentSnapshot,
         topic_label: str | None,
         is_new_topic: bool,
+        active_topic_id: int | None = None,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
@@ -98,6 +101,11 @@ class AssociativeRetriever:
             Detected topic label (from detect_topic). None if CONTINUE.
         is_new_topic : bool
             True if this is a NEW_TOPIC, False if CONTINUE.
+        active_topic_id : int | None
+            The topic being continued, if this is a CONTINUE turn — used to
+            look up its summary so ``current_topic_label`` stays populated
+            for the whole topic's lifetime instead of only on the turn it
+            was detected as new.
         request_id : str | None
             Correlates this call's trace events with the enclosing
             top-level ``Eidolon`` call.
@@ -107,9 +115,16 @@ class AssociativeRetriever:
         Returns
         -------
         ContextBundle
-            Facts, related topics, and memory items for prompt injection.
+            Facts, related/recent topics, and memory items for prompt
+            injection.
         """
         started = time.perf_counter()
+
+        current_topic_label = topic_label
+        if not is_new_topic and active_topic_id is not None:
+            active_topic = self._storage.get_topic(active_topic_id)
+            if active_topic:
+                current_topic_label = active_topic.get("summary") or active_topic.get("label")
 
         # 1. Load facts for the current peer
         facts = self._storage.get_facts(peer_id)
@@ -153,6 +168,27 @@ class AssociativeRetriever:
             for t in topic_results
         ]
 
+        # 4b. Fetch the peer's most-recently-discussed topics (pure
+        # recency, not relevance) — padded so that even if every one of
+        # them also showed up in the relevance search above, dedup still
+        # leaves `recent_topics` limit worth of genuinely distinct ones.
+        recent_limit = self._limits.get("recent_topics", 2)
+        related_ids = {t.topic_id for t in related_topics}
+        recent_rows = self._storage.get_recent_topics(
+            peer_id=peer_id, limit=recent_limit + len(related_ids)
+        )
+        recent_topics = [
+            RelatedTopic(
+                topic_id=t["id"],
+                summary=t["summary"],
+                tags=t.get("tags", []),
+                timestamp=t.get("closed_at"),
+                label=t.get("label"),
+            )
+            for t in recent_rows
+            if t["id"] not in related_ids
+        ][:recent_limit]
+
         # 5. Search memory items
         memory_limit = (
             self._limits["memory_items_new"] if is_new_topic else self._limits["memory_items_continue"]
@@ -189,6 +225,11 @@ class AssociativeRetriever:
                      "tags": t.tags, "timestamp": t.timestamp}
                     for t in related_topics
                 ],
+                "recent_topics": [
+                    {"id": t.topic_id, "label": t.label, "summary": t.summary,
+                     "tags": t.tags, "timestamp": t.timestamp}
+                    for t in recent_topics
+                ],
                 "memory_items": [
                     {
                         "content": mi.content,
@@ -208,8 +249,9 @@ class AssociativeRetriever:
         return ContextBundle(
             facts=facts,
             environment=environment,
-            current_topic_label=topic_label,
+            current_topic_label=current_topic_label,
             related_topics=related_topics,
+            recent_topics=recent_topics,
             memory_items=memory_items,
         )
 

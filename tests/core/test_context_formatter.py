@@ -59,6 +59,25 @@ class TestContextFormatter:
             f"{_PREAMBLE}\n\n[Memory fragments]\n- [essence] (user about user): User loves Bello"
         )
 
+    def test_formats_recent_topics(self):
+        bundle = ContextBundle(
+            recent_topics=[
+                RelatedTopic(topic_id=1, summary="Talked about the gym", tags=["fitness"]),
+            ]
+        )
+        assert ContextFormatter.format(bundle) == (
+            f"{_PREAMBLE}\n\n[Recently discussed]\n- Talked about the gym (fitness)"
+        )
+
+    def test_recent_topics_come_before_related_topics(self):
+        bundle = ContextBundle(
+            recent_topics=[RelatedTopic(topic_id=1, summary="Recent one")],
+            related_topics=[RelatedTopic(topic_id=2, summary="Related one")],
+        )
+        assert ContextFormatter.format(bundle) == (
+            f"{_PREAMBLE}\n\n[Recently discussed]\n- Recent one\n\n[Related topics]\n- Related one"
+        )
+
     def test_joins_sections_with_blank_line(self):
         bundle = ContextBundle(
             current_topic_label="Bello",
@@ -165,6 +184,16 @@ class TestContextFormatterRelativeAge:
         )
         assert ContextFormatter.format(bundle, now=self.NOW) == (
             f"{_PREAMBLE}\n\n[Related topics]\n- Gym routine (fitness) [yesterday]"
+        )
+
+    def test_recent_topic_age_suffix(self):
+        bundle = ContextBundle(
+            recent_topics=[
+                RelatedTopic(topic_id=1, summary="Gym routine", timestamp="2026-07-05 09:00:00")
+            ]
+        )
+        assert ContextFormatter.format(bundle, now=self.NOW) == (
+            f"{_PREAMBLE}\n\n[Recently discussed]\n- Gym routine [2 weeks ago]"
         )
 
     def test_memory_item_age_suffix(self):

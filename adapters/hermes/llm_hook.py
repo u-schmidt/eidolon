@@ -111,6 +111,7 @@ class EidolonTopicHook:
             environment=env,
             topic_label=topic_change.label,
             is_new_topic=is_new,
+            active_topic_id=self._active_topic_id,
         )
 
         # Store for post-processing

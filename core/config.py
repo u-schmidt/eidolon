@@ -106,6 +106,7 @@ class RetrievalConfig:
     related_topics_continue: int = 3  # was hardcoded 2
     memory_items_new: int = 4         # was hardcoded 3
     memory_items_continue: int = 2    # was hardcoded 1
+    recent_topics: int = 2            # most-recently-closed topics, regardless of relevance
 
 
 @dataclass
@@ -191,6 +192,7 @@ class EidolonConfig:
                 "related_topics_continue": self.retrieval.related_topics_continue,
                 "memory_items_new": self.retrieval.memory_items_new,
                 "memory_items_continue": self.retrieval.memory_items_continue,
+                "recent_topics": self.retrieval.recent_topics,
             },
             "facts": {
                 "consolidation_interval": self.facts.consolidation_interval,

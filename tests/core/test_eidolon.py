@@ -87,6 +87,9 @@ class MockStorage:
                        tracer=None, request_id=None):
         return [t for t in self.topics.values() if t["status"] == "closed"][:limit]
 
+    def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
+        return [t for t in self.topics.values() if t["status"] == "closed"][:limit]
+
     def store_memory_item(self, item: MemoryItem) -> int:
         self.stored_items.append(item)
         item.id = len(self.stored_items)
@@ -274,6 +277,39 @@ class TestEidolon:
 
         assert len(bundle.facts) == 1
         assert bundle.current_topic_label == "Test"
+
+    def test_prepare_context_continue_keeps_current_topic_label(self):
+        """On a CONTINUE turn, prepare_context must resolve the active
+        topic's own summary as current_topic_label instead of leaving it
+        blank for the rest of the topic's lifetime (topic_change.label is
+        only ever set on NEW_TOPIC)."""
+        storage = MockStorage()
+        tid = storage.create_topic("General", peer_id="user")
+        storage.topics[tid]["summary"] = "Talking about Bello's diet"
+        llm = MockLLM(detection_response="CONTINUE")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        bundle = eidolon.prepare_context(
+            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(), active_topic_id=tid,
+        )
+
+        assert bundle.current_topic_label == "Talking about Bello's diet"
+
+    def test_retrieve_context_continue_resolves_active_topic_label(self):
+        storage = MockStorage()
+        tid = storage.create_topic("General", peer_id="user")
+        storage.topics[tid]["summary"] = "Talking about Bello's diet"
+        llm = MockLLM()
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        bundle = eidolon.retrieve_context(
+            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label=None, is_new_topic=False, active_topic_id=tid,
+        )
+
+        assert bundle.current_topic_label == "Talking about Bello's diet"
 
     def test_store_turn_closes_old_topic(self):
         storage = MockStorage()

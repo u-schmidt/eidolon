@@ -173,6 +173,7 @@ class Eidolon:
             environment=environment,
             topic_label=topic_change.label,
             is_new_topic=is_new_topic,
+            active_topic_id=active_topic_id,
             request_id=request_id,
             session_id=session_id,
         )
@@ -240,6 +241,7 @@ class Eidolon:
         environment: EnvironmentSnapshot,
         topic_label: str | None = None,
         is_new_topic: bool = False,
+        active_topic_id: int | None = None,
         *,
         session_id: str | None = None,
         request_id: str | None = None,
@@ -258,6 +260,10 @@ class Eidolon:
             Detected topic label, if any.
         is_new_topic : bool
             True if this is a NEW_TOPIC, False if CONTINUE.
+        active_topic_id : int | None
+            The topic being continued, if this is a CONTINUE turn — used
+            to keep ``current_topic_label`` populated for the whole
+            topic's lifetime (see ``AssociativeRetriever.retrieve``).
         session_id : str | None
             Adapter-level conversation identifier, for trace filtering.
         request_id : str | None
@@ -268,7 +274,7 @@ class Eidolon:
         Returns
         -------
         ContextBundle
-            Facts, related topics, and memory items.
+            Facts, related/recent topics, and memory items.
         """
         return self._retriever.retrieve(
             message=message,
@@ -276,6 +282,7 @@ class Eidolon:
             environment=environment,
             topic_label=topic_label,
             is_new_topic=is_new_topic,
+            active_topic_id=active_topic_id,
             request_id=request_id or _new_request_id(),
             session_id=session_id,
         )

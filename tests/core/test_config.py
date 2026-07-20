@@ -48,6 +48,7 @@ class TestEidolonConfig:
         assert config.retrieval.related_topics_continue == 3
         assert config.retrieval.memory_items_new == 4
         assert config.retrieval.memory_items_continue == 2
+        assert config.retrieval.recent_topics == 2
         assert config.facts.consolidation_interval == 20
         assert config.facts.target_max == 100
         assert config.language == "en"
@@ -324,6 +325,7 @@ models:
         os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_CONTINUE"] = "4"
         os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_NEW"] = "5"
         os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_CONTINUE"] = "3"
+        os.environ["EIDOLON_RETRIEVAL_RECENT_TOPICS"] = "1"
 
         config = ConfigLoader().load()
 
@@ -331,16 +333,19 @@ models:
         assert config.retrieval.related_topics_continue == 4
         assert config.retrieval.memory_items_new == 5
         assert config.retrieval.memory_items_continue == 3
+        assert config.retrieval.recent_topics == 1
 
         del os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_NEW"]
         del os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_CONTINUE"]
         del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_NEW"]
         del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_CONTINUE"]
+        del os.environ["EIDOLON_RETRIEVAL_RECENT_TOPICS"]
 
     def test_cli_retrieval_limits(self):
         args = Namespace(
             retrieval_related_topics_new=9, retrieval_related_topics_continue=4,
             retrieval_memory_items_new=5, retrieval_memory_items_continue=3,
+            retrieval_recent_topics=1,
             storage_provider=None, storage_path=None,
         )
         config = ConfigLoader(cli_args=args).load()
@@ -348,6 +353,7 @@ models:
         assert config.retrieval.related_topics_continue == 4
         assert config.retrieval.memory_items_new == 5
         assert config.retrieval.memory_items_continue == 3
+        assert config.retrieval.recent_topics == 1
 
     def test_yaml_facts_section(self):
         yaml_content = """

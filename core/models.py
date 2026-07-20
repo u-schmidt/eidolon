@@ -90,6 +90,7 @@ class ContextBundle:
     environment: EnvironmentSnapshot | None = None
     current_topic_label: str | None = None
     related_topics: list[RelatedTopic] = field(default_factory=list)
+    recent_topics: list[RelatedTopic] = field(default_factory=list)
     cluster_summaries: list[str] = field(default_factory=list)  # V2
     memory_items: list[MemoryItem] = field(default_factory=list)
 

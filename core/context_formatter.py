@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
-from core.models import ContextBundle, EnvironmentSnapshot
+from core.models import ContextBundle, EnvironmentSnapshot, RelatedTopic
 
 
 class ContextFormatter:
@@ -20,8 +20,10 @@ class ContextFormatter:
     _PREAMBLE = (
         "[Memory Context]\n"
         "The following is background context recalled for this turn — not something the user just said. "
-        "Facts are stable, durable information; related topics are past conversation summaries; memory "
-        "fragments are specific extracted moments. Use only what's relevant to the current message."
+        "Facts are stable, durable information; recently discussed topics are what came up most recently "
+        "regardless of relevance; related topics are past conversation summaries chosen for relevance to "
+        "this message; memory fragments are specific extracted moments. Use only what's relevant to the "
+        "current message."
     )
 
     @staticmethod
@@ -57,15 +59,13 @@ class ContextFormatter:
             ]
             parts.append("[Known facts]\n" + "\n".join(fact_lines))
 
+        if bundle.recent_topics:
+            lines = ContextFormatter._format_topic_lines(bundle.recent_topics, now)
+            parts.append("[Recently discussed]\n" + "\n".join(lines))
+
         if bundle.related_topics:
-            topic_lines = []
-            for rt in bundle.related_topics:
-                tags = ", ".join(rt.tags) if rt.tags else ""
-                tag_str = f" ({tags})" if tags else ""
-                age = ContextFormatter._age_suffix(rt.timestamp, now)
-                summary = f"{rt.label}: {rt.summary}" if rt.label else rt.summary
-                topic_lines.append(f"- {summary}{tag_str}{age}")
-            parts.append("[Related topics]\n" + "\n".join(topic_lines))
+            lines = ContextFormatter._format_topic_lines(bundle.related_topics, now)
+            parts.append("[Related topics]\n" + "\n".join(lines))
 
         if bundle.memory_items:
             item_lines = [
@@ -79,6 +79,17 @@ class ContextFormatter:
             parts.insert(0, ContextFormatter._PREAMBLE)
 
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _format_topic_lines(topics: list[RelatedTopic], now: datetime) -> list[str]:
+        lines = []
+        for rt in topics:
+            tags = ", ".join(rt.tags) if rt.tags else ""
+            tag_str = f" ({tags})" if tags else ""
+            age = ContextFormatter._age_suffix(rt.timestamp, now)
+            summary = f"{rt.label}: {rt.summary}" if rt.label else rt.summary
+            lines.append(f"- {summary}{tag_str}{age}")
+        return lines
 
     @staticmethod
     def _format_environment(env: EnvironmentSnapshot, display_timezone: str) -> list[str]:

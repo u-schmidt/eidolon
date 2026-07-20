@@ -96,6 +96,8 @@ Examples:
                         help="Memory items to retrieve on a NEW_TOPIC turn")
     parser.add_argument("--memory-items-continue", type=int, default=None, dest="retrieval_memory_items_continue",
                         help="Memory items to retrieve on a CONTINUE turn")
+    parser.add_argument("--recent-topics", type=int, default=None, dest="retrieval_recent_topics",
+                        help="Most-recently-discussed topics to inject, regardless of relevance")
 
     # Facts consolidation
     parser.add_argument("--facts-consolidation-interval", type=int, default=None,
@@ -188,6 +190,7 @@ def main() -> None:
             "related_topics_continue": config.retrieval.related_topics_continue,
             "memory_items_new": config.retrieval.memory_items_new,
             "memory_items_continue": config.retrieval.memory_items_continue,
+            "recent_topics": config.retrieval.recent_topics,
         },
         facts_consolidation_interval=config.facts.consolidation_interval,
         facts_target_max=config.facts.target_max,
@@ -361,11 +364,16 @@ def main() -> None:
             environment=env,
             topic_label=topic_change.label,
             is_new_topic=is_new,
+            active_topic_id=active_topic_id,
             request_id=turn_request_id,
         )
 
         if bundle.facts:
             print(f"  Facts: {len(bundle.facts)}")
+        if bundle.recent_topics:
+            print(f"  Recent topics: {len(bundle.recent_topics)}")
+            for rt in bundle.recent_topics:
+                print(f"    - #{rt.topic_id} {rt.summary[:60] if rt.summary else '(no summary)'}")
         if bundle.related_topics:
             print(f"  Related topics: {len(bundle.related_topics)}")
             for rt in bundle.related_topics:

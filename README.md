@@ -199,6 +199,8 @@ retrieval:
   related_topics_continue: 3  # Related topics injected on a CONTINUE turn (default: 3)
   memory_items_new: 4         # Memory items injected on a NEW_TOPIC turn (default: 4)
   memory_items_continue: 2    # Memory items injected on a CONTINUE turn (default: 2)
+  recent_topics: 2            # Most-recently-closed topics injected regardless of relevance,
+                               # excluding duplicates of related_topics_* above (default: 2)
 
 facts:
   consolidation_interval: 20  # See Facts Consolidation above

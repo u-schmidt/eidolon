@@ -23,7 +23,11 @@ class MockStorage:
     def __init__(self) -> None:
         self.facts: list[Fact] = []
         self.topics: list[dict] = []
+        self.topics_by_id: dict[int, dict] = {}
+        self.recent_topics_data: list[dict] = []
         self.memory_items: list[MemoryItem] = []
+        self.last_recent_topics_peer_id: str | None = None
+        self.last_recent_topics_limit: int | None = None
         self.last_query_embedding: list[float] | None = None
         self.last_tags: list[str] | None = None
         self.last_peer_id: str | None = None
@@ -42,7 +46,7 @@ class MockStorage:
         return 1
 
     def get_topic(self, topic_id: int) -> dict | None:
-        return None
+        return self.topics_by_id.get(topic_id)
 
     def close_topic(self, topic_id: int, summary: str) -> None:
         pass
@@ -67,6 +71,11 @@ class MockStorage:
         self.last_tracer = tracer
         self.last_request_id = request_id
         return self.topics[:limit]
+
+    def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
+        self.last_recent_topics_peer_id = peer_id
+        self.last_recent_topics_limit = limit
+        return self.recent_topics_data[:limit]
 
     def store_memory_item(self, item: MemoryItem) -> int:
         return 1
@@ -496,3 +505,180 @@ class TestAssociativeRetriever:
         assert events[0]["payload"]["purpose"] == "retrieval_query"
         assert events[0]["payload"]["text"] == "test message"
         assert events[0]["payload"]["dimension"] == 3
+
+
+class TestAssociativeRetrieverCurrentTopicLabel:
+    def test_new_topic_uses_detected_label_not_active_topic(self):
+        """On a NEW_TOPIC turn, current_topic_label is the freshly detected
+        label — active_topic_id (the topic just being left) must not
+        override it, even if given."""
+        storage = MockStorage()
+        storage.topics_by_id[1] = {"id": 1, "label": "Old", "summary": "Old summary"}
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="New Topic", is_new_topic=True, active_topic_id=1,
+        )
+        assert bundle.current_topic_label == "New Topic"
+
+    def test_continue_resolves_label_from_active_topic_summary(self):
+        """On CONTINUE, topic_label is always None (nothing was just
+        detected) — current_topic_label must instead persist by looking
+        up the active topic's own summary, so it doesn't go blank for the
+        rest of the topic's lifetime."""
+        storage = MockStorage()
+        storage.topics_by_id[5] = {"id": 5, "label": "Bello", "summary": "Talking about Bello's diet"}
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label=None, is_new_topic=False, active_topic_id=5,
+        )
+        assert bundle.current_topic_label == "Talking about Bello's diet"
+
+    def test_continue_falls_back_to_label_when_summary_missing(self):
+        storage = MockStorage()
+        storage.topics_by_id[5] = {"id": 5, "label": "Bello", "summary": ""}
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label=None, is_new_topic=False, active_topic_id=5,
+        )
+        assert bundle.current_topic_label == "Bello"
+
+    def test_continue_without_active_topic_id_stays_none(self):
+        storage = MockStorage()
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label=None, is_new_topic=False,
+        )
+        assert bundle.current_topic_label is None
+
+    def test_continue_with_unknown_active_topic_id_stays_none(self):
+        storage = MockStorage()  # topics_by_id has no entry for 999
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label=None, is_new_topic=False, active_topic_id=999,
+        )
+        assert bundle.current_topic_label is None
+
+
+class TestAssociativeRetrieverRecentTopics:
+    def test_recent_topics_populated_from_storage(self):
+        storage = MockStorage()
+        storage.recent_topics_data = [
+            {"id": 9, "label": "Last week", "summary": "About last week", "tags": [], "closed_at": "t1"},
+        ]
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        assert len(bundle.recent_topics) == 1
+        assert bundle.recent_topics[0].topic_id == 9
+        assert bundle.recent_topics[0].summary == "About last week"
+
+    def test_recent_topics_excludes_ones_already_in_related_topics(self):
+        """The whole point of the feature: don't show the same topic twice
+        under [Recently discussed] and [Related topics]."""
+        storage = MockStorage()
+        storage.topics = [
+            {"id": 1, "label": "Bello", "summary": "About Bello", "tags": ["bello"]},
+        ]
+        storage.recent_topics_data = [
+            {"id": 1, "label": "Bello", "summary": "About Bello", "tags": ["bello"], "closed_at": "t1"},
+            {"id": 2, "label": "Other", "summary": "About something else", "tags": [], "closed_at": "t2"},
+        ]
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Bello", is_new_topic=True,
+        )
+        assert [t.topic_id for t in bundle.related_topics] == [1]
+        assert [t.topic_id for t in bundle.recent_topics] == [2]
+
+    def test_recent_topics_respects_limit(self):
+        storage = MockStorage()
+        storage.recent_topics_data = [
+            {"id": i, "label": f"Topic {i}", "summary": f"Summary {i}", "tags": [], "closed_at": f"t{i}"}
+            for i in range(5)
+        ]
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder, limits={
+            "related_topics_new": 5, "related_topics_continue": 2,
+            "memory_items_new": 3, "memory_items_continue": 1,
+            "recent_topics": 2,
+        })
+
+        bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        assert len(bundle.recent_topics) == 2
+
+    def test_recent_topics_limit_defaults_when_not_in_custom_limits(self):
+        """A caller-supplied `limits` dict that predates this feature
+        (missing the "recent_topics" key) must not crash — it should fall
+        back to the built-in default instead of a KeyError."""
+        storage = MockStorage()
+        storage.recent_topics_data = [
+            {"id": i, "label": f"Topic {i}", "summary": f"Summary {i}", "tags": [], "closed_at": f"t{i}"}
+            for i in range(5)
+        ]
+        embedder = MockEmbedder()
+        limits = {
+            "related_topics_new": 5, "related_topics_continue": 2,
+            "memory_items_new": 3, "memory_items_continue": 1,
+        }
+        retriever = AssociativeRetriever(storage, embedder, limits=limits)
+
+        bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        assert len(bundle.recent_topics) == 2  # built-in default
+
+    def test_recent_topics_query_scoped_to_peer(self):
+        storage = MockStorage()
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        retriever.retrieve(
+            message="hi", peer_id="alice", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        assert storage.last_recent_topics_peer_id == "alice"
+
+    def test_records_recent_topics_in_context_retrieval_event(self):
+        storage = MockStorage()
+        storage.recent_topics_data = [
+            {"id": 9, "label": "Last week", "summary": "About last week", "tags": [], "closed_at": "t1"},
+        ]
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        retriever = AssociativeRetriever(storage, embedder, tracer=tracer)
+
+        retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True, request_id="req1",
+        )
+
+        payload = tracer.events_of_type("context_retrieval")[0]["payload"]
+        assert payload["recent_topics"] == [
+            {"id": 9, "label": "Last week", "summary": "About last week", "tags": [], "timestamp": "t1"}
+        ]

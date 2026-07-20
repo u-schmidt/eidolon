@@ -121,11 +121,20 @@ class StorageProvider(Protocol):
         NOTE: ``temporal`` is accepted for forward-compat but not yet
         applied by any backend — there is no recency scoring term yet.
 
-        When ``tracer`` is given, one ``retrieval_candidate_scored`` event
-        is recorded per candidate row with the raw and weighted score for
-        each dimension, plus whether it made the final cut.
+        When ``tracer`` is given, one ``retrieval_scoring_summary`` event
+        is recorded for the whole call, carrying the top scored candidates
+        (with per-dimension breakdown) plus total/included counts.
 
         Returns topic dicts ordered by relevance.
+        """
+        ...
+
+    def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
+        """Return `peer_id`'s most recently closed topics, newest first.
+
+        Pure recency, not relevance — used to surface "what we discussed
+        last" alongside (and independent of) ``search_topics``'s
+        relevance ranking, which has no recency term.
         """
         ...
 
@@ -151,8 +160,8 @@ class StorageProvider(Protocol):
         ``temporal`` (no recency scoring yet) are accepted but currently
         have no effect.
 
-        When ``tracer`` is given, one ``retrieval_candidate_scored`` event
-        is recorded per candidate row scored.
+        When ``tracer`` is given, one ``retrieval_scoring_summary`` event
+        is recorded for the whole call — see ``search_topics``.
         """
         ...
 

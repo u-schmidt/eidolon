@@ -22,6 +22,7 @@ class MockEidolon:
         self.last_ai_response: str | None = None
         self.last_peer_id: str | None = None
         self.last_active_topic_id: int | None = None
+        self.last_retrieve_context_active_topic_id: int | None = None
         self.last_old_topic_id: int | None = None
         self.last_new_topic_label: str | None = None
         self.active_topic_to_resume: int | None = None
@@ -63,6 +64,7 @@ class MockEidolon:
         environment: EnvironmentSnapshot,
         topic_label: str | None = None,
         is_new_topic: bool = False,
+        active_topic_id: int | None = None,
         *,
         session_id: str | None = None,
         request_id: str | None = None,
@@ -72,6 +74,7 @@ class MockEidolon:
         self.last_peer_id = peer_id
         self.last_request_id = request_id
         self.last_environment = environment
+        self.last_retrieve_context_active_topic_id = active_topic_id
         self.request_ids_seen.append(request_id)
         return ContextBundle(
             current_topic_label=topic_label or "Test Topic",
@@ -188,6 +191,11 @@ class TestEidolonMemoryProvider:
         provider._peer_id = "alice"
         provider.prefetch("hello", session_id="sess_1")
         assert provider._eidolon.last_peer_id == "alice"
+
+    def test_prefetch_passes_session_active_topic_id_to_retrieve_context(self, provider):
+        provider._sessions["sess_1"] = SessionState(active_topic_id=7)
+        provider.prefetch("hello", session_id="sess_1")
+        assert provider._eidolon.last_retrieve_context_active_topic_id == 7
 
     def test_prefetch_populates_real_time_in_environment(self, provider):
         provider.prefetch("hello", session_id="sess_1")
@@ -720,6 +728,15 @@ class TestEidolonTopicHook:
             peer_id="user",
         )
         assert hook._last_topic_label == "Test Topic"
+
+    def test_pre_llm_call_passes_active_topic_id_to_retrieve_context(self, hook):
+        hook._active_topic_id = 3
+        hook.pre_llm_call(
+            user_message="Hello",
+            session_id="sess_1",
+            peer_id="user",
+        )
+        assert hook._eidolon.last_retrieve_context_active_topic_id == 3
 
     def test_pre_llm_call_with_environment(self, hook):
         result = hook.pre_llm_call(

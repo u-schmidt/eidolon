@@ -172,6 +172,7 @@ class EidolonMemoryProvider(MemoryProvider):
                 "related_topics_continue": config.retrieval.related_topics_continue,
                 "memory_items_new": config.retrieval.memory_items_new,
                 "memory_items_continue": config.retrieval.memory_items_continue,
+                "recent_topics": config.retrieval.recent_topics,
             },
             facts_consolidation_interval=config.facts.consolidation_interval,
             facts_target_max=config.facts.target_max,
@@ -255,6 +256,7 @@ class EidolonMemoryProvider(MemoryProvider):
                 ),
                 topic_label=topic_change.label,
                 is_new_topic=is_new,
+                active_topic_id=session.active_topic_id,
                 session_id=resolved_session_id,
                 request_id=turn_request_id,
             )

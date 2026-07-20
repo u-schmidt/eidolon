@@ -221,6 +221,33 @@ class SqliteStore:
         ).fetchone()
         return row[0] if row else None
 
+    def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
+        """Return `peer_id`'s most recently closed topics, newest first.
+
+        Ordered purely by `closed_at` — no relevance scoring, unlike
+        `search_topics`. `id DESC` as a tiebreak for the same reason as
+        `get_active_topic`: CURRENT_TIMESTAMP only has second resolution.
+        """
+        rows = self._conn.execute(
+            "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
+            "FROM topics WHERE status='closed' AND peer_id = ? "
+            "ORDER BY closed_at DESC, id DESC LIMIT ?",
+            (peer_id, limit),
+        ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "label": row[1],
+                "summary": row[2],
+                "tags": json.loads(row[3]),
+                "status": row[5],
+                "peer_id": row[6],
+                "created_at": row[7],
+                "closed_at": row[8],
+            }
+            for row in rows
+        ]
+
     def update_topic_embedding(
         self, topic_id: int, embedding: list[float]
     ) -> None:

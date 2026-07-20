@@ -263,6 +263,45 @@ class TestTopics:
         assert len(results) == 1
 
 
+class TestGetRecentTopics:
+    def test_returns_closed_topics_newest_first(self, store: SqliteStore):
+        older = store.create_topic("Older", summary="", peer_id="user")
+        newer = store.create_topic("Newer", summary="", peer_id="user")
+        store.close_topic(older, "Older summary")
+        store.close_topic(newer, "Newer summary")
+
+        results = store.get_recent_topics("user", limit=10)
+        assert [t["id"] for t in results] == [newer, older]
+
+    def test_excludes_active_topics(self, store: SqliteStore):
+        closed = store.create_topic("Closed", summary="", peer_id="user")
+        store.close_topic(closed, "Wrapped up")
+        store.create_topic("Still open", summary="", peer_id="user")
+
+        results = store.get_recent_topics("user", limit=10)
+        assert [t["id"] for t in results] == [closed]
+
+    def test_filters_by_peer_id(self, store: SqliteStore):
+        mine = store.create_topic("Mine", summary="", peer_id="user")
+        store.close_topic(mine, "")
+        theirs = store.create_topic("Theirs", summary="", peer_id="someone_else")
+        store.close_topic(theirs, "")
+
+        results = store.get_recent_topics("user", limit=10)
+        assert [t["id"] for t in results] == [mine]
+
+    def test_respects_limit(self, store: SqliteStore):
+        for i in range(5):
+            tid = store.create_topic(f"Topic {i}", summary="", peer_id="user")
+            store.close_topic(tid, "")
+
+        results = store.get_recent_topics("user", limit=2)
+        assert len(results) == 2
+
+    def test_empty_when_no_closed_topics(self, store: SqliteStore):
+        assert store.get_recent_topics("user", limit=10) == []
+
+
 class TestRecentMessagesByTopic:
     def test_returns_most_recent_within_limit_oldest_first(self, store: SqliteStore):
         tid = store.create_topic("Bello", summary="")
