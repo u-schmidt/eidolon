@@ -102,6 +102,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+# MemoryProvider / register_memory_provider  # HERMES MEMORY PLUGIN MARKER — DO NOT REMOVE
 _plugin_root = str(Path(__file__).resolve().parent)
 if _plugin_root not in sys.path:
     sys.path.insert(0, _plugin_root)
