@@ -89,6 +89,10 @@ Eidolon loads its configuration from `eidolon.yaml` in the profile root director
 | `retrieval.tag_overlap` | float | Tag overlap weight (0-1) |
 | `retrieval.person` | float | Same peer weight (0-1) |
 | `retrieval.temporal` | float | Temporal closeness weight (0-1) |
+| `retrieval.related_topics_new` | int | Related topics injected on a NEW_TOPIC turn (default 6) |
+| `retrieval.related_topics_continue` | int | Related topics injected on a CONTINUE turn (default 3) |
+| `retrieval.memory_items_new` | int | Memory items injected on a NEW_TOPIC turn (default 4) |
+| `retrieval.memory_items_continue` | int | Memory items injected on a CONTINUE turn (default 2) |
 | `facts.consolidation_interval` | int | Reconcile the durable-facts profile every N user turns (default 20) |
 | `facts.target_max` | int | Soft guidance to the LLM for the target profile size (default 100), not hard-enforced |
 | `language` | string | Language code for stop word filtering (`en`, `de`) |
@@ -101,7 +105,7 @@ Eidolon loads its configuration from `eidolon.yaml` in the profile root director
 1. **`prefetch(query, session_id)`** — Called **before** each LLM call (sync).
    - Detects topic (CONTINUE / NEW_TOPIC)
    - Retrieves relevant context (facts, related topics, memory items)
-   - Returns formatted text for prompt injection
+   - Returns formatted text for prompt injection, prefixed with a short `[Memory Context]` preamble explaining how to read it — see the main [README's Per-Turn Flow section](../../README.md#per-turn-flow)
 
 2. **`sync_turn(user, assistant, session_id, messages)`** — Called **after** each turn (async).
    - Stores user + assistant messages

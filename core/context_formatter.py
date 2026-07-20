@@ -17,6 +17,13 @@ class ContextFormatter:
     never drift apart in how they render the same bundle.
     """
 
+    _PREAMBLE = (
+        "[Memory Context]\n"
+        "The following is background context recalled for this turn — not something the user just said. "
+        "Facts are stable, durable information; related topics are past conversation summaries; memory "
+        "fragments are specific extracted moments. Use only what's relevant to the current message."
+    )
+
     @staticmethod
     def format(bundle: ContextBundle, now: datetime | None = None, timezone: str = "UTC") -> str:
         """Render `bundle` as injected text.
@@ -67,6 +74,9 @@ class ContextFormatter:
                 for mi in bundle.memory_items
             ]
             parts.append("[Memory fragments]\n" + "\n".join(item_lines))
+
+        if parts:
+            parts.insert(0, ContextFormatter._PREAMBLE)
 
         return "\n\n".join(parts)
 

@@ -44,6 +44,10 @@ class TestEidolonConfig:
         assert config.models["llm"].provider == "simulated"
         assert config.models["embedder"].provider == "simulated"
         assert config.retrieval.semantic == 0.4
+        assert config.retrieval.related_topics_new == 6
+        assert config.retrieval.related_topics_continue == 3
+        assert config.retrieval.memory_items_new == 4
+        assert config.retrieval.memory_items_continue == 2
         assert config.facts.consolidation_interval == 20
         assert config.facts.target_max == 100
         assert config.language == "en"
@@ -69,7 +73,11 @@ class TestEidolonConfig:
                 "llm": ModelConfig(provider="ollama", base_url="http://10.0.0.5:11434", model="llama3.2"),
                 "embedder": ModelConfig(provider="lm_studio", base_url="http://10.0.0.5:1234", model="bge-m3"),
             },
-            retrieval=RetrievalConfig(semantic=0.5, tag_overlap=0.3, person=0.1, temporal=0.1),
+            retrieval=RetrievalConfig(
+                semantic=0.5, tag_overlap=0.3, person=0.1, temporal=0.1,
+                related_topics_new=9, related_topics_continue=4,
+                memory_items_new=5, memory_items_continue=3,
+            ),
             language="de",
             timezone="Europe/Berlin",
         )
@@ -80,6 +88,10 @@ class TestEidolonConfig:
         assert config.models["embedder"].provider == "lm_studio"
         assert config.models["embedder"].model == "bge-m3"
         assert config.retrieval.semantic == 0.5
+        assert config.retrieval.related_topics_new == 9
+        assert config.retrieval.related_topics_continue == 4
+        assert config.retrieval.memory_items_new == 5
+        assert config.retrieval.memory_items_continue == 3
         assert config.language == "de"
         assert config.timezone == "Europe/Berlin"
 
@@ -132,6 +144,8 @@ models:
 retrieval:
   semantic: 0.5
   tag_overlap: 0.3
+  related_topics_new: 9
+  related_topics_continue: 4
 language: de
 timezone: Europe/Berlin
 """
@@ -151,6 +165,8 @@ timezone: Europe/Berlin
         assert config.models["embedder"].base_url == "http://10.0.0.5:1234"
         assert config.models["embedder"].model == "bge-m3"
         assert config.retrieval.semantic == 0.5
+        assert config.retrieval.related_topics_new == 9
+        assert config.retrieval.related_topics_continue == 4
         assert config.language == "de"
         assert config.timezone == "Europe/Berlin"
 
@@ -302,6 +318,36 @@ models:
 
         del os.environ["EIDOLON_LLM_MAX_TOKENS"]
         del os.environ["EIDOLON_RETRIEVAL_SEMANTIC"]
+
+    def test_env_retrieval_limits(self):
+        os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_NEW"] = "9"
+        os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_CONTINUE"] = "4"
+        os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_NEW"] = "5"
+        os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_CONTINUE"] = "3"
+
+        config = ConfigLoader().load()
+
+        assert config.retrieval.related_topics_new == 9
+        assert config.retrieval.related_topics_continue == 4
+        assert config.retrieval.memory_items_new == 5
+        assert config.retrieval.memory_items_continue == 3
+
+        del os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_NEW"]
+        del os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_CONTINUE"]
+        del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_NEW"]
+        del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_CONTINUE"]
+
+    def test_cli_retrieval_limits(self):
+        args = Namespace(
+            retrieval_related_topics_new=9, retrieval_related_topics_continue=4,
+            retrieval_memory_items_new=5, retrieval_memory_items_continue=3,
+            storage_provider=None, storage_path=None,
+        )
+        config = ConfigLoader(cli_args=args).load()
+        assert config.retrieval.related_topics_new == 9
+        assert config.retrieval.related_topics_continue == 4
+        assert config.retrieval.memory_items_new == 5
+        assert config.retrieval.memory_items_continue == 3
 
     def test_yaml_facts_section(self):
         yaml_content = """

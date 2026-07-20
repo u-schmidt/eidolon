@@ -48,14 +48,22 @@ models:
 #   EIDOLON_LLM_BASE_URL=... / EIDOLON_EMBEDDER_BASE_URL=... (etc., same pattern)
 # Other roles (e.g. judge) are configured via this file only for now.
 
-# ── Retrieval Weights ──────────────────────────────────────
-# How much each dimension contributes to associative search scores.
-# Values should sum to 1.0 for predictable behavior.
+# ── Retrieval Weights + Result Counts ───────────────────────
+# Weights: how much each dimension contributes to associative search
+# scores. Values should sum to 1.0 for predictable behavior.
+# Limits: how many related topics / memory items to inject per turn —
+# "new" applies on a NEW_TOPIC turn (more context to catch up), "continue"
+# applies on a CONTINUE turn. Summaries are short/dense, so a modest
+# increase is cheap in tokens.
 retrieval:
   semantic: 0.4              # Embedding vector similarity weight
   tag_overlap: 0.3           # Shared topic tags weight
   person: 0.2                # Same peer/speaker weight
   temporal: 0.1              # Temporal closeness weight
+  related_topics_new: 6      # Related topics injected on a NEW_TOPIC turn
+  related_topics_continue: 3 # Related topics injected on a CONTINUE turn
+  memory_items_new: 4        # Memory items injected on a NEW_TOPIC turn
+  memory_items_continue: 2   # Memory items injected on a CONTINUE turn
 
 # ── Durable Facts Profile ───────────────────────────────────
 # The small, curated profile (name, location, partner, work, ...) is

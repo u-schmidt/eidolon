@@ -167,6 +167,12 @@ class EidolonMemoryProvider(MemoryProvider):
                 "person": config.retrieval.person,
                 "temporal": config.retrieval.temporal,
             },
+            retrieval_limits={
+                "related_topics_new": config.retrieval.related_topics_new,
+                "related_topics_continue": config.retrieval.related_topics_continue,
+                "memory_items_new": config.retrieval.memory_items_new,
+                "memory_items_continue": config.retrieval.memory_items_continue,
+            },
             facts_consolidation_interval=config.facts.consolidation_interval,
             facts_target_max=config.facts.target_max,
             tracer=tracer,

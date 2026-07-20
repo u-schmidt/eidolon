@@ -73,6 +73,9 @@ class Eidolon:
         Prompts to the LLM are always in English regardless of this setting.
     retrieval_weights : dict | None
         Optional weight overrides for associative retrieval dimensions.
+    retrieval_limits : dict | None
+        Optional result-count overrides for associative retrieval — see
+        ``AssociativeRetriever``.
     facts_consolidation_interval : int
         Reconcile the durable-facts profile every N user turns (see
         ``store_turn``'s step 7 and ``FactConsolidator``).
@@ -92,6 +95,7 @@ class Eidolon:
         embedder: EmbedderProvider,
         language: str = "en",
         retrieval_weights: dict[str, float] | None = None,
+        retrieval_limits: dict[str, int] | None = None,
         facts_consolidation_interval: int = 20,
         facts_target_max: int = 100,
         tracer: Tracer | None = None,
@@ -100,7 +104,7 @@ class Eidolon:
         self._tracer = tracer or NullTracer()
         self._detector = TopicDetector(llm, tracer=self._tracer)
         self._retriever = AssociativeRetriever(
-            storage, embedder, retrieval_weights, language, tracer=self._tracer
+            storage, embedder, retrieval_weights, language, retrieval_limits, tracer=self._tracer
         )
         self._extractor = FragmentaryExtractor(llm, language, tracer=self._tracer)
         self._fact_consolidator = FactConsolidator(

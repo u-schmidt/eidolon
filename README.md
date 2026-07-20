@@ -89,6 +89,8 @@ User Message
 
 Every step above (prompts, responses, durations, retrieval score breakdowns, and otherwise-silent failures) can be recorded to a separate trace database for inspection — see [Debug Tracing](#debug-tracing) below. Off by default; zero behavior/performance impact unless enabled.
 
+Whenever there's anything to inject, `ContextFormatter` prepends a short `[Memory Context]` preamble explaining how to read the sections that follow (recalled background, not something the user just said) — a static, always-on hint aimed at reducing the LLM misinterpreting stale facts or old topic summaries as part of the live conversation. How many related topics and memory items get injected per turn is configurable — see `retrieval.*_new`/`retrieval.*_continue` under [Configuration](#configuration).
+
 ## Facts Consolidation
 
 The facts profile is intentionally small (~50-100 entries) and curated, not a growing log — every `item_type="fact"` memory item is still stored and embedded as usual (searchable via associative retrieval, same as any other memory item), but converting a fact-shaped statement into a permanent profile row happens in a periodic **batch reconciliation pass** instead of immediately on every turn.
@@ -191,6 +193,12 @@ models:
     provider: lm_studio
     base_url: http://192.168.178.81:1234
     model: text-embedding-bge-m3
+
+retrieval:
+  related_topics_new: 6       # Related topics injected on a NEW_TOPIC turn (default: 6)
+  related_topics_continue: 3  # Related topics injected on a CONTINUE turn (default: 3)
+  memory_items_new: 4         # Memory items injected on a NEW_TOPIC turn (default: 4)
+  memory_items_continue: 2    # Memory items injected on a CONTINUE turn (default: 2)
 
 facts:
   consolidation_interval: 20  # See Facts Consolidation above

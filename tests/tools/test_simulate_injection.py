@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from core.context_formatter import ContextFormatter
 from core.trace.sqlite_tracer import SqliteTracer
 from tools.simulate_injection import InjectionSimulator, SimulationResult
 from tools.trace import TraceReader
@@ -82,6 +83,7 @@ class TestSimulate:
         assert result.request_id == "req-full"
         assert result.user_message == "was ist mein lieblingsprojekt?"
         assert result.injection == (
+            f"{ContextFormatter._PREAMBLE}\n\n"
             "[Current topic: Bello Features]\n\n"
             "[Known facts]\n- work: role = engineer\n\n"
             "[Related topics]\n- EFB Project: Discussed the EFB project (efb, aviation)\n\n"

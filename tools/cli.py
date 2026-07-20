@@ -85,6 +85,16 @@ Examples:
     parser.add_argument("--retrieval-person", type=float, default=None, help="Person weight (0-1)")
     parser.add_argument("--retrieval-temporal", type=float, default=None, help="Temporal weight (0-1)")
 
+    # Retrieval result-count limits
+    parser.add_argument("--related-topics-new", type=int, default=None, dest="retrieval_related_topics_new",
+                        help="Related topics to retrieve on a NEW_TOPIC turn")
+    parser.add_argument("--related-topics-continue", type=int, default=None, dest="retrieval_related_topics_continue",
+                        help="Related topics to retrieve on a CONTINUE turn")
+    parser.add_argument("--memory-items-new", type=int, default=None, dest="retrieval_memory_items_new",
+                        help="Memory items to retrieve on a NEW_TOPIC turn")
+    parser.add_argument("--memory-items-continue", type=int, default=None, dest="retrieval_memory_items_continue",
+                        help="Memory items to retrieve on a CONTINUE turn")
+
     # Facts consolidation
     parser.add_argument("--facts-consolidation-interval", type=int, default=None,
                         help="Reconcile the durable facts profile every N user turns")
@@ -169,6 +179,12 @@ def main() -> None:
             "tag_overlap": config.retrieval.tag_overlap,
             "person": config.retrieval.person,
             "temporal": config.retrieval.temporal,
+        },
+        retrieval_limits={
+            "related_topics_new": config.retrieval.related_topics_new,
+            "related_topics_continue": config.retrieval.related_topics_continue,
+            "memory_items_new": config.retrieval.memory_items_new,
+            "memory_items_continue": config.retrieval.memory_items_continue,
         },
         facts_consolidation_interval=config.facts.consolidation_interval,
         facts_target_max=config.facts.target_max,

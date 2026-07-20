@@ -96,12 +96,16 @@ def default_models() -> dict[str, ModelConfig]:
 
 @dataclass
 class RetrievalConfig:
-    """Retrieval weight configuration."""
+    """Retrieval weight and result-count configuration."""
 
     semantic: float = 0.4
     tag_overlap: float = 0.3
     person: float = 0.2
     temporal: float = 0.1
+    related_topics_new: int = 6       # was hardcoded 5
+    related_topics_continue: int = 3  # was hardcoded 2
+    memory_items_new: int = 4         # was hardcoded 3
+    memory_items_continue: int = 2    # was hardcoded 1
 
 
 @dataclass
@@ -183,6 +187,10 @@ class EidolonConfig:
                 "tag_overlap": self.retrieval.tag_overlap,
                 "person": self.retrieval.person,
                 "temporal": self.retrieval.temporal,
+                "related_topics_new": self.retrieval.related_topics_new,
+                "related_topics_continue": self.retrieval.related_topics_continue,
+                "memory_items_new": self.retrieval.memory_items_new,
+                "memory_items_continue": self.retrieval.memory_items_continue,
             },
             "facts": {
                 "consolidation_interval": self.facts.consolidation_interval,

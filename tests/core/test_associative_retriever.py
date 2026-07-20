@@ -133,7 +133,7 @@ class TestAssociativeRetriever:
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder)
 
-        # NEW_TOPIC: should request up to 5 topics
+        # NEW_TOPIC: should request up to related_topics_new (default 6)
         bundle = retriever.retrieve(
             message="Lass uns über Bello sprechen",
             peer_id="user",
@@ -170,7 +170,9 @@ class TestAssociativeRetriever:
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder)
 
-        # CONTINUE: should request only 2 topics
+        # CONTINUE: AssociativeRetriever's own built-in default (unrelated
+        # to RetrievalConfig's higher default) stays at 2 for backward
+        # compatibility with callers that construct it without `limits=`.
         bundle = retriever.retrieve(
             message="jep, mach weiter",
             peer_id="user",
@@ -179,6 +181,78 @@ class TestAssociativeRetriever:
             is_new_topic=False,
         )
         assert len(bundle.related_topics) == 2  # limited to 2
+
+    def test_retrieve_continue_limit_actually_applied(self):
+        """With more candidates than the built-in CONTINUE limit, the limit
+        must actually cut the result count — not just happen to match the
+        candidate count, which the test above alone wouldn't catch."""
+        storage = MockStorage()
+        storage.topics = [
+            {"id": i, "label": f"Topic {i}", "summary": f"Summary {i}", "tags": []}
+            for i in range(10)
+        ]
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="jep, mach weiter",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            topic_label=None,
+            is_new_topic=False,
+        )
+        assert len(bundle.related_topics) == 2  # built-in default related_topics_continue
+
+    def test_custom_limits_override_related_topics(self):
+        storage = MockStorage()
+        storage.topics = [
+            {"id": i, "label": f"Topic {i}", "summary": f"Summary {i}", "tags": []}
+            for i in range(10)
+        ]
+        embedder = MockEmbedder()
+        limits = {
+            "related_topics_new": 8, "related_topics_continue": 4,
+            "memory_items_new": 3, "memory_items_continue": 1,
+        }
+        retriever = AssociativeRetriever(storage, embedder, limits=limits)
+
+        new_bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        assert len(new_bundle.related_topics) == 8
+
+        continue_bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label=None, is_new_topic=False,
+        )
+        assert len(continue_bundle.related_topics) == 4
+
+    def test_custom_limits_override_memory_items(self):
+        storage = MockStorage()
+        storage.memory_items = [
+            MemoryItem(content=f"item {i}", item_type="essence", source_peer="user",
+                       subject_peer="user", attribution_type="self_statement")
+            for i in range(10)
+        ]
+        embedder = MockEmbedder()
+        limits = {
+            "related_topics_new": 5, "related_topics_continue": 2,
+            "memory_items_new": 7, "memory_items_continue": 5,
+        }
+        retriever = AssociativeRetriever(storage, embedder, limits=limits)
+
+        new_bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        assert len(new_bundle.memory_items) == 7
+
+        continue_bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label=None, is_new_topic=False,
+        )
+        assert len(continue_bundle.memory_items) == 5
 
     def test_retrieve_with_memory_items(self):
         storage = MockStorage()

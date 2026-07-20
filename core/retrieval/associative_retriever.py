@@ -37,6 +37,10 @@ class AssociativeRetriever:
     language : str
         Language code for stop word filtering (default: "en").
         Prompts to the LLM are always in English regardless of this setting.
+    limits : dict | None
+        Optional result-count overrides, keyed by "related_topics_new",
+        "related_topics_continue", "memory_items_new", "memory_items_continue".
+        Defaults: 5/2 for topics, 3/1 for items (new-topic/continue).
     tracer : Tracer | None
         Debug tracer recording the retrieval summary and (when the storage
         backend supports it) per-candidate score breakdowns. Defaults to a
@@ -49,6 +53,7 @@ class AssociativeRetriever:
         embedder: EmbedderProvider,
         weights: dict[str, float] | None = None,
         language: str = "en",
+        limits: dict[str, int] | None = None,
         tracer: Tracer | None = None,
     ) -> None:
         self._storage = storage
@@ -58,6 +63,12 @@ class AssociativeRetriever:
             "tag_overlap": 0.3,
             "person": 0.2,
             "temporal": 0.1,
+        }
+        self._limits = limits or {
+            "related_topics_new": 5,
+            "related_topics_continue": 2,
+            "memory_items_new": 3,
+            "memory_items_continue": 1,
         }
         self._stop_words = get_stop_words(language)
         self._tracer = tracer or NullTracer()
@@ -118,7 +129,9 @@ class AssociativeRetriever:
         tags = self._extract_tags(message, stop_words=self._stop_words)
 
         # 4. Search topics
-        topic_limit = 5 if is_new_topic else 2
+        topic_limit = (
+            self._limits["related_topics_new"] if is_new_topic else self._limits["related_topics_continue"]
+        )
         topic_results = self._storage.search_topics(
             query_embedding=query_embedding,
             tags=tags,
@@ -141,7 +154,9 @@ class AssociativeRetriever:
         ]
 
         # 5. Search memory items
-        memory_limit = 3 if is_new_topic else 1
+        memory_limit = (
+            self._limits["memory_items_new"] if is_new_topic else self._limits["memory_items_continue"]
+        )
         memory_items = self._storage.search_memory_items(
             query_embedding=query_embedding,
             peer_id=peer_id,
