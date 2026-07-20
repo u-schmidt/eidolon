@@ -24,10 +24,9 @@ _STOP_WORDS: dict[str, set[str]] = {
         "dass", "weil", "wenn", "als", "wie",
         "ja", "nein", "ok", "okay", "jep", "genau",
         "bitte", "danke", "vielen", "gern", "gerne",
-        "halt", "eben", "doch", "schon", "mal",
-        "einfach", "eigentlich", "irgendwie",
+        "halt", "eben", "einfach", "eigentlich", "irgendwie",
         "also", "trotzdem", "deshalb", "deswegen",
-        "übrigens", "übrigens",
+        "übrigens",
     },
     "en": {
         "the", "a", "an", "and", "or", "but", "in", "on", "at",
@@ -44,7 +43,7 @@ _STOP_WORDS: dict[str, set[str]] = {
         "more", "most", "other", "such", "what", "which", "who",
         "when", "where", "why", "how",
         "if", "because", "as", "until", "while", "though",
-        "here", "there", "ok", "okay", "yes", "no", "please",
+        "here", "there", "ok", "okay", "yes", "please",
         "thanks", "thank",
     },
 }

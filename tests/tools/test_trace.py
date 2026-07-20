@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from core.trace.sqlite_tracer import SqliteTracer
-from tools.trace import TraceReader, TracePrinter, TurnSummary
+from tools.trace import TracePrinter, TraceReader, TurnSummary
 
 
 @pytest.fixture

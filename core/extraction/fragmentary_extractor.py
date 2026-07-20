@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Literal
 
 from core.interfaces import LLMProvider, Tracer
 from core.models import EnvironmentSnapshot, MemoryItem

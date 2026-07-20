@@ -13,6 +13,8 @@ dependencies = [
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "mypy>=1.11",
 ]
 sentence-transformers = [
     "sentence-transformers>=3",
@@ -27,3 +29,37 @@ testpaths = ["tests"]
 [tool.setuptools.packages.find]
 include = ["core*", "providers*", "adapters*", "tools*"]
 exclude = ["data*", "tests*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = ["data"]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I import-sorting, UP pyupgrade,
+# B bugbear, C4 comprehensions, SIM simplifications.
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM"]
+ignore = [
+    "E501",  # line length is enforced by the formatter's 120 cap, not the linter
+]
+
+[tool.ruff.lint.per-file-ignores]
+# These deliberately run sys.path bootstrapping / import-availability
+# guards before their module-level imports — E402 is expected there.
+"adapters/hermes/__init__.py" = ["E402"]
+"tools/cli.py" = ["E402"]
+"tools/simulate_injection.py" = ["E402"]
+"tools/trace_tui.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["core", "adapters", "tools"]
+# Optional/runtime-resolved deps (Hermes' `agent.*`, textual,
+# sentence_transformers) have no stubs and aren't importable here.
+ignore_missing_imports = true
+# Pragmatic baseline for an existing codebase — catches real type errors
+# without demanding full annotation coverage on every local helper.
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true

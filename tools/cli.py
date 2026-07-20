@@ -24,7 +24,7 @@ from __future__ import annotations
 import argparse
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Ensure the project root is on sys.path for direct execution
@@ -38,6 +38,7 @@ from core.config_loader import ConfigLoader
 from core.context_formatter import ContextFormatter
 from core.models import EnvironmentSnapshot
 from core.provider_factory import ProviderFactory
+from core.stores.sqlite_store import SqliteStore
 from core.trace.in_memory_tracer import InMemoryTracer
 from tools.trace import TracePrinter
 
@@ -278,6 +279,10 @@ def main() -> None:
                 continue
 
             if cmd == "items":
+                # Debug-only raw read; the /items dump is sqlite-specific.
+                if not isinstance(store, SqliteStore):
+                    print("  /items requires the sqlite storage backend.")
+                    continue
                 conn = store._conn
                 rows = conn.execute(
                     "SELECT id, content, item_type, source_peer, subject_peer, "
@@ -335,7 +340,7 @@ def main() -> None:
         # drift apart within a single turn. Explicitly UTC so it's correct
         # regardless of the host's OS timezone — ContextFormatter converts
         # it to config.timezone only for display.
-        turn_now = datetime.now(timezone.utc)
+        turn_now = datetime.now(UTC)
         env = EnvironmentSnapshot(
             time=turn_now,
             day_of_week=turn_now.strftime("%A"),

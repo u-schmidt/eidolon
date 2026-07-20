@@ -13,7 +13,6 @@ from core.config import (
     ConfigError,
     DebugConfig,
     EidolonConfig,
-    FactsConfig,
     ModelConfig,
     RetrievalConfig,
     StorageConfig,

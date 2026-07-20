@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header
 
 from tools.trace import TurnSummary
 from tools.tui.screens.turn_detail import TurnDetailScreen
+
+if TYPE_CHECKING:
+    from tools.tui.app import TraceExplorerApp
 
 
 class TurnListScreen(Screen):
@@ -25,9 +30,10 @@ class TurnListScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        app = cast("TraceExplorerApp", self.app)
         table = self.query_one("#turns", DataTable)
         table.add_columns("Time", "Message", "Session")
-        for turn in self.app.reader.recent_turns(limit=self.app.limit):
+        for turn in app.reader.recent_turns(limit=app.limit):
             key = turn.request_id
             self._turns_by_key[key] = turn
             table.add_row(
@@ -40,5 +46,8 @@ class TurnListScreen(Screen):
             self.notify("No trace turns found.", severity="warning")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        turn = self._turns_by_key[event.row_key.value]
+        # Row keys are the str request_ids we set in on_mount, never None.
+        key = event.row_key.value
+        assert key is not None
+        turn = self._turns_by_key[key]
         self.app.push_screen(TurnDetailScreen(turn))

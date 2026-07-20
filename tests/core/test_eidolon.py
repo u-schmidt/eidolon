@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from core import Eidolon
-from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, TopicChange
+from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem
 from tests.mocks import SpyTracer
 
 

@@ -77,11 +77,11 @@ class ConfigLoader:
 
         try:
             import yaml
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
                 "PyYAML is required to load YAML config files. "
                 "Install it with: pip install pyyaml"
-            )
+            ) from exc
 
         with open(resolved) as f:
             data: dict[str, Any] = yaml.safe_load(f) or {}

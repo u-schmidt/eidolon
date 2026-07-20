@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from core.detection.topic_detector import TopicDetector, _build_detection_prompt, _parse_detection_response
 from core.models import TopicChange
 from tests.mocks import SpyTracer

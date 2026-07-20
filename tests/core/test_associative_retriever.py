@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-import pytest
-
 from core.models import (
     ContextBundle,
     EnvironmentSnapshot,
     Fact,
     MemoryItem,
-    RelatedTopic,
 )
 from core.retrieval.associative_retriever import AssociativeRetriever
 from tests.mocks import SpyTracer

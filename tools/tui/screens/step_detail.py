@@ -60,4 +60,5 @@ class StepDetailScreen(Screen):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         candidate_type = event.row_key.value
+        assert candidate_type is not None  # keys are the candidate-type consts
         self.app.push_screen(CandidateRankingScreen(candidate_type, self._phase_events))

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone as dt_timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from core.models import ContextBundle, EnvironmentSnapshot, RelatedTopic
@@ -40,7 +40,7 @@ class ContextFormatter:
         display the `[Environment]` time — stored timestamps stay UTC
         internally, so relative-age math is unaffected by this setting.
         """
-        now = now or datetime.now(dt_timezone.utc)
+        now = now or datetime.now(UTC)
         parts: list[str] = []
 
         if bundle.environment:

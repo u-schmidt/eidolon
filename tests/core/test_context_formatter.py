@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from datetime import timezone as dt_timezone
+from datetime import UTC, datetime
 
 from core.context_formatter import ContextFormatter
 from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, RelatedTopic
@@ -133,7 +132,7 @@ class TestContextFormatterEnvironment:
         )
 
     def test_converts_time_to_configured_display_timezone(self):
-        env = EnvironmentSnapshot(time=datetime(2026, 7, 19, 17, 52, tzinfo=dt_timezone.utc))
+        env = EnvironmentSnapshot(time=datetime(2026, 7, 19, 17, 52, tzinfo=UTC))
         bundle = ContextBundle(environment=env)
         result = ContextFormatter.format(bundle, timezone="Europe/Berlin")
         assert result == f"{_PREAMBLE}\n\n[Environment]\n- time: Sunday, 2026-07-19 19:52 CEST"

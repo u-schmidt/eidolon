@@ -35,7 +35,7 @@ class SimulatedLLM:
 
     def _simulate_detection(self, prompt: str) -> str:
         lines = prompt.strip().split("\n")
-        user_line = next((l for l in lines if l.startswith("User:")), "")
+        user_line = next((line for line in lines if line.startswith("User:")), "")
         message = user_line[5:].strip().lower() if user_line else ""
 
         change_signals = [
@@ -61,7 +61,7 @@ class SimulatedLLM:
 
     def _simulate_extraction(self, prompt: str) -> str:
         lines = prompt.strip().split("\n")
-        user_line = next((l for l in lines if l.startswith("User:")), "")
+        user_line = next((line for line in lines if line.startswith("User:")), "")
         message = user_line[5:].strip() if user_line else ""
 
         if not message or len(message) < 5:

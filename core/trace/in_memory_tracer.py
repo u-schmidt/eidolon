@@ -8,7 +8,7 @@ or a database file at all.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 class InMemoryTracer:
@@ -41,7 +41,7 @@ class InMemoryTracer:
             "request_id": request_id,
             "session_id": session_id,
             "duration_ms": duration_ms,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         })
 
     def events_of_type(self, event_type: str) -> list[dict]:

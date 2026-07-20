@@ -40,5 +40,7 @@ class PhaseStepsScreen(Screen):
             )
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        index = int(event.row_key.value)
+        key = event.row_key.value
+        assert key is not None  # keys are the str(i) indices set in on_mount
+        index = int(key)
         self.app.push_screen(StepDetailScreen(self._events[index], self._events))

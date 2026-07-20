@@ -7,10 +7,9 @@ Combines semantic similarity (embedding), tag overlap, person-bound, and tempora
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
 
 from core.interfaces import EmbedderProvider, StorageProvider, Tracer
-from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, RelatedTopic
+from core.models import ContextBundle, EnvironmentSnapshot, RelatedTopic
 from core.stop_words import get_stop_words
 from core.trace.null_tracer import NullTracer
 

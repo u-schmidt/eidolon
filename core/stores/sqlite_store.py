@@ -48,7 +48,9 @@ def _deserialize_embedding(blob: bytes) -> list[float]:
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Compute cosine similarity between two vectors."""
-    dot = sum(x * y for x, y in zip(a, b))
+    # strict=False keeps the historical behavior of truncating to the
+    # shorter vector rather than raising on a length mismatch.
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = sum(x * x for x in a) ** 0.5
     nb = sum(x * x for x in b) ** 0.5
     if na == 0 or nb == 0:

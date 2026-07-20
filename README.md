@@ -276,6 +276,17 @@ uv run pytest tests/core/ -v
 uv run pytest tests/adapters/ -v
 ```
 
+### Linting & Type Checking
+
+```bash
+uv run ruff check .     # lint (E/W/F/I/UP/B/C4/SIM), 120-col
+uv run ruff check . --fix
+uv run mypy             # type-check core, adapters, tools
+```
+
+Both are configured in `pyproject.toml` and installed via the `dev` extra
+(`uv sync --extra dev`).
+
 ### Project Status
 
 | Phase | Status | What |

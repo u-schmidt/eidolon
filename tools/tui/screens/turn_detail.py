@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
@@ -9,6 +11,9 @@ from textual.widgets import DataTable, Footer, Header, Static
 from tools.trace import TurnSummary
 from tools.tui.phases import PREFETCH, SYNC_TURN, split_by_phase
 from tools.tui.screens.phase_steps import PhaseStepsScreen
+
+if TYPE_CHECKING:
+    from tools.tui.app import TraceExplorerApp
 
 
 class TurnDetailScreen(Screen):
@@ -29,7 +34,8 @@ class TurnDetailScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        events = self.app.reader.events_for_request(self._turn.request_id)
+        app = cast("TraceExplorerApp", self.app)
+        events = app.reader.events_for_request(self._turn.request_id)
         prefetch_events, sync_turn_events = split_by_phase(events)
         self._phase_events = {PREFETCH: prefetch_events, SYNC_TURN: sync_turn_events}
 
@@ -43,6 +49,7 @@ class TurnDetailScreen(Screen):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         phase_key = event.row_key.value
+        assert phase_key is not None  # keys are the PREFETCH/SYNC_TURN consts
         phase_events = self._phase_events[phase_key]
         if not phase_events:
             return

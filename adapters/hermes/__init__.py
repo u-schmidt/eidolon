@@ -16,9 +16,9 @@ import json
 import logging
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Ensure the plugin root is on sys.path so core/, providers/ etc. are importable
 # __file__ is adapters/hermes/__init__.py, so parent.parent.parent is the plugin root
@@ -38,6 +38,7 @@ from core import Eidolon
 from core.config import EidolonConfig
 from core.config_loader import ConfigLoader
 from core.context_formatter import ContextFormatter
+from core.interfaces import StorageProvider, Tracer
 from core.models import EnvironmentSnapshot
 from core.provider_factory import ProviderFactory
 
@@ -53,8 +54,8 @@ class EidolonMemoryProvider(MemoryProvider):
 
     def __init__(self) -> None:
         self._eidolon: Eidolon | None = None
-        self._store = None
-        self._tracer = None
+        self._store: StorageProvider | None = None
+        self._tracer: Tracer | None = None
         # Keyed by Hermes session_id. Hermes gives this instance its own
         # per-session lifecycle, but a single instance can still see more
         # than one session_id (resume/branch/compression handoffs) — see
@@ -104,9 +105,10 @@ class EidolonMemoryProvider(MemoryProvider):
         if resolved not in self._sessions:
             session = SessionState()
             try:
-                session.active_topic_id = self._eidolon.get_active_topic(
-                    self._peer_id, session_id=resolved
-                )
+                if self._eidolon is not None:
+                    session.active_topic_id = self._eidolon.get_active_topic(
+                        self._peer_id, session_id=resolved
+                    )
             except Exception as e:
                 logger.debug("Failed to resume active topic for session %s (non-fatal): %s", resolved, e)
             self._sessions[resolved] = session
@@ -241,7 +243,7 @@ class EidolonMemoryProvider(MemoryProvider):
             # (not bare datetime.now()) so it's correct regardless of the
             # host's own OS timezone — ContextFormatter converts it to
             # self._timezone only for display.
-            turn_now = datetime.now(timezone.utc)
+            turn_now = datetime.now(UTC)
 
             # Detect topic — the user's message is the only input that
             # ever matters here (see sync_turn(), which reuses this
@@ -294,7 +296,7 @@ class EidolonMemoryProvider(MemoryProvider):
         assistant_content: str,
         *,
         session_id: str = "",
-        messages: Optional[List[Dict[str, Any]]] = None,
+        messages: list[dict[str, Any]] | None = None,
     ) -> None:
         """Persist a completed turn to Eidolon's memory.
 
@@ -334,6 +336,10 @@ class EidolonMemoryProvider(MemoryProvider):
             session.pending_query = None
             session.pending_request_id = None
 
+            # Non-None in both branches above (cache_hit implies a cached
+            # change; the else branch just computed one) — assert narrows
+            # it for the type checker.
+            assert topic_change is not None
             is_new = topic_change.type == "NEW_TOPIC"
             old_topic_id = session.active_topic_id
             new_topic_label = topic_change.label if is_new else None
@@ -359,7 +365,7 @@ class EidolonMemoryProvider(MemoryProvider):
 
     # ── Tools ────────────────────────────────────────────
 
-    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Return tool schemas for memory-related tools.
 
         These tools are exposed to the LLM for explicit memory operations.
@@ -413,7 +419,7 @@ class EidolonMemoryProvider(MemoryProvider):
             },
         ]
 
-    def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
+    def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs) -> str:
         """Handle a tool call for one of this provider's tools."""
         if tool_name == "eidolon_search":
             return self._handle_search(args)
@@ -423,7 +429,7 @@ class EidolonMemoryProvider(MemoryProvider):
             f"Eidolon provider does not handle tool {tool_name}"
         )
 
-    def _handle_search(self, args: Dict[str, Any]) -> str:
+    def _handle_search(self, args: dict[str, Any]) -> str:
         """Handle eidolon_search tool call."""
         if not self._eidolon or not self._initialized:
             return '{"error": "Eidolon not initialized"}'
@@ -470,7 +476,7 @@ class EidolonMemoryProvider(MemoryProvider):
         except Exception as e:
             return f'{{"error": "Search failed: {e}"}}'
 
-    def _handle_correct_fact(self, args: Dict[str, Any]) -> str:
+    def _handle_correct_fact(self, args: dict[str, Any]) -> str:
         """Handle eidolon_correct_fact tool call."""
         if not self._eidolon or not self._initialized:
             return json.dumps({"error": "Eidolon not initialized"})
@@ -494,7 +500,7 @@ class EidolonMemoryProvider(MemoryProvider):
 
     # ── Session Lifecycle Hooks ─────────────────────────
 
-    def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
+    def on_session_end(self, messages: list[dict[str, Any]]) -> None:
         """Called when a session ends.
 
         Ensures the current topic is properly closed.

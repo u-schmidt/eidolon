@@ -19,6 +19,16 @@ class StorageProvider(Protocol):
     Future: pgvector, MongoDB, or custom backends.
     """
 
+    # ── Lifecycle ──────────────────────────────────────────
+
+    def connect(self) -> None:
+        """Open the backend and run any pending setup/migrations."""
+        ...
+
+    def close(self) -> None:
+        """Release resources opened by ``connect()``."""
+        ...
+
     # ── Facts ──────────────────────────────────────────────
 
     def get_facts(self, peer_id: str) -> list[Fact]:

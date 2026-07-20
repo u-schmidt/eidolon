@@ -13,8 +13,8 @@ from typing import Any
 
 from core import Eidolon
 from core.models import EnvironmentSnapshot
-from core.stores.sqlite_store import SqliteStore
 from core.providers.lm_studio import LMStudio
+from core.stores.sqlite_store import SqliteStore
 
 
 class EidolonTopicHook:
@@ -157,10 +157,13 @@ class EidolonTopicHook:
         old_topic_id = None
         new_topic_label = None
 
-        if hasattr(self, "_last_topic_label") and self._last_topic_label:
-            if hasattr(self, "_last_topic_change") and self._last_topic_change.type == "NEW_TOPIC":
-                old_topic_id = self._active_topic_id
-                new_topic_label = self._last_topic_label
+        if (
+            hasattr(self, "_last_topic_label") and self._last_topic_label
+            and hasattr(self, "_last_topic_change")
+            and self._last_topic_change.type == "NEW_TOPIC"
+        ):
+            old_topic_id = self._active_topic_id
+            new_topic_label = self._last_topic_label
 
         self._eidolon.store_turn(
             user_message=user_message,

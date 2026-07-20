@@ -6,6 +6,8 @@ Requires the ``sentence-transformers`` package (optional dependency).
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class SentenceTransformersEmbedder:
     """Generates embeddings locally via sentence-transformers.
@@ -22,9 +24,11 @@ class SentenceTransformersEmbedder:
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
         self._model_name = model_name
-        self._model = None
+        # Typed Any because the concrete SentenceTransformer type is only
+        # importable when the optional dependency is installed.
+        self._model: Any = None
 
-    def _load_model(self):
+    def _load_model(self) -> None:
         """Lazy-load the sentence-transformers model."""
         if self._model is None:
             from sentence_transformers import SentenceTransformer
@@ -44,4 +48,4 @@ class SentenceTransformersEmbedder:
             The embedding vector.
         """
         self._load_model()
-        return self._model.encode(text).tolist()  # type: ignore[union-attr]
+        return self._model.encode(text).tolist()
