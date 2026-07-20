@@ -38,6 +38,7 @@ from core.extraction.fragmentary_extractor import FragmentaryExtractor
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
 from core.models import ContextBundle, EnvironmentSnapshot, MemoryItem, TopicChange
 from core.retrieval.associative_retriever import AssociativeRetriever
+from core.summarization.topic_summarizer import TopicSummarizer
 from core.trace.null_tracer import NullTracer
 
 
@@ -107,12 +108,12 @@ class Eidolon:
             storage, embedder, retrieval_weights, language, retrieval_limits, tracer=self._tracer
         )
         self._extractor = FragmentaryExtractor(llm, language, tracer=self._tracer)
+        self._summarizer = TopicSummarizer(storage, llm, embedder, tracer=self._tracer)
         self._fact_consolidator = FactConsolidator(
             storage, llm, target_max=facts_target_max, tracer=self._tracer
         )
         self._consolidation_interval = facts_consolidation_interval
         self._embedder = embedder
-        self._llm = llm
         self._language = language
 
     # ── Public API ─────────────────────────────────────────
@@ -358,7 +359,7 @@ class Eidolon:
         # couldn't (no messages, LLM failure, unparseable response), so a
         # topic is never left stuck 'active' forever.
         if old_topic_id is not None and new_topic_label is not None:
-            summarized = self._summarize_topic(old_topic_id, request_id=request_id, session_id=session_id)
+            summarized = self._summarizer.summarize(old_topic_id, request_id=request_id, session_id=session_id)
             if not summarized:
                 self._storage.close_topic(old_topic_id, f"Continued to: {new_topic_label}")
 
@@ -529,135 +530,6 @@ class Eidolon:
         )
 
     # ── Internal Helpers ────────────────────────────────────
-
-    def _summarize_topic(
-        self,
-        topic_id: int,
-        *,
-        request_id: str | None = None,
-        session_id: str | None = None,
-    ) -> bool:
-        """Generate a summary and tags for a topic based on its messages.
-
-        Called async when a topic is closed. Loads all messages for the topic,
-        asks the LLM for a concise summary and relevant tags, then updates
-        the topic in storage.
-
-        Parameters
-        ----------
-        topic_id : int
-            The topic ID to summarize.
-        request_id : str | None
-            Correlates this call's trace events with the enclosing
-            ``store_turn`` call.
-        session_id : str | None
-            Adapter-level conversation identifier, for trace filtering.
-
-        Returns
-        -------
-        bool
-            True if a real summary was generated and the topic closed with
-            it. False if summarization couldn't produce one (no messages,
-            LLM failure, unparseable response) — the caller should close
-            the topic with a fallback summary itself in that case.
-        """
-        started = time.perf_counter()
-        try:
-            messages = self._storage.get_messages_by_topic(topic_id)
-            if not messages:
-                return False
-
-            # Build a compact conversation transcript
-            transcript = "\n".join(
-                f"{m['role']}: {m['content'][:200]}"
-                for m in messages
-            )
-
-            prompt = (
-                f"Summarize this conversation topic in 1-2 sentences "
-                f"and extract 3-5 key tags (comma-separated, lowercase).\n\n"
-                f"{transcript}\n\n"
-                f"Format:\n"
-                f"Summary: <1-2 sentences>\n"
-                f"Tags: <tag1, tag2, tag3>"
-            )
-
-            response = self._llm.complete(
-                prompt=prompt,
-                system_prompt=(
-                    "You are a conversation summarizer. "
-                    "Output a concise summary and relevant tags only."
-                ),
-                max_tokens=1000,
-            )
-
-            # Parse response
-            summary = ""
-            tags: list[str] = []
-            for line in response.strip().split("\n"):
-                if line.lower().startswith("summary:"):
-                    summary = line[len("summary:"):].strip()
-                elif line.lower().startswith("tags:"):
-                    raw_tags = line[len("tags:"):].strip()
-                    tags = [t.strip().lower() for t in raw_tags.split(",") if t.strip()]
-
-            if summary:
-                self._storage.close_topic(topic_id, summary)
-                if tags:
-                    # Update tags via raw SQL (no dedicated method yet)
-                    import json
-                    self._storage._conn.execute(
-                        "UPDATE topics SET tags = ? WHERE id = ?",
-                        (json.dumps(tags), topic_id),
-                    )
-                    self._storage._conn.commit()
-                # Re-embed with the final summary. The embedding generated at
-                # topic creation (see store_turn) was based on the short
-                # provisional label from topic detection, not this richer
-                # summary — leaving it stale would mean semantic retrieval
-                # keeps matching against the original guess forever.
-                try:
-                    embed_started = time.perf_counter()
-                    summary_embedding = self._embedder.embed(summary)
-                    embed_duration_ms = (time.perf_counter() - embed_started) * 1000
-                    self._storage.update_topic_embedding(topic_id, summary_embedding)
-                    self._tracer.record(
-                        "embedding",
-                        {"purpose": "topic_summary", "text": summary, "dimension": len(summary_embedding)},
-                        request_id=request_id, session_id=session_id, duration_ms=embed_duration_ms,
-                    )
-                except Exception as exc:
-                    self._tracer.record(
-                        "error",
-                        {"step": "topic_summary_embedding", "exception": repr(exc)},
-                        request_id=request_id, session_id=session_id,
-                    )
-                    pass  # Embedding failure is non-critical
-
-            self._tracer.record(
-                "topic_summarization",
-                {
-                    "topic_id": topic_id,
-                    "message_count": len(messages),
-                    "transcript_preview": transcript[:500],
-                    "response": response,
-                    "summary": summary,
-                    "tags": tags,
-                },
-                request_id=request_id,
-                session_id=session_id,
-                duration_ms=(time.perf_counter() - started) * 1000,
-            )
-            return bool(summary)
-        except Exception as exc:
-            self._tracer.record(
-                "error",
-                {"step": "topic_summarization", "topic_id": topic_id, "exception": repr(exc)},
-                request_id=request_id,
-                session_id=session_id,
-                duration_ms=(time.perf_counter() - started) * 1000,
-            )
-            return False  # Summarization failure is non-critical; caller falls back
 
     def _get_topic_summary(self, topic_id: int | None) -> str | None:
         """Get the summary of a topic by its ID.

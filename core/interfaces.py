@@ -115,6 +115,10 @@ class StorageProvider(Protocol):
         """Store or update the embedding vector for a topic."""
         ...
 
+    def update_topic_tags(self, topic_id: int, tags: list[str]) -> None:
+        """Replace a topic's tags with the given list."""
+        ...
+
     def search_topics(
         self,
         query_embedding: list[float] | None = None,

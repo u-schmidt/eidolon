@@ -268,6 +268,13 @@ class SqliteStore:
         )
         self._conn.commit()
 
+    def update_topic_tags(self, topic_id: int, tags: list[str]) -> None:
+        self._conn.execute(
+            "UPDATE topics SET tags = ? WHERE id = ?",
+            (json.dumps(tags), topic_id),
+        )
+        self._conn.commit()
+
     def search_topics(
         self,
         query_embedding: list[float] | None = None,

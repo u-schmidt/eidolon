@@ -127,6 +127,11 @@ class TestTopics:
         assert topic["summary"] == "Final summary"
         assert topic["closed_at"] is not None
 
+    def test_update_topic_tags_replaces_tags(self, store: SqliteStore):
+        tid = store.create_topic("Test", tags=["old"])
+        store.update_topic_tags(tid, ["fitness", "gym"])
+        assert store.get_topic(tid)["tags"] == ["fitness", "gym"]
+
     def test_get_active_topic_returns_open_topic(self, store: SqliteStore):
         tid = store.create_topic("Ongoing", summary="", peer_id="user")
         assert store.get_active_topic("user") == tid
