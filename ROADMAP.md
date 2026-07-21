@@ -57,6 +57,10 @@ consolidation. 400+ tests.
   integration isn't sufficient on its own.
 - Production deployment guidance, performance optimization beyond the
   storage work above.
+- **OpenClaw adapter** — a second platform adapter alongside
+  `adapters/hermes/`, following the same `core`-never-imports-`adapters`
+  boundary and provider-injection pattern. Not scoped in detail yet;
+  revisit once the Hermes adapter and Phase 2 work are settled.
 
 ## Shipped ahead of schedule
 
