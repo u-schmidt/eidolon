@@ -14,8 +14,8 @@
 # real multi-week chat than a flat list of unrelated facts.
 #
 # topic_change is asserted (tier 1) on every turn — at this scale getting
-# a handful wrong is expected and itself useful signal (see plan-phase2.md
-# §6), not something to leave unasserted preemptively.
+# a handful wrong is expected and itself useful signal, not something to
+# leave unasserted preemptively.
 #
 # expect_end.facts covers three genuinely durable, unambiguous updates
 # (cat's name, marathon target race, new job) — kept deliberately small;

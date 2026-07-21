@@ -12,7 +12,7 @@
 # CONTINUE instead of actually closing and reopening the bike topic each
 # time, which would defeat the point (nothing to cluster if it never
 # closed). Even with a clear switch, real topic detection doesn't always
-# split exactly as scripted (see plan-phase2.md §6/§5 finding 5/6) — a
+# split exactly as scripted — a
 # turn scored CONTINUE where NEW_TOPIC was expected here is itself a
 # useful signal about this shape of conversation, not just noise to
 # shrug off. topic_change is asserted (tier 1) on every turn regardless,

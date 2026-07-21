@@ -55,9 +55,8 @@ mkdir -p "$PLUGIN_DIR"
 # relativ zum eigenen Verzeichnis anzunehmen. Läuft man aus dem Dev-Checkout
 # gegen die deployte DB, nicht aus dem Plugin-Verzeichnis heraus.
 #
-# AGENTS.md/CLAUDE.md/plan.md sind Coding-Conventions bzw. interne
-# Planungsnotizen für die Arbeit an diesem Projekt — kein Laufzeit-Bezug,
-# gehören nicht in ein deploytes Plugin.
+# AGENTS.md/CLAUDE.md sind Coding-Conventions für die Arbeit an diesem
+# Projekt — kein Laufzeit-Bezug, gehören nicht in ein deploytes Plugin.
 #
 # eidolon.example.yaml wird unten separat aus $PROJECT_ROOT gelesen (siehe
 # $EXAMPLE_CONFIG), nicht aus dem rsync-Ziel — die Kopie im Plugin-Verzeichnis
@@ -79,7 +78,6 @@ rsync -a --delete \
     --exclude='pyproject.toml' \
     --exclude='AGENTS.md' \
     --exclude='CLAUDE.md' \
-    --exclude='plan.md' \
     --exclude='eidolon.example.yaml' \
     "$PROJECT_ROOT/" "$PLUGIN_DIR/"
 echo "   ✅ Erledigt (data/, .git/, .venv/ am Ziel unangetastet)"

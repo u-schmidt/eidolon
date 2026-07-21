@@ -44,8 +44,7 @@ eidolon/
 │   └── tools/                #   Trace viewer + TUI tests
 ├── eidolon.example.yaml      # Example configuration
 ├── AGENTS.md                 # Coding conventions
-├── plan.md                   # Phase 1 implementation plan
-├── plan-phase2.md            # Phase 2 planning (living document)
+├── ROADMAP.md                # Project roadmap and status
 └── README.md                 # This file
 ```
 
@@ -300,37 +299,13 @@ Both are configured in `pyproject.toml` and installed via the `dev` extra
 | Phase | Status | What |
 |---|---|---|
 | **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, batch facts consolidation, 419+ tests |
-| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage alternatives (peer_id fix + sqlite-vec) ✅, topic detection & summarization review, fact consolidation hardening — see [`plan-phase2.md`](plan-phase2.md); 554+ tests |
+| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage acceleration ✅, topic detection & summarization review, fact consolidation hardening — see [`ROADMAP.md`](ROADMAP.md); 554+ tests |
 | **Phase 3** | ⏳ TBD | Topic-Only Mode, production deployment, performance optimization |
 
 ## Roadmap
 
-See [`plan.md`](plan.md) for the detailed Phase 1 implementation plan, and
-[`plan-phase2.md`](plan-phase2.md) for Phase 2 planning (a living document,
-built up incrementally as each workstream gets detailed).
-
-### Phase 2 (Planned)
-
-See [`plan-phase2.md`](plan-phase2.md) for the current scope, sequencing,
-and rationale. Summary:
-
-- ✅ **Quality/eval infrastructure** — YAML-scripted golden runs against real LLMs, tier-1 hard asserts + tier-2 embedding-similarity scoring, beyond the existing mechanical debug tracing — see `tools/eval/` and [`plan-phase2.md`](plan-phase2.md#5-workstream-1-status-eval-harness-built-and-in-use)
-- ✅ **Storage alternatives** — real usage data (a comparable pgvector-backed deployment at ~90-100k embedded entries/month) showed the original brute-force cosine scan wouldn't hold up; fixed a `peer_id` cross-peer leak first, then added an optional sqlite-vec KNN index (`vec` extra, auto-fallback if unavailable) partitioned by peer — ~56x faster at 60k items, identical retrieval-quality scores before/after — see [`plan-phase2.md`](plan-phase2.md#8-workstream-4-status-peer_id-fix--sqlite-vec-migration-2026-07-21)
-- **Topic detection & summarization review** — using the eval infrastructure above; lower priority than it looked, since the detection prompt has held up across three structurally different models so far
-- **Fact consolidation hardening** — `FactConsolidator` already ships (Phase 1); this is about improving it, not building it. Two hardening attempts tried and reverted after real eval data came back inconclusive-to-negative — see [`plan-phase2.md`](plan-phase2.md#6-workstream-3-first-hardening-attempts-2026-07-21)
-
-### Phase 3 (Planned)
-
-- **Topic-Only Mode** — Run alongside Honcho via pre_llm_call hook (fallback if Full Mode isn't sufficient; scaffolded in `adapters/hermes/llm_hook.py`, not yet wired to a live Hermes hook)
-- Production deployment, performance optimization
-
-### Done ahead of schedule
-
-- **Weighted Associations** — retrieval weights (`semantic`/`tag_overlap`/`person`/`temporal`) are configurable and actually wired into scoring
-- **Debug Tracing** — see [Debug Tracing](#debug-tracing) above
-- **TUI** — Textual-based interactive drill-down explorer over the trace database (`tools/trace_tui.py`), see [Debug Tracing](#debug-tracing)
-- **Batch Facts Consolidation** — turn-interval-triggered (not cron, since there's no scheduler concept yet) periodic reconciliation of the durable-facts profile, replacing per-turn extraction — see [Facts Consolidation](#facts-consolidation)
-- **Recurring-Topic Clustering** — `ClusterConsolidator` merges related closed topics (e.g. several separate mentions of "buying a bike" over days/weeks) into a single, continuously-rewritten narrative once a topic closes, so a recurring thread doesn't quietly fall out of context once it has more instances than retrieval's per-turn limit — see [`core/consolidation/cluster_consolidator.py`](core/consolidation/cluster_consolidator.py)
+See [`ROADMAP.md`](ROADMAP.md) for current phase status, what's shipped,
+and what's planned next.
 
 ## License
 

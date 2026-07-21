@@ -20,8 +20,9 @@ from tools.eval.models import (
 
 
 class EvalScriptLoader:
-    """Parses the locked eval-script YAML format (see plan-phase2.md) into
-    an ``EvalScript``."""
+    """Parses the eval-script YAML format (see the dataclasses in
+    ``tools/eval/models.py`` for the authoritative shape) into an
+    ``EvalScript``."""
 
     def load(self, path: str | Path) -> EvalScript:
         with open(path, encoding="utf-8") as f:

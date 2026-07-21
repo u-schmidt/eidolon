@@ -25,18 +25,21 @@ def _cluster_text(cluster: dict) -> str:
 class EvalScorer:
     """Turns raw pipeline output into tier-1/tier-2 scored results.
 
-    Tier 1 (topic_change only) is a hard assert. Tier 2 (topic labels,
-    memory items, end-of-script facts, end-of-script clusters) is
-    embedding-similarity scored or reported, never asserted — see
-    plan-phase2.md for why. Facts were tier 1 (exact category/key/value
-    match) originally, but Fact is never consumed programmatically
-    anywhere in core — only injected into prompts — so a model choosing
-    a different-but-equally-good key ("finance/budget_item" vs. an
-    expected "preference/bike_budget") was scored as a failure despite
-    being a fine result. Scored like memory_items instead. Clusters are
-    tier 2 for the same reason facts are, plus one more: which topics
-    actually get merged is itself an LLM judgment call
-    (ClusterConsolidator), not deterministic script-following.
+    Tier 1 (topic_change only) is a hard assert — CONTINUE vs. NEW_TOPIC
+    has a genuinely correct answer given the script. Tier 2 (topic
+    labels, memory items, end-of-script facts, end-of-script clusters)
+    is embedding-similarity scored or reported, never asserted, because
+    it's all LLM-generated content where a model's own wording or key
+    naming isn't the thing being tested. Facts were tier 1 (exact
+    category/key/value match) originally, but Fact is never consumed
+    programmatically anywhere in core — only injected into prompts — so
+    a model choosing a different-but-equally-good key
+    ("finance/budget_item" vs. an expected "preference/bike_budget")
+    was scored as a failure despite being a fine result. Scored like
+    memory_items instead. Clusters are tier 2 for the same reason facts
+    are, plus one more: which topics actually get merged is itself an
+    LLM judgment call (ClusterConsolidator), not deterministic
+    script-following.
     """
 
     def __init__(self, embedder: EmbedderProvider) -> None:
