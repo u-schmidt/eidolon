@@ -196,6 +196,17 @@ class StorageProvider(Protocol):
         """
         ...
 
+    def get_memory_items_by_turn(self, turn_id: int) -> list[MemoryItem]:
+        """Return all memory items extracted from a given turn, oldest first.
+
+        Joins through ``messages.turn_id`` since memory items only carry a
+        ``message_id`` reference, not a turn id of their own. Each item's
+        ``embedding`` is populated from storage, so callers that need it
+        (e.g. comparing against a freshly embedded query) don't have to
+        re-embed the content themselves.
+        """
+        ...
+
     # ── Messages ───────────────────────────────────────────
 
     def store_message(

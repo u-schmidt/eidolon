@@ -423,6 +423,77 @@ class TestMemoryItems:
         assert len(results) == 1
 
 
+class TestMemoryItemsByTurn:
+    def test_returns_only_items_from_the_given_turn(self, store: SqliteStore):
+        turn1_user_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        turn1_ai_id = store.store_message(turn_id=1, role="ai", content="hello", peer_id="ai")
+        turn2_user_id = store.store_message(turn_id=2, role="user", content="bye", peer_id="user")
+
+        first = MemoryItem(
+            content="User greeted", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=turn1_user_id,
+        )
+        second = MemoryItem(
+            content="AI greeted back", item_type="essence",
+            source_peer="ai", subject_peer="ai", attribution_type="self_statement",
+            message_id=turn1_ai_id,
+        )
+        other_turn = MemoryItem(
+            content="User said bye", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=turn2_user_id,
+        )
+        store.store_memory_item(first)
+        store.store_memory_item(second)
+        store.store_memory_item(other_turn)
+
+        results = store.get_memory_items_by_turn(1)
+
+        assert [item.content for item in results] == ["User greeted", "AI greeted back"]
+
+    def test_ordered_oldest_first(self, store: SqliteStore):
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        for content in ("third", "first", "second"):
+            store.store_memory_item(MemoryItem(
+                content=content, item_type="essence",
+                source_peer="user", subject_peer="user", attribution_type="self_statement",
+                message_id=msg_id,
+            ))
+
+        results = store.get_memory_items_by_turn(1)
+
+        assert [item.content for item in results] == ["third", "first", "second"]
+        assert results[0].id < results[1].id < results[2].id
+
+    def test_empty_when_turn_has_no_items(self, store: SqliteStore):
+        assert store.get_memory_items_by_turn(999) == []
+
+    def test_embedding_round_trips(self, store: SqliteStore):
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        store.store_memory_item(MemoryItem(
+            content="About Bello", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=msg_id, embedding=[0.1, 0.2, 0.3],
+        ))
+
+        results = store.get_memory_items_by_turn(1)
+
+        assert results[0].embedding == [0.1, 0.2, 0.3]
+
+    def test_no_embedding_stays_none(self, store: SqliteStore):
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        store.store_memory_item(MemoryItem(
+            content="About Bello", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=msg_id,
+        ))
+
+        results = store.get_memory_items_by_turn(1)
+
+        assert results[0].embedding is None
+
+
 class TestSchema:
     def test_expected_indexes_exist(self, store: SqliteStore):
         names = {

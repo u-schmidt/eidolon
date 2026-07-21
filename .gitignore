@@ -31,3 +31,7 @@ Thumbs.db
 htmlcov/
 .pytest_cache/
 data/
+
+# Eval run artifacts (scripts under tools/eval/scripts/ stay tracked)
+tools/eval/reports/*
+!tools/eval/reports/.gitkeep

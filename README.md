@@ -38,6 +38,7 @@ eidolon/
 ├── eidolon.example.yaml      # Example configuration
 ├── AGENTS.md                 # Coding conventions
 ├── plan.md                   # Phase 1 implementation plan
+├── plan-phase2.md            # Phase 2 planning (living document)
 └── README.md                 # This file
 ```
 
@@ -291,19 +292,31 @@ Both are configured in `pyproject.toml` and installed via the `dev` extra
 
 | Phase | Status | What |
 |---|---|---|
-| **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, batch facts consolidation, 297+ tests |
-| **Phase 2** | 🔜 Next | Topic-Only Mode, batch fact extraction, cluster summarization |
-| **Phase 3** | ⏳ TBD | Production deployment, performance optimization |
+| **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, batch facts consolidation, 419+ tests |
+| **Phase 2** | 🔜 Next | Quality/eval infrastructure, topic detection & summarization review, fact consolidation hardening, storage alternatives discussion, cluster summarization |
+| **Phase 3** | ⏳ TBD | Topic-Only Mode, production deployment, performance optimization |
 
 ## Roadmap
 
-See [`plan.md`](plan.md) for the detailed Phase 1 implementation plan.
+See [`plan.md`](plan.md) for the detailed Phase 1 implementation plan, and
+[`plan-phase2.md`](plan-phase2.md) for Phase 2 planning (a living document,
+built up incrementally as each workstream gets detailed).
 
 ### Phase 2 (Planned)
 
+See [`plan-phase2.md`](plan-phase2.md) for the current scope, sequencing,
+and rationale. Summary:
+
+- **Quality/eval infrastructure** — real-world signal on topic detection, summarization, and retrieval quality, beyond the existing mechanical debug tracing
+- **Topic detection & summarization review** — using the above
+- **Fact consolidation hardening** — `FactConsolidator` already ships (Phase 1); this is about improving it, not building it
+- **Storage alternatives discussion** — pgvector is a candidate, not yet the decision; retrieval currently has no vector index at all (brute-force cosine scan)
+- **Cluster Summarization** — group related topics, generate cluster summaries (not yet discussed in detail)
+
+### Phase 3 (Planned)
+
 - **Topic-Only Mode** — Run alongside Honcho via pre_llm_call hook (fallback if Full Mode isn't sufficient; scaffolded in `adapters/hermes/llm_hook.py`, not yet wired to a live Hermes hook)
-- **Cluster Summarization** — Group related topics, generate cluster summaries
-- **Alternative Storage** — pgvector (already running in the target deployment; migration not yet started)
+- Production deployment, performance optimization
 
 ### Done ahead of schedule
 

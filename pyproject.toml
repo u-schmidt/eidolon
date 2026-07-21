@@ -50,6 +50,7 @@ ignore = [
 "tools/cli.py" = ["E402"]
 "tools/simulate_injection.py" = ["E402"]
 "tools/trace_tui.py" = ["E402"]
+"tools/run_eval.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.12"

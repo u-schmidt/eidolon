@@ -102,6 +102,10 @@ class MockStorage:
                              tracer=None, request_id=None, now=None):
         return self.memory_items[:limit]
 
+    def get_memory_items_by_turn(self, turn_id: int) -> list[MemoryItem]:
+        message_ids = {m["id"] for m in self.messages if m["turn_id"] == turn_id}
+        return [item for item in self.stored_items if item.message_id in message_ids]
+
     def store_message(self, turn_id, role, content, peer_id, topic_id=None):
         msg = {
             "id": len(self.messages) + 1,

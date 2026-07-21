@@ -1,0 +1,40 @@
+# Example / smoke-test script for tools/run_eval.py.
+# Covers: an ok-continuation across topics, a genuine topic switch, and
+# one durable fact that should survive into the consolidated profile.
+
+name: "ok-continuation and a genuine topic switch"
+peer_id: "eval-peer-bike-coffee"
+language: "en"
+
+turns:
+  - user: "I'm thinking about buying a new road bike."
+    ai: "Nice! What's your budget looking like?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "buying a road bike"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is considering buying a road bike"
+
+  - user: "yep, around 2000 euros."
+    ai: "Got it, let's look at a few models in that range."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "budget around 2000 euros"
+
+  - user: "By the way, how's my coffee supply looking?"
+    ai: "Good point, you're almost out."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "coffee supply"
+
+expect_end:
+  facts:
+    - {category: "preference", key: "bike_budget", value: "2000 EUR"}
+  topics:
+    - label_hint: "buying a road bike"
+    - label_hint: "coffee supply"

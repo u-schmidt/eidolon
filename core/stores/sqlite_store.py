@@ -546,6 +546,29 @@ class SqliteStore:
 
         return [item for _, item in results]
 
+    def get_memory_items_by_turn(self, turn_id: int) -> list[MemoryItem]:
+        """Return all memory items extracted from a given turn, oldest first.
+
+        Joins through `messages.turn_id` since memory items only carry a
+        `message_id` reference, not a turn id of their own.
+        """
+        rows = self._conn.execute(
+            "SELECT mi.id, mi.content, mi.item_type, mi.source_peer, mi.subject_peer, "
+            "mi.attribution_type, mi.topic_id, mi.message_id, mi.embedding, mi.created_at "
+            "FROM memory_items mi JOIN messages m ON mi.message_id = m.id "
+            "WHERE m.turn_id = ? ORDER BY mi.id ASC",
+            (turn_id,),
+        ).fetchall()
+        return [
+            MemoryItem(
+                id=row[0], content=row[1], item_type=row[2], source_peer=row[3], subject_peer=row[4],
+                attribution_type=row[5], topic_id=row[6], message_id=row[7],
+                embedding=_deserialize_embedding(row[8]) if row[8] else None,
+                timestamp=row[9],
+            )
+            for row in rows
+        ]
+
     # ── Messages ───────────────────────────────────────────
 
     def store_message(
