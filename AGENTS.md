@@ -1,38 +1,38 @@
 # AGENTS.md — Eidolon Coding Conventions
 
 ## Architecture
-- Bevorzuge strikte OOP: Klassen statt freie Funktionen
-- Jede Klasse in eigener Datei
-- Interfaces/ABCs für Provider-Abstraktionen (`typing.Protocol` oder `abc.ABC`)
-- Private Attribute mit `_`-Prefix, `@property` für Zugriff
-- Keine freien Funktionen die Objekte mutieren — wenn eine Funktion ein Objekt verändert, gehört sie als Methode in die Klasse
-- `@dataclass` für reine Datencontainer (wie `record` in C#)
-- `@staticmethod` und `@classmethod` bewusst einsetzen, nicht als Standard
+- Prefer strict OOP: classes over free functions
+- Each class in its own file
+- Interfaces/ABCs for provider abstractions (`typing.Protocol` or `abc.ABC`)
+- Private attributes with a `_` prefix, `@property` for access
+- No free functions that mutate objects — if a function changes an object, it belongs on the class as a method
+- `@dataclass` for pure data containers (like a `record` in C#)
+- Use `@staticmethod` and `@classmethod` deliberately, not as the default
 
 ## Core ≠ Adapter
-- `core/` importiert niemals aus `adapters/` — nur umgekehrt
-- Provider sind als Protocols definiert, konkrete Implementierungen werden via Config injiziert
-- Der Core ist stateless — alle Session-Informationen kommen als Parameter
+- `core/` never imports from `adapters/` — only the other way around
+- Providers are defined as Protocols; concrete implementations are injected via config
+- The core is stateless — all session information comes in as parameters
 
 ## Testing
-- pytest für Unit-Tests im `tests/`-Ordner
-- Jede neue Klasse braucht mindestens einen Test
-- Integration-Tests nur wenn nötig (Datenbank, API, Dateisystem)
-- `uv run pytest` vor jedem Commit
-- Test-Dateien spiegeln die Modul-Struktur: `tests/test_<modul>.py`
+- pytest for unit tests in the `tests/` folder
+- Every new class needs at least one test
+- Integration tests only when necessary (database, API, filesystem)
+- `uv run pytest` before every commit
+- Test files mirror the module structure: `tests/test_<module>.py`
 
-## Dokumentation
-- Nach größeren Implementierungs-Zyklen (neue Features, größere Refactorings): README.md auf Aktualität prüfen — Architektur-Baum, Config-Beispiele, Roadmap/Phasen-Status, Testanzahl
+## Documentation
+- After larger implementation cycles (new features, larger refactorings): check README.md for accuracy — architecture tree, config examples, roadmap/phase status, test count
 
 ## Code Style
-- Type Hints sind Pflicht (auch für `self` und `cls`)
-- Keine wilden `**kwargs`-Dictionaries — explizite Parameter
-- Docstrings nur bei öffentlichen APIs, nicht bei trivialen Gettern
-- Keine freien Funktionen die importierte Objekte mutieren (Kapselung wahren)
-- `from __future__ import annotations` am Anfang jeder Datei
+- Type hints are mandatory (including for `self` and `cls`)
+- No wild `**kwargs` dictionaries — explicit parameters
+- Docstrings only for public APIs, not for trivial getters
+- No free functions that mutate imported objects (preserve encapsulation)
+- `from __future__ import annotations` at the top of every file
 
-## Fehlervermeidung
-- Keine circular imports — Architektur von aussen nach innen: Adapter → Core → Providers → Models
-- Keine God Classes — wenn eine Klasse >300 Zeilen, ist sie zu gross
-- Keine `from x import *` — explizite Imports
-- Keine mutable Default-Argumente — `def foo(items: list = None)` statt `def foo(items: [])`
+## Avoiding Errors
+- No circular imports — architecture runs outside in: Adapter → Core → Providers → Models
+- No God classes — if a class exceeds 300 lines, it's too big
+- No `from x import *` — explicit imports
+- No mutable default arguments — `def foo(items: list = None)` instead of `def foo(items: [])`

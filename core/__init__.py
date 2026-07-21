@@ -10,7 +10,7 @@ Usage:
 
     # Before LLM responds (sync):
     bundle = eidolon.prepare_context(
-        message="Lass uns über Bello sprechen",
+        message="Let's talk about Bello",
         peer_id="user",
         environment=env,
         active_topic_id=42,
@@ -18,8 +18,8 @@ Usage:
 
     # After LLM responds (async):
     eidolon.store_turn(
-        user_message="Lass uns über Bello sprechen",
-        ai_response="Gerne! Was möchtest du wissen?",
+        user_message="Let's talk about Bello",
+        ai_response="Sure! What would you like to know?",
         peer_id="user",
         environment=env,
         old_topic_id=42,
