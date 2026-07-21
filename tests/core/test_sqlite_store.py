@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -974,3 +975,36 @@ class TestVecIndexAcceleratedSearch:
             assert hits == [(tid, pytest.approx(1.0))]
         finally:
             with_index.close()
+
+    def test_backfill_does_not_leave_an_uncommitted_transaction(self):
+        """Real deployment failure: _backfill_vec_index's DELETE+INSERT
+        statements open an implicit transaction; if connect() returns
+        without committing it, a second, independent connection to the
+        same file hits 'database is locked' immediately (SQLite's
+        default busy_timeout is 0, no retry) — this is exactly what
+        happened when EidolonMemoryProvider.initialize() raced a second
+        connection against a real deployed DB. A second connection must
+        be able to write right after connect() returns."""
+        pytest.importorskip("sqlite_vec")
+        tmp = tempfile.mkdtemp()
+        db_path = str(Path(tmp) / "test.db")
+
+        seed = SqliteStore(db_path, use_vec_index=False)
+        seed.connect()
+        seed.create_topic("Bike", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        seed.close()
+
+        store = SqliteStore(db_path)  # use_vec_index defaults True, triggers a real backfill
+        store.connect()
+        try:
+            second = sqlite3.connect(db_path, timeout=0)
+            try:
+                second.execute(
+                    "INSERT INTO messages (turn_id, role, content, peer_id) VALUES (?, ?, ?, ?)",
+                    (1, "user", "hello", "user"),
+                )
+                second.commit()
+            finally:
+                second.close()
+        finally:
+            store.close()

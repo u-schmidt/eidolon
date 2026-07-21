@@ -180,6 +180,8 @@ class SqliteStore:
         ).fetchall():
             vi.upsert("vec_clusters", cluster_id, peer_id, _deserialize_embedding(blob))
 
+        self._conn.commit()
+
     def close(self) -> None:
         if self._db is not None:
             self._db.close()
