@@ -165,6 +165,36 @@ class TestConsolidateTracing:
         assert tracer.events_of_type("fact_consolidation") == []
 
 
+class TestConsolidatePeerIdVsSubjectPeer:
+    """peer_id identifies *whose* profile this is; subject_peer is always
+    FragmentaryExtractor's fixed "user"/"ai"/"other" label — a different
+    value space. Regression coverage for a bug where consolidate() looked
+    up new items by peer_id instead of the "user" subject label, so
+    consolidation silently no-op'd forever for any peer_id that wasn't
+    literally the string "user" (which every other caller/test happened
+    to use, masking it completely)."""
+
+    def test_finds_and_consolidates_facts_for_a_peer_id_other_than_user(self, store: SqliteStore):
+        store.store_memory_item(_fact_item("likes cats"))  # subject_peer="user" regardless of peer_id
+        llm = MockLLM('{"upserts": [{"category": "preferences", "key": "pets", "value": "likes cats"}], "deletes": []}')
+
+        FactConsolidator(store, llm).consolidate("telegram:12345")
+
+        facts = store.get_facts("telegram:12345")
+        assert len(facts) == 1
+        assert facts[0].value == "likes cats"
+
+    def test_facts_and_checkpoint_are_scoped_by_peer_id_not_leaked(self, store: SqliteStore):
+        store.store_memory_item(_fact_item("likes cats"))
+        llm = MockLLM('{"upserts": [{"category": "preferences", "key": "pets", "value": "likes cats"}], "deletes": []}')
+
+        FactConsolidator(store, llm).consolidate("telegram:12345")
+
+        assert store.get_facts("user") == []  # not written into an unrelated peer's profile
+        assert store.get_consolidation_checkpoint("telegram:12345") != 0
+        assert store.get_consolidation_checkpoint("user") == 0
+
+
 class TestConsolidatePrompt:
     def test_prompt_includes_current_profile_and_new_items(self, store: SqliteStore):
         store.set_fact("user", "location", "city", "Hamburg", "ai")

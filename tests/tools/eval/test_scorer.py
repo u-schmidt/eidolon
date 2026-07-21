@@ -125,8 +125,9 @@ class TestScoreTurnMemoryItems:
 
 
 class TestScoreEnd:
-    def test_fact_found(self):
-        scorer = EvalScorer(FakeEmbedder({}))
+    def test_scores_exact_match_highly(self):
+        embedder = FakeEmbedder({"preference: bike_budget = 2000 EUR": [1.0, 0.0]})
+        scorer = EvalScorer(embedder)
         expectation = EndExpectation(
             facts=[FactExpectation(category="preference", key="bike_budget", value="2000 EUR")]
         )
@@ -134,9 +135,33 @@ class TestScoreEnd:
 
         result = scorer.score_end(expectation, actual, [])
 
-        assert result.fact_results[0].found is True
+        match = result.fact_matches[0]
+        assert match.score == 1.0
+        assert match.matched_fact is actual[0]
 
-    def test_fact_missing(self):
+    def test_scores_semantically_similar_but_differently_named_fact_highly(self):
+        # Reproduces a real result: the model chose "finance/budget_item"
+        # for what the script expected as "preference/bike_budget" — a
+        # fine outcome, since Fact is never consumed programmatically,
+        # only injected into prompts. Exact category/key match would be
+        # the wrong bar here.
+        embedder = FakeEmbedder({
+            "preference: bike_budget = 2000 EUR": [1.0, 0.0],
+            "finance: budget_item = 2000 euros": [0.9, 0.1],
+        })
+        scorer = EvalScorer(embedder)
+        expectation = EndExpectation(
+            facts=[FactExpectation(category="preference", key="bike_budget", value="2000 EUR")]
+        )
+        actual = [Fact(peer_id="p1", category="finance", key="budget_item", value="2000 euros", source="ai")]
+
+        result = scorer.score_end(expectation, actual, [])
+
+        match = result.fact_matches[0]
+        assert match.matched_fact is actual[0]
+        assert match.score > 0.9
+
+    def test_no_actual_facts_scores_zero(self):
         scorer = EvalScorer(FakeEmbedder({}))
         expectation = EndExpectation(
             facts=[FactExpectation(category="preference", key="bike_budget", value="2000 EUR")]
@@ -144,4 +169,6 @@ class TestScoreEnd:
 
         result = scorer.score_end(expectation, [], [])
 
-        assert result.fact_results[0].found is False
+        match = result.fact_matches[0]
+        assert match.score == 0.0
+        assert match.matched_fact is None

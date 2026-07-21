@@ -71,6 +71,27 @@ Respond with a JSON array only. Example:
 
 If nothing worth extracting, respond with an empty array: []"""
 
+# The extraction prompt's fixed subject_peer vocabulary (see the system
+# prompt above). A model can drift from it despite the explicit
+# instruction — observed in practice: "self" instead of "user" — and
+# nothing downstream validates it, so an out-of-vocabulary value silently
+# breaks fact consolidation with no error anywhere (see
+# core/consolidation/fact_consolidator.py's _PROFILE_SUBJECT).
+_VALID_SUBJECT_PEERS = frozenset({"user", "ai", "other"})
+
+
+def _normalize_subject_peer(raw_subject_peer: object, source_peer: str) -> str:
+    """Resolve an item's subject_peer to the fixed vocabulary.
+
+    Falls back to the item's own source_peer — "assume it's about
+    whoever said it" — both when the key is missing and when the model
+    supplies something outside {"user", "ai", "other"}. Same fallback
+    for both cases: an invalid value is no more trustworthy than a
+    missing one.
+    """
+    return raw_subject_peer if raw_subject_peer in _VALID_SUBJECT_PEERS else source_peer
+
+
 # The one deliberate override of the provider's configured max_tokens cap
 # (ModelConfig.max_tokens): extraction's JSON array grows with turn
 # richness, and a reasoning/thinking model can spend a large chunk of its
@@ -240,18 +261,21 @@ class FragmentaryExtractor:
             )
         duration_ms = (time.perf_counter() - started) * 1000
 
-        items = [
-            MemoryItem(
-                content=item.get("content", ""),
-                item_type=item.get("item_type", "essence"),
-                source_peer=item.get("source_peer", source_peer),
-                subject_peer=item.get("subject_peer", source_peer),
-                attribution_type=item.get("attribution_type", "self_statement"),
-                context=environment,  # V2
+        items = []
+        for item in raw_items:
+            if not item.get("content"):
+                continue
+            item_source_peer = item.get("source_peer", source_peer)
+            items.append(
+                MemoryItem(
+                    content=item.get("content", ""),
+                    item_type=item.get("item_type", "essence"),
+                    source_peer=item_source_peer,
+                    subject_peer=_normalize_subject_peer(item.get("subject_peer"), item_source_peer),
+                    attribution_type=item.get("attribution_type", "self_statement"),
+                    context=environment,  # V2
+                )
             )
-            for item in raw_items
-            if item.get("content")
-        ]
 
         self._tracer.record(
             "extraction",

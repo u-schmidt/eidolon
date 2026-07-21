@@ -18,6 +18,16 @@ from core.interfaces import LLMProvider, StorageProvider, Tracer
 from core.models import Fact, MemoryItem
 from core.trace.null_tracer import NullTracer
 
+# FragmentaryExtractor's literal subject_peer label for the human (see
+# core/extraction/fragmentary_extractor.py) — a different value space from
+# peer_id, which identifies *whose* profile this is, not who a memory item
+# is about. Facts are keyed by the real peer_id; the memory items that
+# feed them are always subject_peer="user"/"ai"/"other". Querying
+# get_fact_items_since with peer_id instead of this constant silently
+# starves consolidation forever for any peer_id that isn't literally the
+# string "user".
+_PROFILE_SUBJECT = "user"
+
 
 def _consolidation_system_prompt(target_max: int) -> str:
     return f"""You maintain a small, curated profile of durable facts about a person — the
@@ -135,6 +145,12 @@ class FactConsolidator:
         since the last successful pass. On failure, the checkpoint is
         left unchanged so the same items are retried next time.
 
+        `peer_id` only scopes *where* the reconciled profile and
+        checkpoint are stored — it plays no part in selecting which
+        memory items feed the pass. That selection always looks at
+        `_PROFILE_SUBJECT` ("user"), matching FragmentaryExtractor's
+        fixed subject_peer vocabulary.
+
         Parameters
         ----------
         peer_id : str
@@ -146,7 +162,7 @@ class FactConsolidator:
             Adapter-level conversation identifier, for trace filtering.
         """
         since_id = self._storage.get_consolidation_checkpoint(peer_id)
-        new_items = self._storage.get_fact_items_since(peer_id, since_id)
+        new_items = self._storage.get_fact_items_since(_PROFILE_SUBJECT, since_id)
         if not new_items:
             return
 

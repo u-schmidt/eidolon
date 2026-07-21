@@ -5,16 +5,28 @@ from __future__ import annotations
 from core.interfaces import EmbedderProvider
 from core.models import Fact, MemoryItem, TopicChange
 from tools.eval.models import EndExpectation, FactExpectation, MemoryItemHint, TurnExpectation
-from tools.eval.results import EndResult, FactCheckResult, MemoryItemMatch, TurnResult
+from tools.eval.results import EndResult, FactMatch, MemoryItemMatch, TurnResult
 from tools.eval.similarity import cosine_similarity
+
+
+def _fact_text(fact: Fact | FactExpectation) -> str:
+    """Render a Fact or FactExpectation as one string for embedding —
+    both share the same category/key/value shape."""
+    return f"{fact.category}: {fact.key} = {fact.value}"
 
 
 class EvalScorer:
     """Turns raw pipeline output into tier-1/tier-2 scored results.
 
-    Tier 1 (topic_change, end-of-script facts) is a hard assert. Tier 2
-    (topic labels, memory items) is embedding-similarity scored or
-    reported, never asserted — see plan-phase2.md for why.
+    Tier 1 (topic_change only) is a hard assert. Tier 2 (topic labels,
+    memory items, end-of-script facts) is embedding-similarity scored or
+    reported, never asserted — see plan-phase2.md for why. Facts were
+    tier 1 (exact category/key/value match) originally, but Fact is never
+    consumed programmatically anywhere in core — only injected into
+    prompts — so a model choosing a different-but-equally-good key
+    ("finance/budget_item" vs. an expected "preference/bike_budget") was
+    scored as a failure despite being a fine result. Scored like
+    memory_items instead.
     """
 
     def __init__(self, embedder: EmbedderProvider) -> None:
@@ -52,12 +64,8 @@ class EvalScorer:
         actual_facts: list[Fact],
         actual_topics: list[dict],
     ) -> EndResult:
-        fact_results = [
-            FactCheckResult(expected=fe, found=self._fact_present(fe, actual_facts))
-            for fe in expectation.facts
-        ]
         return EndResult(
-            fact_results=fact_results,
+            fact_matches=self._match_facts(expectation.facts, actual_facts),
             expected_topics=expectation.topics,
             actual_topics=actual_topics,
         )
@@ -94,9 +102,21 @@ class EvalScorer:
         unmatched = [item for item in actual_items if item.id not in claimed_ids]
         return matches, unmatched
 
-    @staticmethod
-    def _fact_present(expected: FactExpectation, actual: list[Fact]) -> bool:
-        return any(
-            f.category == expected.category and f.key == expected.key and f.value == expected.value
-            for f in actual
-        )
+    def _match_facts(self, expected: list[FactExpectation], actual: list[Fact]) -> list[FactMatch]:
+        # Facts carry no stored embedding (unlike memory items) — both
+        # sides are embedded fresh here.
+        actual_embedded = [(fact, self._embedder.embed(_fact_text(fact))) for fact in actual]
+
+        matches: list[FactMatch] = []
+        for fe in expected:
+            best_score = 0.0
+            best_fact: Fact | None = None
+            if actual_embedded:
+                expected_embedding = self._embedder.embed(_fact_text(fe))
+                for fact, fact_embedding in actual_embedded:
+                    score = cosine_similarity(expected_embedding, fact_embedding)
+                    if score > best_score:
+                        best_score = score
+                        best_fact = fact
+            matches.append(FactMatch(expected=fe, score=best_score, matched_fact=best_fact))
+        return matches

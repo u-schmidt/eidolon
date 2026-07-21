@@ -8,7 +8,13 @@ tools/cli.py or tools/trace_tui.py.
 
 Usage:
     uv run python tools/run_eval.py tools/eval/scripts/<script>.yaml
-    uv run python tools/run_eval.py <script>.yaml --config eidolon.yaml
+    uv run python tools/run_eval.py <script>.yaml --config my-eval-config.yaml
+
+See tools/eval/eval_config.example.yaml for a config template — copy it
+and point it at your real LLM/embedder. It bakes in two eval-specific
+settings worth keeping: a low facts.consolidation_interval (so short
+scripts actually trigger consolidation) and debug.enabled: true (so
+every run leaves a trace DB for drill-down).
 """
 
 from __future__ import annotations
@@ -54,6 +60,14 @@ def main() -> None:
     loader = ConfigLoader(config_path=args.config)
     config = loader.load()
 
+    print(f"  Config: {args.config or '(defaults + env + CLI)'}")
+    for role, m in config.models.items():
+        print(f"  {role.capitalize()}: {m.provider} / {m.model} ({m.base_url or '(no base_url)'})")
+    print(f"  Facts consolidation interval: every {config.facts.consolidation_interval} user turns")
+    if config.debug.enabled:
+        print(f"  Debug tracing: ON ({config.debug.trace_db_path})")
+    print()
+
     factory = ProviderFactory(config)
     try:
         llm = factory.create_llm()
@@ -61,6 +75,7 @@ def main() -> None:
     except ConfigError as exc:
         print(f"\n  ✗ {exc}\n", file=sys.stderr)
         sys.exit(1)
+    tracer = factory.create_tracer()
 
     tmp_dir = tempfile.mkdtemp(prefix="eidolon-eval-")
     db_path = str(Path(tmp_dir) / "eval.db")
@@ -74,6 +89,7 @@ def main() -> None:
         language=config.language,
         facts_consolidation_interval=config.facts.consolidation_interval,
         facts_target_max=config.facts.target_max,
+        tracer=tracer,
     )
 
     script = EvalScriptLoader().load(args.script)
@@ -93,6 +109,8 @@ def main() -> None:
     written = formatter.write(report, args.reports_dir)
     print(f"\nReport written to {written}")
     print(f"Eval DB (for drill-down with tools/cli.py or tools/trace_tui.py): {db_path}")
+    if config.debug.enabled:
+        print(f"Trace DB (for drill-down with tools/trace.py or tools/trace_tui.py): {config.debug.trace_db_path}")
 
     storage.close()
 

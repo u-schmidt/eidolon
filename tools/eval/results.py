@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from core.models import MemoryItem
+from core.models import Fact, MemoryItem
 from tools.eval.models import FactExpectation, MemoryItemHint, TopicHint
 
 
@@ -38,18 +38,24 @@ class TurnResult:
 
 
 @dataclass
-class FactCheckResult:
-    """Whether one expected fact was found in the consolidated profile."""
+class FactMatch:
+    """An expected fact paired with its best-matching actual fact from the
+    consolidated profile, if any — embedding-similarity scored, like
+    MemoryItemMatch. category/key naming is the model's own judgment call
+    (Fact is never consumed programmatically, only injected into prompts),
+    so exact match on those was the wrong bar; only the value needs to be
+    semantically equivalent."""
 
     expected: FactExpectation
-    found: bool
+    score: float
+    matched_fact: Fact | None
 
 
 @dataclass
 class EndResult:
     """Scored outcome of the script's end-of-run expectations."""
 
-    fact_results: list[FactCheckResult] = field(default_factory=list)
+    fact_matches: list[FactMatch] = field(default_factory=list)
     expected_topics: list[TopicHint] = field(default_factory=list)
     actual_topics: list[dict] = field(default_factory=list)
 

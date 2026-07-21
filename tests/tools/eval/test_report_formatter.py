@@ -6,10 +6,10 @@ import json
 import tempfile
 from pathlib import Path
 
-from core.models import MemoryItem
+from core.models import Fact, MemoryItem
 from tools.eval.models import FactExpectation, MemoryItemHint, TopicHint
 from tools.eval.report_formatter import EvalReportFormatter
-from tools.eval.results import EndResult, EvalReport, FactCheckResult, MemoryItemMatch, TurnResult
+from tools.eval.results import EndResult, EvalReport, FactMatch, MemoryItemMatch, TurnResult
 
 
 def _report() -> EvalReport:
@@ -40,10 +40,14 @@ def _report() -> EvalReport:
         unmatched_actual_items=[unmatched_item],
     )
     end = EndResult(
-        fact_results=[
-            FactCheckResult(
+        fact_matches=[
+            FactMatch(
                 expected=FactExpectation(category="preference", key="bike_budget", value="2000 EUR"),
-                found=True,
+                score=0.95,
+                matched_fact=Fact(
+                    peer_id="eval-peer", category="finance", key="budget_item",
+                    value="2000 euros", source="ai",
+                ),
             )
         ],
         expected_topics=[TopicHint(label_hint="buying a bike")],
@@ -72,7 +76,7 @@ class TestToMarkdown:
         markdown = EvalReportFormatter().to_markdown(_report())
 
         assert "topic-change accuracy: 1/1" in markdown
-        assert "end-fact recall: 1/1" in markdown
+        assert "end-fact similarity (avg): 0.95" in markdown
         assert "memory-item similarity (avg): 0.91" in markdown
         assert "memory-item type match: 1/1" in markdown
 
@@ -82,6 +86,13 @@ class TestToMarkdown:
         assert "unmatched actual items" in markdown
         assert "user has 2000 euro" in markdown
 
+    def test_reports_fact_match_even_with_different_category_key(self):
+        markdown = EvalReportFormatter().to_markdown(_report())
+
+        assert 'preference/bike_budget = "2000 EUR"' in markdown
+        assert 'finance/budget_item = "2000 euros"' in markdown
+        assert "score 0.95" in markdown
+
     def test_scorecard_handles_empty_report_as_not_applicable(self):
         empty = EvalReport(
             script_name="empty", peer_id="p", model_identity="m", embedder_identity="e", db_path="db",
@@ -90,7 +101,7 @@ class TestToMarkdown:
         markdown = EvalReportFormatter().to_markdown(empty)
 
         assert "topic-change accuracy: n/a" in markdown
-        assert "end-fact recall: n/a" in markdown
+        assert "end-fact similarity (avg): n/a" in markdown
         assert "memory-item similarity (avg): n/a" in markdown
 
 

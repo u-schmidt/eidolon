@@ -56,8 +56,8 @@ class EvalReportFormatter:
             f"{sum(1 for tr in checked if tr.topic_change_pass)}/{len(checked)}" if checked else "n/a"
         )
 
-        facts = report.end_result.fact_results
-        fact_recall = f"{sum(1 for f in facts if f.found)}/{len(facts)}" if facts else "n/a"
+        fact_scores = [m.score for m in report.end_result.fact_matches]
+        avg_fact_similarity = f"{sum(fact_scores) / len(fact_scores):.2f}" if fact_scores else "n/a"
 
         scores = [m.score for tr in report.turn_results for m in tr.memory_item_matches]
         avg_similarity = f"{sum(scores) / len(scores):.2f}" if scores else "n/a"
@@ -71,7 +71,7 @@ class EvalReportFormatter:
             "## Scorecard",
             "",
             f"- topic-change accuracy: {topic_accuracy}",
-            f"- end-fact recall: {fact_recall}",
+            f"- end-fact similarity (avg): {avg_fact_similarity}",
             f"- memory-item similarity (avg): {avg_similarity}",
             f"- memory-item type match: {type_match_rate}",
         ]
@@ -116,10 +116,18 @@ class EvalReportFormatter:
 
     def _end_section(self, end: EndResult) -> list[str]:
         lines = []
-        for fact_result in end.fact_results:
-            mark = "✅" if fact_result.found else "❌"
-            expected = fact_result.expected
-            lines.append(f'{mark} fact: {expected.category}/{expected.key} = "{expected.value}"')
+        for fact_match in end.fact_matches:
+            expected = fact_match.expected
+            actual_desc = (
+                f'{fact_match.matched_fact.category}/{fact_match.matched_fact.key} '
+                f'= "{fact_match.matched_fact.value}"'
+                if fact_match.matched_fact
+                else "(none)"
+            )
+            lines.append(
+                f'- fact hint: {expected.category}/{expected.key} = "{expected.value}" '
+                f"→ score {fact_match.score:.2f} matched: {actual_desc}"
+            )
 
         if end.expected_topics or end.actual_topics:
             lines.append("")

@@ -103,4 +103,6 @@ class TestEvalRunner:
 
         report = runner.run(script, model_identity="sim/sim", embedder_identity="sim/sim", db_path=":memory:")
 
-        assert report.end_result.fact_results[0].found is True
+        match = report.end_result.fact_matches[0]
+        assert match.matched_fact is not None
+        assert match.score == 1.0

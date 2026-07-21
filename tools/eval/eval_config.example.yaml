@@ -1,0 +1,42 @@
+# Config template for tools/run_eval.py.
+#
+# Copy this file, point it at your real LLM/embedder, and pass it via
+# --config. Same shape as the top-level eidolon.example.yaml (models: llm/
+# embedder, facts:, debug:) — see that file for the full field reference.
+# storage: is irrelevant here — run_eval.py always uses its own fresh,
+# throwaway SQLite DB, never a configured path.
+#
+# Two settings are deliberately different from the deployment default,
+# and worth keeping when you adapt this file:
+#
+# - facts.consolidation_interval is low (2, not the deployment default of
+#   20). FactConsolidator only reconciles the durable facts profile every
+#   N user turns — a short golden script that never reaches interval=20
+#   will never trigger it, so expect_end.facts checks fail for reasons
+#   that have nothing to do with model quality.
+# - debug.enabled is on, so every run leaves a trace DB behind for
+#   drill-down with tools/trace.py / tools/trace_tui.py — inspect exactly
+#   what a detection/extraction/consolidation call prompted and got back.
+
+models:
+  llm:
+    provider: lm_studio          # ollama | lm_studio | simulated
+    base_url: http://localhost:1234
+    model: your-llm-model-name
+    max_tokens: 4096
+    timeout: 60
+
+  embedder:
+    provider: ollama              # ollama | lm_studio | sentence_transformers | simulated
+    base_url: http://localhost:11434
+    model: your-embedder-model-name
+    dimension: 768                # match your embedder's actual output dimension
+    timeout: 30
+
+facts:
+  consolidation_interval: 2       # low, so short eval scripts actually trigger consolidation
+  target_max: 100
+
+debug:
+  enabled: true
+  trace_db_path: /tmp/eidolon-eval-trace.db

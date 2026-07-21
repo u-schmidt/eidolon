@@ -7,6 +7,7 @@ import pytest
 from core.extraction.fragmentary_extractor import (
     FragmentaryExtractor,
     _build_extraction_prompt,
+    _normalize_subject_peer,
     _parse_extraction_response,
 )
 from core.models import EnvironmentSnapshot, MemoryItem
@@ -106,6 +107,26 @@ class TestBuildExtractionPrompt:
         assert "AI: Hi there!" in prompt
 
 
+class TestNormalizeSubjectPeer:
+    def test_valid_values_pass_through_unchanged(self):
+        assert _normalize_subject_peer("user", source_peer="ai") == "user"
+        assert _normalize_subject_peer("ai", source_peer="user") == "ai"
+        assert _normalize_subject_peer("other", source_peer="user") == "other"
+
+    def test_missing_value_falls_back_to_source_peer(self):
+        assert _normalize_subject_peer(None, source_peer="user") == "user"
+
+    def test_out_of_vocabulary_value_falls_back_to_source_peer(self):
+        # Seen in practice: a model substituting "self" for "user" despite
+        # the extraction prompt explicitly restricting this field to
+        # "user"/"ai"/"other" — this is what silently broke fact
+        # consolidation before this normalization existed.
+        assert _normalize_subject_peer("self", source_peer="user") == "user"
+
+    def test_out_of_vocabulary_value_falls_back_to_the_items_own_source_peer(self):
+        assert _normalize_subject_peer("self", source_peer="ai") == "ai"
+
+
 class TestFragmentaryExtractor:
     def test_extract_returns_memory_items(self):
         llm = MockLLM(
@@ -190,6 +211,26 @@ class TestFragmentaryExtractor:
         extractor = FragmentaryExtractor(llm)
         items = extractor.extract(user_message="Test", ai_response="OK")
         assert items == []
+
+    def test_extract_normalizes_out_of_vocabulary_subject_peer(self):
+        # Reproduces a real response from gemma-4-e4b-uncensored-hauhaucs-
+        # aggressive: subject_peer "self" instead of the prompt's required
+        # "user"/"ai"/"other". Before normalization this item's
+        # subject_peer never matched FactConsolidator's _PROFILE_SUBJECT
+        # ("user"), so a real, correctly extracted fact silently never
+        # reached the durable facts profile.
+        llm = MockLLM(
+            response='[{"content": "The budget is approximately 2000 euros.", '
+            '"item_type": "fact", "source_peer": "user", '
+            '"subject_peer": "self", "attribution_type": "self_statement"}]'
+        )
+        extractor = FragmentaryExtractor(llm)
+
+        items = extractor.extract(user_message="around 2000 euros", ai_response="Got it")
+
+        assert len(items) == 1
+        assert items[0].source_peer == "user"
+        assert items[0].subject_peer == "user"
 
     def test_extract_multiple_items(self):
         llm = MockLLM(
