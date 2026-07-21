@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from tools.eval.results import EndResult, EvalReport, TurnResult
+from tools.eval.scorecard import Scorecard
 
 _SLUG_RE = re.compile(r"[^a-zA-Z0-9_-]+")
 
@@ -50,28 +51,27 @@ class EvalReportFormatter:
         md_path = directory / f"{base}.md"
         json_path = directory / f"{base}.json"
         md_path.write_text(self.to_markdown(report), encoding="utf-8")
-        json_path.write_text(json.dumps(asdict(report), indent=2, default=str), encoding="utf-8")
+        payload = {**asdict(report), "scorecard": asdict(Scorecard.from_report(report))}
+        json_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
         return md_path
 
     def _scorecard(self, report: EvalReport) -> list[str]:
-        checked = [tr for tr in report.turn_results if tr.topic_change_pass is not None]
+        sc = Scorecard.from_report(report)
         topic_accuracy = (
-            f"{sum(1 for tr in checked if tr.topic_change_pass)}/{len(checked)}" if checked else "n/a"
+            f"{sc.topic_change_passed}/{sc.topic_change_checked}" if sc.topic_change_checked else "n/a"
         )
-
-        fact_scores = [m.score for m in report.end_result.fact_matches]
-        avg_fact_similarity = f"{sum(fact_scores) / len(fact_scores):.2f}" if fact_scores else "n/a"
-
-        cluster_scores = [m.score for m in report.end_result.cluster_matches]
-        avg_cluster_similarity = f"{sum(cluster_scores) / len(cluster_scores):.2f}" if cluster_scores else "n/a"
-
-        scores = [m.score for tr in report.turn_results for m in tr.memory_item_matches]
-        avg_similarity = f"{sum(scores) / len(scores):.2f}" if scores else "n/a"
-
-        typed = [
-            m.type_match for tr in report.turn_results for m in tr.memory_item_matches if m.matched_item
-        ]
-        type_match_rate = f"{sum(typed)}/{len(typed)}" if typed else "n/a"
+        avg_fact_similarity = f"{sc.avg_fact_similarity:.2f}" if sc.avg_fact_similarity is not None else "n/a"
+        avg_cluster_similarity = (
+            f"{sc.avg_cluster_similarity:.2f}" if sc.avg_cluster_similarity is not None else "n/a"
+        )
+        avg_similarity = (
+            f"{sc.avg_memory_item_similarity:.2f}" if sc.avg_memory_item_similarity is not None else "n/a"
+        )
+        type_match_rate = (
+            f"{sc.memory_item_type_matched}/{sc.memory_item_type_checked}"
+            if sc.memory_item_type_checked
+            else "n/a"
+        )
 
         return [
             "## Scorecard",

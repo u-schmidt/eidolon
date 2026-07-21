@@ -174,6 +174,9 @@ class TestWrite:
         assert json_path.exists()
         data = json.loads(json_path.read_text(encoding="utf-8"))
         assert data["script_name"] == "bike script"
+        assert data["scorecard"]["topic_change_passed"] == 1
+        assert data["scorecard"]["topic_change_checked"] == 1
+        assert data["scorecard"]["avg_fact_similarity"] == 0.95
 
     def test_creates_missing_directory(self):
         directory = Path(tempfile.mkdtemp()) / "nested" / "reports"
