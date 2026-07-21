@@ -40,10 +40,10 @@ Edit `eidolon.yaml` to configure your providers:
 ```yaml
 providers:
   ollama:
-    base_url: http://192.168.178.81:11434
+    base_url: http://192.168.1.100:11434
     timeout: 60
   lm_studio:
-    base_url: http://192.168.178.81:1234
+    base_url: http://192.168.1.100:1234
     timeout: 30
 
 llm:

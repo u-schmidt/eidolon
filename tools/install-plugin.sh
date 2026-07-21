@@ -8,9 +8,6 @@
 # Environment-Variablen:
 #   HERMES_HOME  (Pflicht) — Hermes-Datenverzeichnis (z.B. ~/.hermes oder .../hermes-data)
 #   PROFILE      (Optional) — Profilname, Standard: eidolon-test
-#
-# Beispiel (Alex):
-#   HERMES_HOME=/Users/udo/Documents/AILocal/hermes/hermes-data ./tools/install-plugin.sh
 
 set -euo pipefail
 

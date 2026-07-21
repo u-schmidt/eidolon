@@ -29,7 +29,7 @@ storage:
 models:
   llm:
     provider: ollama            # ollama | lm_studio | simulated
-    base_url: http://192.168.178.81:11434
+    base_url: http://192.168.1.100:11434
     model: deepseek-v4-flash:cloud
     max_tokens: 4096             # Response cap for all LLM calls (detection,
                                  # summarization, consolidation, chat). Give a
@@ -42,7 +42,7 @@ models:
 
   embedder:
     provider: lm_studio         # ollama | lm_studio | sentence_transformers | simulated
-    base_url: http://192.168.178.81:1234
+    base_url: http://192.168.1.100:1234
     model: text-embedding-bge-m3
     dimension: 1024              # Vector dimension (bge-m3 = 1024, nomic-embed-text = 768)
     timeout: 30
