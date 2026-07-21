@@ -26,9 +26,16 @@ storage:
 # "llm" and "embedder" are required. Add further roles (e.g. "judge" for
 # a future trace-relevance-check model) the same way — no code changes
 # needed, just a new block here.
+# Provider options for llm/embedder:
+#   openai_compatible  — any OpenAI-API endpoint: OpenAI, Groq, Together,
+#                        OpenRouter, DeepInfra, vLLM, LiteLLM, a private
+#                        gateway (set api_key for authenticated ones).
+#   ollama | lm_studio — presets of openai_compatible with local defaults.
+#   sentence_transformers — local PyTorch embeddings (embedder only).
+#   simulated          — deterministic fake, no network (llm + embedder).
 models:
   llm:
-    provider: ollama            # ollama | lm_studio | simulated
+    provider: ollama            # openai_compatible | ollama | lm_studio | simulated
     base_url: http://192.168.1.100:11434
     model: deepseek-v4-flash:cloud
     max_tokens: 4096             # Response cap for all LLM calls (detection,
@@ -41,11 +48,19 @@ models:
     timeout: 60
 
   embedder:
-    provider: lm_studio         # ollama | lm_studio | sentence_transformers | simulated
+    provider: lm_studio         # openai_compatible | ollama | lm_studio | sentence_transformers | simulated
     base_url: http://192.168.1.100:1234
     model: text-embedding-bge-m3
     dimension: 1024              # Vector dimension (bge-m3 = 1024, nomic-embed-text = 768)
     timeout: 30
+
+  # Example: a hosted OpenAI-compatible endpoint (OpenAI, Groq, OpenRouter, ...).
+  # Set api_key for authenticated endpoints — it's sent as a Bearer token.
+  #   llm:
+  #     provider: openai_compatible
+  #     base_url: https://api.openai.com
+  #     model: gpt-4o-mini
+  #     api_key: sk-...            # or via EIDOLON_LLM_API_KEY
 
 # Quick CLI overrides without touching this file — the two most-used
 # roles have dedicated flags/env vars:

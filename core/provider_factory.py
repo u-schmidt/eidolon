@@ -10,12 +10,17 @@ falling back to a guessed endpoint.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from core.config import EidolonConfig, ModelConfig
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
 from core.stores.sqlite_store import SqliteStore
 from core.trace.null_tracer import NullTracer
 from core.trace.safe_tracer import SafeTracer
 from core.trace.sqlite_tracer import SqliteTracer
+
+if TYPE_CHECKING:
+    from core.providers.openai_compatible import OpenAICompatible
 
 
 class ProviderFactory:
@@ -72,21 +77,12 @@ class ProviderFactory:
             from core.providers.simulated import SimulatedLLM
             return SimulatedLLM()
 
-        if cfg.provider == "lm_studio":
-            from core.providers.lm_studio import LMStudio
-            return LMStudio(
+        cls = self._openai_compatible_class(cfg.provider)
+        if cls is not None:
+            return cls(
                 base_url=cfg.base_url,
                 llm_model=cfg.model,
                 api_key=cfg.api_key,
-                timeout=cfg.timeout,
-                max_tokens=cfg.max_tokens,
-            )
-
-        if cfg.provider == "ollama":
-            from core.providers.ollama import Ollama
-            return Ollama(
-                base_url=cfg.base_url,
-                llm_model=cfg.model,
                 timeout=cfg.timeout,
                 max_tokens=cfg.max_tokens,
             )
@@ -104,25 +100,38 @@ class ProviderFactory:
             from core.providers.simulated import SimulatedEmbedder
             return SimulatedEmbedder(dimension=cfg.dimension)
 
-        if cfg.provider == "lm_studio":
-            from core.providers.lm_studio import LMStudio
-            return LMStudio(
+        if cfg.provider == "sentence_transformers":
+            from core.providers.sentence_transformers import SentenceTransformersEmbedder
+            return SentenceTransformersEmbedder(model_name=cfg.model)
+
+        cls = self._openai_compatible_class(cfg.provider)
+        if cls is not None:
+            return cls(
                 base_url=cfg.base_url,
                 embedder_model=cfg.model,
                 api_key=cfg.api_key,
                 timeout=cfg.timeout,
             )
 
-        if cfg.provider == "ollama":
-            from core.providers.ollama import Ollama
-            return Ollama(
-                base_url=cfg.base_url,
-                embedder_model=cfg.model,
-                timeout=cfg.timeout,
-            )
-
-        if cfg.provider == "sentence_transformers":
-            from core.providers.sentence_transformers import SentenceTransformersEmbedder
-            return SentenceTransformersEmbedder(model_name=cfg.model)
-
         raise ValueError(f"Unknown embedder provider: {cfg.provider}")
+
+    @staticmethod
+    def _openai_compatible_class(provider: str) -> type[OpenAICompatible] | None:
+        """Map an OpenAI-compatible provider name to its class, or None.
+
+        ``ollama``/``lm_studio`` are thin presets of ``OpenAICompatible``
+        (different default base_url/model/timeout); ``openai_compatible`` is
+        the generic name for any hosted or self-hosted OpenAI-API endpoint
+        (OpenAI, Groq, OpenRouter, vLLM, a private gateway). All three take
+        the same constructor arguments, so one mapped branch builds any of
+        them — and every one now receives ``api_key``."""
+        if provider == "openai_compatible":
+            from core.providers.openai_compatible import OpenAICompatible
+            return OpenAICompatible
+        if provider == "ollama":
+            from core.providers.ollama import Ollama
+            return Ollama
+        if provider == "lm_studio":
+            from core.providers.lm_studio import LMStudio
+            return LMStudio
+        return None

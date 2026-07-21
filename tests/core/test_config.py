@@ -527,6 +527,31 @@ class TestProviderFactory:
         embedder = factory.create_embedder()
         assert embedder is not None
 
+    def test_create_openai_compatible_llm_and_embedder(self):
+        from core.providers.openai_compatible import OpenAICompatible
+        config = EidolonConfig(
+            models={
+                "llm": ModelConfig(provider="openai_compatible", base_url="https://api.groq.com", model="x"),
+                "embedder": ModelConfig(provider="openai_compatible", base_url="https://api.openai.com", model="e"),
+            },
+        )
+        factory = ProviderFactory(config)
+        assert isinstance(factory.create_llm(), OpenAICompatible)
+        assert isinstance(factory.create_embedder(), OpenAICompatible)
+
+    def test_api_key_is_passed_through_for_ollama(self):
+        """Regression: the ollama branch previously dropped api_key, so
+        provider: ollama against an authenticated cloud silently sent no key."""
+        config = EidolonConfig(
+            models={
+                "llm": ModelConfig(provider="ollama", base_url="https://cloud", model="x", api_key="sk-secret"),
+                "embedder": ModelConfig(provider="ollama", base_url="https://cloud", model="e", api_key="sk-secret"),
+            },
+        )
+        factory = ProviderFactory(config)
+        assert factory.create_llm()._api_key == "sk-secret"
+        assert factory.create_embedder()._api_key == "sk-secret"
+
     def test_unknown_storage_raises(self):
         config = EidolonConfig(storage=StorageConfig(provider="mongodb"))
         factory = ProviderFactory(config)
