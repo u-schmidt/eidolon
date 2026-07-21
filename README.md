@@ -16,6 +16,7 @@ eidolon/
 │   ├── retrieval/            #   Associative Retriever (semantic + tag + person + time)
 │   ├── consolidation/        #   Fact Consolidator (durable-facts profile) + Cluster Consolidator (recurring-topic threads)
 │   ├── stores/               #   SQLite store with auto-migration
+│   │   └── vec_index.py      #     Optional sqlite-vec KNN index (needs `vec` extra), auto-fallback to brute-force scan
 │   ├── trace/                #   Debug tracer (NullTracer / SqliteTracer), off by default
 │   ├── providers/            #   Provider implementations (one class per service)
 │   │   ├── lm_studio.py      #     LM Studio: complete() + embed()
@@ -30,9 +31,15 @@ eidolon/
 │   ├── trace.py              #   Terminal viewer for debug trace events
 │   ├── trace_tui.py          #   Interactive drill-down TUI over trace.db (needs `tui` extra)
 │   ├── tui/                  #   Textual screens for trace_tui.py
-│   └── simulate_injection.py #   Replays a turn's prefetch() injection string from trace.db
+│   ├── simulate_injection.py #   Replays a turn's prefetch() injection string from trace.db
+│   ├── run_eval.py           #   Eval harness CLI entry point
+│   ├── eval/                 #   Eval harness: YAML scripts run against real LLMs, tier-1/tier-2 scoring
+│   │   ├── scripts/          #     Golden eval scripts (YAML)
+│   │   └── reports/          #     Retained run reports (markdown + JSON), not deleted after each run
+│   ├── install-plugin.sh     #   Deploys the Hermes adapter into a live Hermes install
+│   └── reset-db.sh           #   Wipes the local dev memory DB
 ├── tests/                    # Test suite
-│   ├── core/                 #   Core tests (incl. core/trace/)
+│   ├── core/                 #   Core tests (incl. core/trace/, core/stores/)
 │   ├── adapters/hermes/      #   Adapter tests
 │   └── tools/                #   Trace viewer + TUI tests
 ├── eidolon.example.yaml      # Example configuration
@@ -187,12 +194,12 @@ Each model role (`llm`, `embedder`, and any future role like `judge`) is a **sel
 models:
   llm:
     provider: ollama
-    base_url: http://192.168.178.81:11434
+    base_url: http://192.168.1.100:11434
     model: deepseek-v4-flash:cloud
 
   embedder:
     provider: lm_studio
-    base_url: http://192.168.178.81:1234
+    base_url: http://192.168.1.100:1234
     model: text-embedding-bge-m3
 
 retrieval:
@@ -293,7 +300,7 @@ Both are configured in `pyproject.toml` and installed via the `dev` extra
 | Phase | Status | What |
 |---|---|---|
 | **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, batch facts consolidation, 419+ tests |
-| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, topic detection & summarization review, fact consolidation hardening, storage alternatives discussion — see [`plan-phase2.md`](plan-phase2.md) |
+| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage alternatives (peer_id fix + sqlite-vec) ✅, topic detection & summarization review, fact consolidation hardening — see [`plan-phase2.md`](plan-phase2.md); 554+ tests |
 | **Phase 3** | ⏳ TBD | Topic-Only Mode, production deployment, performance optimization |
 
 ## Roadmap
@@ -307,10 +314,10 @@ built up incrementally as each workstream gets detailed).
 See [`plan-phase2.md`](plan-phase2.md) for the current scope, sequencing,
 and rationale. Summary:
 
-- **Quality/eval infrastructure** — real-world signal on topic detection, summarization, and retrieval quality, beyond the existing mechanical debug tracing
-- **Topic detection & summarization review** — using the above
-- **Fact consolidation hardening** — `FactConsolidator` already ships (Phase 1); this is about improving it, not building it
-- **Storage alternatives discussion** — pgvector is a candidate, not yet the decision; retrieval currently has no vector index at all (brute-force cosine scan)
+- ✅ **Quality/eval infrastructure** — YAML-scripted golden runs against real LLMs, tier-1 hard asserts + tier-2 embedding-similarity scoring, beyond the existing mechanical debug tracing — see `tools/eval/` and [`plan-phase2.md`](plan-phase2.md#5-workstream-1-status-eval-harness-built-and-in-use)
+- ✅ **Storage alternatives** — real usage data (a comparable pgvector-backed deployment at ~90-100k embedded entries/month) showed the original brute-force cosine scan wouldn't hold up; fixed a `peer_id` cross-peer leak first, then added an optional sqlite-vec KNN index (`vec` extra, auto-fallback if unavailable) partitioned by peer — ~56x faster at 60k items, identical retrieval-quality scores before/after — see [`plan-phase2.md`](plan-phase2.md#8-workstream-4-status-peer_id-fix--sqlite-vec-migration-2026-07-21)
+- **Topic detection & summarization review** — using the eval infrastructure above; lower priority than it looked, since the detection prompt has held up across three structurally different models so far
+- **Fact consolidation hardening** — `FactConsolidator` already ships (Phase 1); this is about improving it, not building it. Two hardening attempts tried and reverted after real eval data came back inconclusive-to-negative — see [`plan-phase2.md`](plan-phase2.md#6-workstream-3-first-hardening-attempts-2026-07-21)
 
 ### Phase 3 (Planned)
 
