@@ -14,7 +14,7 @@ eidolon/
 │   ├── detection/            #   Topic Detector (CONTINUE / NEW_TOPIC)
 │   ├── extraction/           #   Fragmentary Extractor (essence, facts, surprises, feelings)
 │   ├── retrieval/            #   Associative Retriever (semantic + tag + person + time)
-│   ├── consolidation/        #   Fact Consolidator — periodic durable-facts profile reconciliation
+│   ├── consolidation/        #   Fact Consolidator (durable-facts profile) + Cluster Consolidator (recurring-topic threads)
 │   ├── stores/               #   SQLite store with auto-migration
 │   ├── trace/                #   Debug tracer (NullTracer / SqliteTracer), off by default
 │   ├── providers/            #   Provider implementations (one class per service)
@@ -293,7 +293,7 @@ Both are configured in `pyproject.toml` and installed via the `dev` extra
 | Phase | Status | What |
 |---|---|---|
 | **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, batch facts consolidation, 419+ tests |
-| **Phase 2** | 🔜 Next | Quality/eval infrastructure, topic detection & summarization review, fact consolidation hardening, storage alternatives discussion, cluster summarization |
+| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, topic detection & summarization review, fact consolidation hardening, storage alternatives discussion — see [`plan-phase2.md`](plan-phase2.md) |
 | **Phase 3** | ⏳ TBD | Topic-Only Mode, production deployment, performance optimization |
 
 ## Roadmap
@@ -311,7 +311,6 @@ and rationale. Summary:
 - **Topic detection & summarization review** — using the above
 - **Fact consolidation hardening** — `FactConsolidator` already ships (Phase 1); this is about improving it, not building it
 - **Storage alternatives discussion** — pgvector is a candidate, not yet the decision; retrieval currently has no vector index at all (brute-force cosine scan)
-- **Cluster Summarization** — group related topics, generate cluster summaries (not yet discussed in detail)
 
 ### Phase 3 (Planned)
 
@@ -324,6 +323,7 @@ and rationale. Summary:
 - **Debug Tracing** — see [Debug Tracing](#debug-tracing) above
 - **TUI** — Textual-based interactive drill-down explorer over the trace database (`tools/trace_tui.py`), see [Debug Tracing](#debug-tracing)
 - **Batch Facts Consolidation** — turn-interval-triggered (not cron, since there's no scheduler concept yet) periodic reconciliation of the durable-facts profile, replacing per-turn extraction — see [Facts Consolidation](#facts-consolidation)
+- **Recurring-Topic Clustering** — `ClusterConsolidator` merges related closed topics (e.g. several separate mentions of "buying a bike" over days/weeks) into a single, continuously-rewritten narrative once a topic closes, so a recurring thread doesn't quietly fall out of context once it has more instances than retrieval's per-turn limit — see [`core/consolidation/cluster_consolidator.py`](core/consolidation/cluster_consolidator.py)
 
 ## License
 
