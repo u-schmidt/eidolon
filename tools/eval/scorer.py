@@ -66,6 +66,7 @@ class EvalScorer:
     ) -> EndResult:
         return EndResult(
             fact_matches=self._match_facts(expectation.facts, actual_facts),
+            actual_facts=actual_facts,
             expected_topics=expectation.topics,
             actual_topics=actual_topics,
         )

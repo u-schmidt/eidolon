@@ -53,9 +53,17 @@ class FactMatch:
 
 @dataclass
 class EndResult:
-    """Scored outcome of the script's end-of-run expectations."""
+    """Scored outcome of the script's end-of-run expectations.
+
+    ``actual_facts`` is the full consolidated profile, not just what
+    matched an expectation — a lingering duplicate from a botched
+    update-in-place (e.g. a stale "Hamburg" fact alongside a new
+    "Berlin" one) would never appear in ``fact_matches``, since nothing
+    is looking for it there.
+    """
 
     fact_matches: list[FactMatch] = field(default_factory=list)
+    actual_facts: list[Fact] = field(default_factory=list)
     expected_topics: list[TopicHint] = field(default_factory=list)
     actual_topics: list[dict] = field(default_factory=list)
 

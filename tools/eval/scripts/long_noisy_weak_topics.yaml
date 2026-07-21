@@ -1,0 +1,132 @@
+# Longer, noisier conversation with weak/ambiguous topic boundaries.
+# Deliberately mixes:
+#  - short, near-zero-content confirmations ("ok", "ja klar", "ah interessant")
+#    that topic_detector.py's own prompt explicitly requires stay CONTINUE
+#  - two genuinely ambiguous topical drifts (Portugal trip -> Portuguese
+#    food -> cooking in general -> broken air fryer) where a human could
+#    reasonably call either CONTINUE or NEW_TOPIC — left unasserted
+#    (topic_change omitted) rather than forcing a guess at "correct"
+#  - two unambiguous, explicitly-signalled topic changes ("übrigens") as
+#    sanity anchors
+# Facts are intentionally not asserted here — nothing in this script is
+# durable-profile material (car tires, air fryer status are episodic,
+# see FactConsolidator's own "bad profile facts" examples) — this script
+# is about topic detection under noise, not fact consolidation.
+
+name: "long noisy conversation with weak topic boundaries"
+peer_id: "eval-peer-noisy-weak-topics"
+language: "de"
+
+turns:
+  - user: "Ich überlege, im Herbst nach Portugal zu fahren, vielleicht nach Lissabon."
+    ai: "Klingt toll! Was reizt dich an Lissabon?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "Portugal trip"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is considering a trip to Lisbon, Portugal in autumn"
+
+  - user: "Ok."
+    ai: "Soll ich dir ein paar Sehenswürdigkeiten raussuchen?"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ja klar, gerne."
+    ai: "Mach ich, gib mir kurz."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Hmm, warte, was war das Wetter da nochmal im Oktober?"
+    ai: "Meist mild, so 18-20 Grad."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ah interessant."
+    ai: "Genau."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Übrigens hab ich neulich Pastéis de Nata probiert, richtig lecker."
+    ai: "Die portugiesischen Puddingtörtchen? Ein Klassiker!"
+    expect:
+      # Genuinely ambiguous: explicit "übrigens" signal, but content stays
+      # Portugal-adjacent (food). Not asserted — report-only.
+      topic_label_hint: "Portuguese food / pastéis de nata"
+
+  - user: "Die schmecken bestimmt auch mit Zimt gut."
+    ai: "Ja, viele bestreuen sie extra mit Zimt."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich sollte generell mal wieder mehr kochen."
+    ai: "Was kochst du denn gerne?"
+    expect:
+      # Weak drift: Portuguese food -> cooking in general, no signal word.
+      topic_label_hint: "wants to cook more in general"
+
+  - user: "Mein Airfryer ist glaub ich kaputt."
+    ai: "Oh schade, was macht er denn?"
+    expect:
+      # Weak drift: cooking -> a specific broken appliance.
+      topic_label_hint: "air fryer might be broken"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's air fryer might be broken"
+
+  - user: "Keine Ahnung, mal sehen."
+    ai: "Okay, sag Bescheid falls du Tipps brauchst."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ok, mach ich."
+    ai: "Passt."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Übrigens, ich muss unbedingt mein Auto zur Inspektion bringen, der TÜV läuft nächsten Monat ab."
+    ai: "Guter Punkt, soll ich dich daran erinnern?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "car inspection / TÜV"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user's car inspection (TÜV) expires next month"
+
+  - user: "Ja bitte."
+    ai: "Mach ich, ich meld mich rechtzeitig."
+    expect:
+      # Explicit test of topic_detector.py's own documented rule: "ja
+      # bitte" is listed by name as a CONTINUE example.
+      topic_change: CONTINUE
+
+  - user: "Danke dir."
+    ai: "Kein Problem!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Achso, und ich brauch noch neue Reifen, die alten sind ziemlich abgefahren."
+    ai: "Das würde ich dann gleich mit der Inspektion zusammen machen lassen."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user needs new tires, the current ones are worn"
+
+  - user: "Guter Tipp, mach ich so."
+    ai: "Prima, viel Erfolg!"
+    expect:
+      topic_change: CONTINUE
+
+expect_end:
+  facts: []
+  topics:
+    - label_hint: "Portugal trip"
+    - label_hint: "Portuguese food / pastéis de nata"
+    - label_hint: "wants to cook more in general"
+    - label_hint: "air fryer might be broken"
+    - label_hint: "car inspection / TÜV"

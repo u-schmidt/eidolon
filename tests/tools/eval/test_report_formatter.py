@@ -39,17 +39,21 @@ def _report() -> EvalReport:
         ],
         unmatched_actual_items=[unmatched_item],
     )
+    matched_fact = Fact(
+        peer_id="eval-peer", category="finance", key="budget_item", value="2000 euros", source="ai",
+    )
+    stray_fact = Fact(
+        peer_id="eval-peer", category="location", key="city", value="Hamburg", source="ai",
+    )
     end = EndResult(
         fact_matches=[
             FactMatch(
                 expected=FactExpectation(category="preference", key="bike_budget", value="2000 EUR"),
                 score=0.95,
-                matched_fact=Fact(
-                    peer_id="eval-peer", category="finance", key="budget_item",
-                    value="2000 euros", source="ai",
-                ),
+                matched_fact=matched_fact,
             )
         ],
+        actual_facts=[matched_fact, stray_fact],
         expected_topics=[TopicHint(label_hint="buying a bike")],
         actual_topics=[{"label": "Bike", "summary": "User wants a bike"}],
     )
@@ -92,6 +96,16 @@ class TestToMarkdown:
         assert 'preference/bike_budget = "2000 EUR"' in markdown
         assert 'finance/budget_item = "2000 euros"' in markdown
         assert "score 0.95" in markdown
+
+    def test_full_facts_list_surfaces_a_stray_duplicate(self):
+        # A fact that matched no expectation (e.g. a stale value left
+        # behind by a botched update-in-place) is otherwise invisible —
+        # nothing in fact_matches would ever point at it.
+        markdown = EvalReportFormatter().to_markdown(_report())
+
+        assert "Full consolidated facts profile" in markdown
+        assert 'location/city = "Hamburg"' in markdown
+        assert 'finance/budget_item = "2000 euros"' in markdown
 
     def test_scorecard_handles_empty_report_as_not_applicable(self):
         empty = EvalReport(

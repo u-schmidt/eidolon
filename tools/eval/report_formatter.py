@@ -129,6 +129,12 @@ class EvalReportFormatter:
                 f"→ score {fact_match.score:.2f} matched: {actual_desc}"
             )
 
+        if end.actual_facts:
+            lines.append("")
+            lines.append("Full consolidated facts profile (review for stray duplicates):")
+            for fact in end.actual_facts:
+                lines.append(f'- {fact.category}/{fact.key} = "{fact.value}" (source: {fact.source})')
+
         if end.expected_topics or end.actual_topics:
             lines.append("")
             lines.append("Expected topic hints:")

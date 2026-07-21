@@ -1,0 +1,58 @@
+# Tests FactConsolidator's explicit promise (see its own system prompt in
+# core/consolidation/fact_consolidator.py): when new material contradicts
+# an existing fact, reuse that fact's category/key and update it in place
+# — don't leave the old value sitting alongside a new one.
+#
+# Needs facts.consolidation_interval: 2 (see tools/eval/eval_config.example.yaml)
+# so this 4-turn script actually crosses two consolidation passes: one
+# after turn 2 (establishes Hamburg), one after turn 4 (should overwrite
+# it with Berlin, not add a second location fact).
+#
+# expect_end.facts only checks that Berlin is present — it can't check
+# that Hamburg is ABSENT (the script format has no negative assertions).
+# That's what the report's "Full consolidated facts profile" section is
+# for — review it by eye for a stray Hamburg entry.
+
+name: "corrected fact — user relocates from Hamburg to Berlin"
+peer_id: "eval-peer-fact-correction"
+language: "de"
+
+turns:
+  - user: "Ich wohne aktuell in Hamburg."
+    ai: "Schöne Stadt! Wohnst du da schon lange?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "living in Hamburg"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user currently lives in Hamburg"
+
+  - user: "Seit ein paar Jahren, ja."
+    ai: "Gefällt's dir dort?"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ganz gut, aber es zieht mich beruflich jetzt nach Berlin."
+    ai: "Oh interessant, wechselst du den Job?"
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is moving to Berlin for work"
+
+  - user: "Genau, ich bin jetzt offiziell nach Berlin umgezogen und dort auch gemeldet."
+    ai: "Alles klar, dann viel Erfolg im neuen Zuhause!"
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user has officially moved to and is registered in Berlin"
+
+expect_end:
+  facts:
+    - {category: "location", key: "city", value: "Berlin"}
+  topics:
+    - label_hint: "living situation / move from Hamburg to Berlin"

@@ -139,6 +139,18 @@ class TestScoreEnd:
         assert match.score == 1.0
         assert match.matched_fact is actual[0]
 
+    def test_includes_full_actual_facts_list_for_stray_duplicate_review(self):
+        embedder = FakeEmbedder({"preference: bike_budget = 2000 EUR": [1.0, 0.0]})
+        scorer = EvalScorer(embedder)
+        expectation = EndExpectation(
+            facts=[FactExpectation(category="preference", key="bike_budget", value="2000 EUR")]
+        )
+        actual = [Fact(peer_id="p1", category="preference", key="bike_budget", value="2000 EUR", source="user")]
+
+        result = scorer.score_end(expectation, actual, [])
+
+        assert result.actual_facts == actual
+
     def test_scores_semantically_similar_but_differently_named_fact_highly(self):
         # Reproduces a real result: the model chose "finance/budget_item"
         # for what the script expected as "preference/bike_budget" — a
