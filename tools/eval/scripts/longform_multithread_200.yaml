@@ -1,0 +1,1563 @@
+# A long (~200-turn) conversation simulating weeks of real chat history —
+# stress-tests retrieval, clustering, and fact consolidation at a scale
+# none of the other golden scripts reach (the next-largest is 16 turns).
+#
+# Sixteen recurring storylines (guitar lessons, a job search, an apartment
+# repaint, marathon training, adopting a cat, ...) each resurface 4-9 times,
+# spread across the whole script and separated by unrelated turns — same
+# "topics never reopen once closed" design as bike_saga_clustering.yaml, so
+# each recurrence is scripted as its own NEW_TOPIC and ClusterConsolidator
+# has real work to do tying them back together. Interleaved with one-off
+# small talk (weather, weekend plans, a broken umbrella, ...) in the same
+# spirit as long_noisy_weak_topics.yaml, plus short CONTINUE follow-ups
+# after roughly half of all topic openings, so the shape is closer to a
+# real multi-week chat than a flat list of unrelated facts.
+#
+# topic_change is asserted (tier 1) on every turn — at this scale getting
+# a handful wrong is expected and itself useful signal (see plan-phase2.md
+# §6), not something to leave unasserted preemptively.
+#
+# expect_end.facts covers three genuinely durable, unambiguous updates
+# (cat's name, marathon target race, new job) — kept deliberately small;
+# most of what's revealed here is essence-level color, not profile
+# material (matches FactConsolidator's own "bad profile facts" guidance).
+#
+# Runtime note: the shared eval_config.example.yaml sets
+# facts.consolidation_interval: 2 for fast triggering on short scripts —
+# against 200 turns that means ~100 consolidation passes, so this script
+# takes meaningfully longer to run than the others.
+
+name: "longform multithread — 200 turns, 16 recurring storylines"
+peer_id: "eval-peer-longform-200"
+language: "de"
+
+turns:
+  # --- Round 1: opening several storylines ---
+  - user: "Ich überlege, Gitarre spielen zu lernen."
+    ai: "Coole Idee! Hast du schon eine im Kopf, akustisch oder elektrisch?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "considering learning guitar"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is considering learning to play guitar"
+
+  - user: "Akustisch glaub ich, ist glaub ich einfacher zum Einsteigen."
+    ai: "Guter Plan, viele fangen so an."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Wie wird das Wetter morgen eigentlich?"
+    ai: "Soll den ganzen Tag sonnig bleiben, so um die 22 Grad."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "tomorrow's weather"
+
+  - user: "Ich denk auch schon länger drüber nach, mir einen neuen Job zu suchen."
+    ai: "Was stört dich denn aktuell am jetzigen?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "considering a new job"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is considering looking for a new job"
+
+  - user: "Vor allem, dass ich mich beruflich nicht mehr weiterentwickle."
+    ai: "Verständlich, das ist ein guter Grund."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Übrigens, mein Wohnzimmer könnte auch mal einen neuen Anstrich vertragen."
+    ai: "Welche Farbe schwebt dir vor?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "considering repainting the living room"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is considering repainting the living room"
+
+  - user: "Warst du am Wochenende irgendwo unterwegs?"
+    ai: "Nur kurz im Park spazieren, ansonsten eher ruhig."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "weekend activities"
+
+  - user: "Ich hab mich für den Frühjahrsmarathon angemeldet."
+    ai: "Wow, respekt! Hast du schon mit dem Training angefangen?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "signed up for spring marathon"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user signed up for a spring marathon"
+
+  - user: "Noch nicht, aber ich will diese Woche starten."
+    ai: "Viel Erfolg, klingt nach einem guten Ziel!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Hast du die Nachrichten heute gesehen? Irgendwas Interessantes?"
+    ai: "Nicht wirklich, war ein ruhiger Newstag."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "checking the news"
+
+  # --- Round 2 ---
+  - user: "Ich glaub, ich hol mir doch eine Katze."
+    ai: "Schöne Idee! Hast du schon eine Rasse im Kopf oder eher aus dem Tierheim?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "considering getting a cat"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is considering getting a cat"
+
+  - user: "Auf jeden Fall aus dem Tierheim, will keine Rasse kaufen."
+    ai: "Sehr gut, da freut sich bestimmt ein Kater oder eine Katze über ein Zuhause."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Mein Nachbar ist übrigens letzte Woche ausgezogen, ein neues Paar ist eingezogen."
+    ai: "Ah, hast du sie schon kennengelernt?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "new neighbors moved in"
+
+  - user: "Noch nicht, nur kurz Hallo gesagt."
+    ai: "Kommt bestimmt noch."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich will unbedingt mal wieder Thai kochen lernen, das schmeckt mir so gut."
+    ai: "Welches Gericht reizt dich am meisten?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "wants to learn to cook Thai food"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user wants to learn to cook Thai food"
+
+  - user: "Mein Rücken tut vom vielen Sitzen im Homeoffice ziemlich weh."
+    ai: "Das kenne ich, hast du schon über einen Stehschreibtisch nachgedacht?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "back pain from sitting at desk"
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user has back pain from sitting at their desk too much"
+
+  - user: "Guter Punkt, schau ich mir mal an."
+    ai: "Sag Bescheid, wenn du Empfehlungen willst."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich bin einem Buchclub beigetreten letzte Woche."
+    ai: "Cool! Was ist das erste Buch, das ihr lest?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "joined a book club"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user joined a book club"
+
+  - user: "Wir lesen 'Die Vermessung der Welt', kenn ich noch nicht."
+    ai: "Guter Einstieg, viel Spaß dabei!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Hast du zufällig meinen Ladekabel-Adapter irgendwo gesehen? Ich find ihn nicht mehr."
+    ai: "Nein, tut mir leid. Vielleicht in der Küchenschublade?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "lost charger adapter"
+
+  # --- Round 3 ---
+  - user: "Ich hab angefangen, Spanisch mit Duolingo zu lernen."
+    ai: "Nice! Wie lange machst du das schon?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "started learning Spanish with Duolingo"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user started learning Spanish using Duolingo"
+
+  - user: "Erst seit ein paar Tagen, aber ich bin schon ziemlich motiviert."
+    ai: "Das ist die beste Phase, dranbleiben!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab mir letztens eine Monstera gekauft."
+    ai: "Schöne Pflanze! Wo hast du sie hingestellt?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "bought a monstera plant"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user bought a monstera plant"
+
+  - user: "Ans Fenster im Wohnzimmer, da ist genug Licht."
+    ai: "Perfekter Platz dafür."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab mich für einen Töpferkurs am Wochenende angemeldet."
+    ai: "Sehr cool, warst du da schon mal vorher?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "signed up for a pottery class"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user signed up for a pottery class"
+
+  - user: "Nein, komplett neu für mich."
+    ai: "Wird bestimmt lustig, freu dich drauf!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Hast du den neuen Film im Kino schon gesehen?"
+    ai: "Noch nicht, aber ich hab nur Gutes gehört."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "new movie in theaters"
+
+  - user: "Meine Eltern haben angekündigt, dass sie mich nächsten Monat besuchen kommen."
+    ai: "Wie schön! Freust du dich?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "parents announced a visit next month"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's parents announced they'll visit next month"
+
+  - user: "Total, hab sie schon länger nicht gesehen."
+    ai: "Bestimmt ein schönes Wiedersehen."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab mir eine Nähmaschine gekauft, will mal ein paar Sachen selber nähen."
+    ai: "Was ist dein erstes Projekt?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "bought a sewing machine"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user bought a sewing machine and wants to start sewing projects"
+
+  # --- Round 4 ---
+  - user: "Ich will diesen Monat anfangen, im Tierheim zu ehrenamtlich zu helfen."
+    ai: "Das ist toll! Weißt du schon, was genau du machen wirst?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "plans to volunteer at an animal shelter"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user plans to start volunteering at an animal shelter"
+
+  - user: "Ich hab mir einen kleinen Kaffeeröster für zuhause gekauft."
+    ai: "Sehr ambitioniert! Schon einen ersten Röstversuch gemacht?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "bought a home coffee roaster"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user bought a home coffee roaster"
+
+  - user: "Noch nicht, kommt aber diese Woche."
+    ai: "Bin gespannt, wie's wird!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Mein Auto macht seit ein paar Tagen ein komisches Geräusch beim Fahren."
+    ai: "Oh, das klingt nicht gut. Bringst du es in die Werkstatt?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "car making a strange noise"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user's car is making a strange noise while driving"
+
+  - user: "Ja, ich ruf morgen mal an."
+    ai: "Gute Idee, lieber früh checken lassen."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Bist du eigentlich müde heute? Ich bin irgendwie total erschöpft."
+    ai: "Ein bisschen, ja. Vielleicht liegt's am Wetter."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "feeling tired today"
+
+  - user: "Ich hab heute meine erste Gitarrenstunde gehabt."
+    ai: "Und, wie war's? Was habt ihr gemacht?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "first guitar lesson"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user had their first guitar lesson"
+
+  - user: "Ganz gut, aber meine Finger tun jetzt schon weh."
+    ai: "Das ist normal am Anfang, wird mit der Zeit besser."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user's fingers hurt after their first guitar lesson"
+
+  - user: "Hab heute auch meine erste Bewerbung für den neuen Job rausgeschickt."
+    ai: "Nice, drück dir die Daumen! Was für eine Stelle ist es?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "sent first job application"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user sent out their first job application"
+
+  - user: "Eine Stelle als Produktmanager bei einer kleineren Firma."
+    ai: "Klingt spannend, viel Erfolg!"
+    expect:
+      topic_change: CONTINUE
+
+  # --- Round 5 ---
+  - user: "Ich hab mir jetzt endlich Farbe fürs Wohnzimmer ausgesucht, ein Salbeigrün."
+    ai: "Schöne Wahl, das wirkt bestimmt sehr beruhigend."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "picked sage green paint for the living room"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user picked a sage green paint color for the living room"
+
+  - user: "War heute im Supermarkt und die hatten mein Lieblingsbrot nicht mehr."
+    ai: "Ärgerlich! Hast du was Alternatives gefunden?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "favorite bread out of stock at the supermarket"
+
+  - user: "Bin heute meinen ersten langen Lauf fürs Marathontraining gelaufen, 10 Kilometer."
+    ai: "Starke Leistung für den Anfang! Wie hat sich's angefühlt?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "first 10k training run for the marathon"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user completed their first 10k training run for the marathon"
+
+  - user: "Ganz gut, war aber schon anstrengend gegen Ende."
+    ai: "Völlig normal, das baut sich mit der Zeit auf."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich war heute im Tierheim und hab mich sofort in eine Katze verliebt."
+    ai: "Oh wie schön! Wie heißt sie denn?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "visited the shelter and fell for a specific cat"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user visited the animal shelter and fell in love with a specific cat"
+
+  - user: "Mochi, so eine getigerte kleine Süße."
+    ai: "Mochi ist ein toller Name! Wirst du sie adoptieren?"
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "the cat user fell in love with at the shelter is named Mochi"
+
+  - user: "Hab meinen Standschreibtisch heute bestellt."
+    ai: "Sehr gut, dein Rücken wird's dir danken."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "ordered a standing desk"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user ordered a standing desk"
+
+  - user: "Bin mit meinem Buchclub-Buch total am Kämpfen, komm einfach nicht rein."
+    ai: "Manche Bücher brauchen eben länger. Willst du dranbleiben oder was anderes lesen?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "struggling to get into the book club book"
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user is struggling to get into their book club's current book"
+
+  - user: "Ich bleib dran, will's nicht aufgeben."
+    ai: "Guter Ansatz, manchmal kommt der Flow noch."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Hast du heute schon was gegessen? Ich hab total den Hunger vergessen."
+    ai: "Ich hab was ganz Einfaches gemacht, Nudeln mit Gemüse."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "what to eat / lunch small talk"
+
+  # --- Round 6 ---
+  - user: "Duolingo-Streak ist bei mir jetzt bei Tag 12, aber ich merke, ich stagniere gerade etwas."
+    ai: "Das ist normal nach der Anfangsmotivation. Überlegst du dir Abwechslung reinzubringen?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "Spanish learning plateauing"
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user feels their Spanish learning progress is plateauing"
+
+  - user: "Meine Monstera lässt irgendwie die Blätter hängen."
+    ai: "Hast du sie zuletzt gegossen? Könnte auch zu viel oder zu wenig Wasser sein."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "monstera plant drooping"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's monstera plant is drooping"
+
+  - user: "Beim Töpferkurs hab ich eine ziemlich schiefe Schale gemacht, aber es hat Spaß gemacht."
+    ai: "Haha, die ersten Versuche sind meistens so, aber der Spaß zählt!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "made a lopsided bowl at the pottery class"
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user made a lopsided bowl at their pottery class but enjoyed it"
+
+  - user: "Kannst du mir kurz sagen, wie spät es bei dir gerade ist?"
+    ai: "Klar, bei mir ist es kurz vor sieben."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "asking the time"
+
+  - user: "Ich hab meine Wände heute gestrichen, Tag eins ist geschafft."
+    ai: "Sieht bestimmt schon viel besser aus! Wie viele Schichten brauchst du noch?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "first day of painting the living room"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user finished the first day of painting their living room"
+
+  - user: "Noch eine zweite Schicht morgen, denke ich."
+    ai: "Klingt nach einem guten Plan."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Von der Farbe hab ich jetzt schon leichte Kopfschmerzen."
+    ai: "Lüft ruhig gut durch, das hilft meistens."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user has a mild headache from the paint fumes"
+
+  - user: "Mein Knie fühlt sich seit dem letzten Lauf komisch an."
+    ai: "Oh, das würde ich beobachten. Vielleicht besser mal pausieren?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "knee feeling off after running"
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user's knee has felt off since their last training run"
+
+  - user: "Ja, ich glaub ich geh mal lieber zum Physio."
+    ai: "Guter Plan, lieber jetzt checken als später ein größeres Problem."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab die zweite Bewerbung für den neuen Job auch schon rausgeschickt."
+    ai: "Super, du bleibst dran! Bei welcher Firma diesmal?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "sent second job application"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user sent out a second job application"
+
+  # --- Round 7 ---
+  - user: "Bin gerade beim Zahnarzt, warte im Wartezimmer."
+    ai: "Alles gut so weit? Nur Kontrolle?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "at the dentist for a checkup"
+
+  - user: "Nur Kontrolle, zum Glück."
+    ai: "Gut zu hören!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab jetzt Mochi adoptiert! Sie ist seit heute bei mir."
+    ai: "Herzlichen Glückwunsch! Wie verhält sie sich?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "adopted Mochi the cat"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user has officially adopted their cat Mochi"
+
+  - user: "Sie versteckt sich noch die ganze Zeit unterm Sofa."
+    ai: "Ganz normal am Anfang, sie braucht einfach Zeit zum Ankommen."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "Mochi is still hiding under the sofa and hasn't settled in yet"
+
+  - user: "Hab heute Abend meinen ersten Rösterversuch mit dem neuen Kaffeeröster gemacht."
+    ai: "Und, wie war's?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "first coffee roasting attempt"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user made their first coffee roasting attempt"
+
+  - user: "Ziemlich verbrannt leider, ich glaub ich hab die Zeit nicht gut im Griff gehabt."
+    ai: "Passiert am Anfang oft, beim nächsten Versuch klappt's sicher besser."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user's first coffee roasting attempt came out burnt"
+
+  - user: "Mein Auto ist jetzt in der Werkstatt, sie warten noch auf ein Ersatzteil."
+    ai: "Ärgerlich, weißt du schon wie lange das dauert?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "car waiting on a replacement part"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's car is at the mechanic waiting on a replacement part"
+
+  - user: "Angeblich ein paar Tage noch."
+    ai: "Nervig, aber immerhin wird's repariert."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich glaub, ich brauch auch mal wieder einen Haarschnitt."
+    ai: "Hast du schon einen Termin im Kopf?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "needs a haircut"
+
+  - user: "Noch nicht, mach ich diese Woche."
+    ai: "Klingt gut."
+    expect:
+      topic_change: CONTINUE
+
+  # --- Round 8 ---
+  - user: "Ich hab heute meinen ersten Freiwilligentag im Tierheim gehabt."
+    ai: "Und, wie war's? Was hast du gemacht?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "first volunteer shift at the animal shelter"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user had their first volunteer shift at the animal shelter"
+
+  - user: "Ich hab mich mit einem alten Hund richtig angefreundet, war schön aber auch emotional."
+    ai: "Das kann ich mir vorstellen, sowas geht schon ans Herz."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user bonded with an older dog during their shelter shift and found it emotional"
+
+  - user: "Meine Nähmaschine steht jetzt endlich zusammengebaut da."
+    ai: "Bereit für dein erstes Projekt?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "sewing machine set up and ready"
+
+  - user: "Ja, ich will eine kleine Stofftasche nähen als erstes."
+    ai: "Guter Einstieg, nicht zu kompliziert."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's first sewing project will be a small tote bag"
+
+  - user: "Ich hab draußen kurz in der Sonne gesessen und jetzt einen leichten Sonnenbrand."
+    ai: "Autsch, hoffentlich nichts Schlimmes."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "mild sunburn from sitting outside"
+
+  - user: "War beim Physio wegen dem Knie, er meint eine Woche Pause reicht."
+    ai: "Gut zu hören, dass es nichts Ernstes ist."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "physio advises a week's rest for the knee"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user's physio advised a week of rest for their knee before resuming training"
+
+  - user: "Zweite Bewerbung kam heute leider auch als Absage zurück."
+    ai: "Schade, aber lass dich nicht entmutigen."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "second job application rejected"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's second job application was rejected"
+
+  - user: "Ja, ich versuch's einfach weiter."
+    ai: "Gute Einstellung."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Meine Wohnzimmerwände sind jetzt fertig gestrichen, sieht richtig gut aus."
+    ai: "Freut mich für dich! Salbeigrün war echt eine gute Wahl."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "living room painting finished"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user finished painting their living room and is happy with the result"
+
+  - user: "War heute richtig windig draußen, hätte fast meinen Schirm verloren."
+    ai: "Ja, der Wind war heute heftig."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "windy weather"
+
+  # --- Round 9 ---
+  - user: "Hab mir einen Spanisch-Tutor gesucht, hatte heute die erste Stunde."
+    ai: "Wie war die erste Session?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "first Spanish tutoring session"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user had their first session with a Spanish tutor"
+
+  - user: "Richtig gut, hab mehr gelernt als in den letzten zwei Wochen mit der App."
+    ai: "Das ist toll zu hören, ein echter Tutor macht oft viel aus."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user feels their Spanish tutoring session was more effective than weeks of app-based learning"
+
+  - user: "Meine Monstera hat sich zum Glück wieder erholt, nachdem ich weniger gegossen hab."
+    ai: "Sehr gut, dann war's tatsächlich zu viel Wasser."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "monstera plant recovered"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's monstera plant recovered after they reduced watering"
+
+  - user: "Zweite Töpferkurs-Stunde war schon viel besser, meine Schale ist diesmal fast gerade."
+    ai: "Klingt nach echtem Fortschritt!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "second pottery class went better"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's second pottery class went better and their bowl was much more even"
+
+  - user: "Kannst du mir kurz helfen, ein Wort zu übersetzen? 'Nachhaltigkeit' auf Englisch?"
+    ai: "Klar, das wäre 'sustainability'."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "quick translation question"
+
+  - user: "Standschreibtisch ist angekommen, aber der Aufbau ist ein einziges Chaos."
+    ai: "Oh nein, was macht Probleme?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "standing desk arrived, assembly is frustrating"
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user is frustrated assembling their new standing desk"
+
+  - user: "Die Anleitung ist komplett unverständlich."
+    ai: "Klassiker leider. Vielleicht hilft ein Video-Tutorial?"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Buchclub-Treffen war gestern, ich hab's zum Glück doch noch geschafft, das Buch fertigzulesen."
+    ai: "Und, wie war das Treffen?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "finished the book club book, meeting happened"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user finished their book club book in time and attended the meeting"
+
+  - user: "Richtig schön, hab am Ende sogar mitreden können."
+    ai: "Sehr gut, hat sich also gelohnt dranzubleiben!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Meine Eltern sind jetzt hier zu Besuch, seit gestern."
+    ai: "Wie schön! Was habt ihr bisher gemacht?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "parents' visit has started"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's parents' visit has started"
+
+  # --- Round 10 ---
+  - user: "Wir waren zusammen im Park und haben lange geredet, war ein richtig schöner Moment."
+    ai: "Das klingt nach einer besonders schönen Zeit mit ihnen."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user had a particularly nice moment with their parents during the visit"
+
+  - user: "Mein Auto ist jetzt endlich fertig repariert, war aber ganz schön teuer."
+    ai: "Autsch, aber immerhin läuft es wieder."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "car repair finished, expensive"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user's car repair is finished but was expensive"
+
+  - user: "Zweiter Kaffeeröstversuch war viel besser, fast perfekt diesmal."
+    ai: "Klingt nach schnellem Lernerfolg!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "second coffee roasting attempt much better"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's second coffee roasting attempt turned out much better"
+
+  - user: "Ich glaub, mein WLAN spinnt gerade ein bisschen."
+    ai: "Hast du schon den Router neu gestartet?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "wifi issues"
+
+  - user: "Ja, hat leider nicht geholfen."
+    ai: "Dann vielleicht mal den Anbieter kontaktieren."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab heute zum ersten Mal wieder trainiert nach der Knie-Pause."
+    ai: "Und, wie hat sich's angefühlt?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "resumed marathon training after knee rest"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user resumed marathon training after their week of rest for the knee"
+
+  - user: "Erstaunlich gut, keine Schmerzen mehr."
+    ai: "Perfekt, dann kannst du wieder langsam aufbauen."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab heute meine Stofftasche fertig genäht!"
+    ai: "Glückwunsch zu deinem ersten Projekt! Wie ist sie geworden?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "finished sewing the tote bag"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user finished sewing their first project, a tote bag"
+
+  - user: "Eine Naht ist etwas schief, aber sonst richtig stolz drauf."
+    ai: "Das zählt trotzdem als voller Erfolg für ein erstes Projekt!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Hab heute ein Paket bekommen, das ich schon vergessen hatte, dass ich's bestellt hab."
+    ai: "Haha, die beste Art von Überraschung."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "forgotten package arrived"
+
+  # --- Round 11 ---
+  - user: "Mochi kommt jetzt endlich öfter unterm Sofa hervor."
+    ai: "Sehr schön, sie fasst also langsam Vertrauen!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "Mochi starting to come out and settle in"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "Mochi the cat is starting to come out from hiding and settle in"
+
+  - user: "Ich glaub, ich hab mir gestern beim Kochen leicht die Hand verbrannt."
+    ai: "Oh nein, ist es schlimm?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "minor burn while cooking"
+
+  - user: "Nein, nur eine kleine Rötung, geht schon wieder."
+    ai: "Gut zu hören."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab jetzt zum zweiten Mal Thai gekocht, ein grünes Curry."
+    ai: "Und, besser als beim ersten Mal?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "second attempt at Thai cooking"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user cooked Thai food for the second time, a green curry"
+
+  - user: "Viel besser, war diesmal nicht zu scharf und richtig lecker."
+    ai: "Klingt nach einem echten Erfolg!"
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user was happy with their second Thai cooking attempt, the green curry turned out well"
+
+  - user: "Ich hab heute meine dritte Gitarrenstunde gehabt, wir haben ein erstes richtiges Lied geübt."
+    ai: "Wow, schon nach drei Stunden! Welches Lied?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "third guitar lesson, first real song"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's third guitar lesson included practicing their first real song"
+
+  - user: "Ein einfaches Wonderwall-Cover, klassisch halt."
+    ai: "Ein guter Klassiker zum Üben!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab heute Feedback zur zweiten Bewerbung bekommen, sie wollen ein Interview!"
+    ai: "Das ist super! Wann ist der Termin?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "got invited to a second job interview"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user got invited to an interview for their second job application"
+
+  - user: "Nächste Woche Dienstag."
+    ai: "Viel Erfolg, ich drück dir die Daumen!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Meine Eltern sind heute wieder abgereist."
+    ai: "Wie war der Abschied?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "parents' visit ended"
+
+  # --- Round 12 ---
+  - user: "Ein bisschen traurig ehrlich gesagt, ich vermisse sie schon jetzt."
+    ai: "Das ist völlig verständlich, so eine schöne Zeit geht immer zu schnell vorbei."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user feels sad after their parents' visit ended and already misses them"
+
+  - user: "Hab mir heute noch eine zweite Pflanze gekauft, einen Gummibaum."
+    ai: "Schöne Ergänzung! Der ist auch ziemlich pflegeleicht."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "bought a second plant, a rubber tree"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user bought a second houseplant, a rubber tree"
+
+  - user: "Ich glaub, ich muss mal wieder Wäsche waschen, hab nichts Sauberes mehr."
+    ai: "Klassiker, viel Erfolg dabei."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "needs to do laundry"
+
+  - user: "Töpferkurs-Schale ist jetzt fertig gebrannt, ich hol sie morgen ab."
+    ai: "Freu dich drauf, dein erstes fertiges Stück!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "pottery bowl finished firing"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's pottery bowl finished firing in the kiln and is ready to pick up"
+
+  - user: "Standschreibtisch steht jetzt endlich, und mein Rücken fühlt sich schon besser an."
+    ai: "Das freut mich zu hören, hat sich also gelohnt!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "standing desk assembled, back feels better"
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user's back feels better after starting to use their new standing desk"
+
+  - user: "Ich vergess aber ständig zu stehen und häng dann doch wieder im Sitzen."
+    ai: "Vielleicht hilft ein Timer als Erinnerung."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab heute eine neue Podcast-Folge gehört, richtig interessant über Weltraumforschung."
+    ai: "Klingt spannend, welcher Podcast war das?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "interesting podcast episode about space"
+
+  - user: "Mein Interview für den neuen Job ist gut gelaufen, glaub ich."
+    ai: "Das freut mich zu hören! Wie hast du dich gefühlt?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "second job interview went well"
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user felt their second job interview went well"
+
+  - user: "Ziemlich sicher, die Fragen waren fair und ich konnte gut antworten."
+    ai: "Sehr gut, jetzt heißt's abwarten."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab heute Mochi zum ersten Mal beim Tierarzt gehabt, alles gut."
+    ai: "Sehr gut zu hören! War sie brav?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "Mochi's first vet checkup"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "Mochi had her first vet checkup and everything is fine"
+
+  # --- Round 13 ---
+  - user: "Total brav eigentlich, hab mit Zittern gerechnet."
+    ai: "Schön, dass es so entspannt lief."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab heute einen 20-Kilometer-Lauf fürs Marathontraining geschafft, neue persönliche Bestleistung."
+    ai: "Wow, herzlichen Glückwunsch! Wie fühlst du dich?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "new personal best on a 20k training run"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user set a new personal best with a 20k training run for the marathon"
+
+  - user: "Erschöpft, aber richtig stolz."
+    ai: "Zu Recht, das ist eine starke Leistung!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab gerade eine Absage für den Job bekommen, obwohl das Interview so gut lief."
+    ai: "Oh, das tut mir leid. Haben sie einen Grund genannt?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "job rejection despite a good interview"
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user is disappointed after being rejected for a job despite a good interview"
+
+  - user: "Nur, dass sie sich für einen internen Kandidaten entschieden haben."
+    ai: "Das ist wirklich ärgerlich, aber sagt nichts über deine Qualifikation aus."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab heute Wonderwall komplett durchgespielt ohne größere Fehler."
+    ai: "Riesenfortschritt! Wie lange übst du schon insgesamt?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "played Wonderwall all the way through without major mistakes"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user played Wonderwall all the way through on guitar without major mistakes"
+
+  - user: "Erst seit ein paar Wochen, ging schneller als gedacht."
+    ai: "Sehr beeindruckend für die kurze Zeit!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich glaub, meine Kaffeemaschine hat gerade den Geist aufgegeben."
+    ai: "Oh nein, ausgerechnet jetzt! Was macht sie denn?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "coffee machine broke down"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user's coffee machine broke down"
+
+  - user: "Kein Wasser kommt mehr durch, keine Ahnung warum."
+    ai: "Vielleicht verkalkt? Manchmal hilft Entkalken."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Nächste Woche hab ich mein zweites Vorstellungsgespräch, diesmal bei einer größeren Firma."
+    ai: "Nach der letzten Absage gleich weiter, sehr gut! Bei welcher Firma?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "third job interview scheduled at a larger company"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user has a job interview scheduled at a larger company"
+
+  # --- Round 14 ---
+  - user: "Bei einer Softwarefirma, klingt nach einer spannenden Rolle."
+    ai: "Viel Erfolg, das klingt vielversprechend!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab heute meine dritte Nähprojekt fertig gemacht, ein Kissenbezug."
+    ai: "Du machst richtig Fortschritte! Wie ist er geworden?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "finished a third sewing project, a pillowcase"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user finished a third sewing project, a pillowcase"
+
+  - user: "Richtig sauber diesmal, keine schiefen Nähte mehr."
+    ai: "Da merkt man den Lerneffekt deutlich!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich bin jetzt bei meinem dritten Freiwilligentag im Tierheim."
+    ai: "Wie läuft's diesmal?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "third volunteer shift at the shelter"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user completed a third volunteer shift at the animal shelter"
+
+  - user: "Richtig gut, ich überlege sogar, den Hund von letztens zu pflegen, also Pflegestelle zu werden."
+    ai: "Das wäre eine wunderschöne Idee, falls du die Zeit dafür hast."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is considering becoming a foster carer for the dog they bonded with at the shelter"
+
+  - user: "Meine Spanisch-Tutorin meint, ich mache richtig gute Fortschritte."
+    ai: "Sehr schön zu hören! Merkst du das auch selbst?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "Spanish tutor confirms good progress"
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user's Spanish tutor confirmed they're making good progress"
+
+  - user: "Total, ich versteh schon viel mehr als noch vor ein paar Wochen."
+    ai: "Das ist ein tolles Gefühl, weiter so!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab mir heute ein spanisches Buch bestellt, will mal versuchen es zu lesen."
+    ai: "Ambitioniert! Welches Buch hast du gewählt?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "ordered a Spanish-language novel"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user ordered a Spanish-language novel to practice reading"
+
+  - user: "Ein einfaches, für Anfänger empfohlenes."
+    ai: "Guter Ansatz, lieber langsam steigern."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Übrigens denk ich jetzt schon drüber nach, mal eine Reise nach Spanien zu machen, um die Sprache zu üben."
+    ai: "Das wäre die perfekte Motivation zum Weiterlernen!"
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is thinking about traveling to Spain to practice their Spanish"
+
+  # --- Round 15 ---
+  - user: "Ich hab heute mein Töpferstück abgeholt, steht jetzt bei mir im Regal."
+    ai: "Wie schön, ein greifbares Ergebnis von deinem Kurs!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "picked up finished pottery piece"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user picked up their finished pottery bowl and displayed it at home"
+
+  - user: "Ich glaub ich schenk sie meiner Mutter, sie mag sowas."
+    ai: "Eine schöne Geste, bestimmt freut sie sich."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab mir eine neue Kaffeemaschine bestellt, die alte war nicht mehr zu retten."
+    ai: "Manchmal ist Neukauf einfach einfacher. Welches Modell hast du dir ausgesucht?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "ordered a new coffee machine"
+
+  - user: "Mein Marathontraining läuft echt gut, ich bin jetzt bei der Halbmarathon-Testlaufwoche."
+    ai: "Das klingt nach einem soliden Aufbauplan!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "half-marathon tune-up week in training plan"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is in the half-marathon tune-up week of their marathon training plan"
+
+  - user: "Ich hab heute den Halbmarathon als Testlauf gemacht, unter zwei Stunden geschafft!"
+    ai: "Wow, herausragende Zeit! Wie geht's dir jetzt?"
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user completed their half-marathon tune-up race in under two hours"
+
+  - user: "Müde, aber super motiviert für den richtigen Marathon."
+    ai: "Das ist die perfekte Einstellung kurz vorher!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab gerade die Zusage für den Job bei der Softwarefirma bekommen!"
+    ai: "Herzlichen Glückwunsch, das ist fantastisch!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "got the job offer from the software company"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user received a job offer from the software company"
+
+  - user: "Danke! Ich hab schon zugesagt, fang in zwei Monaten an."
+    ai: "Wunderbar, worauf freust du dich am meisten?"
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user accepted the job offer and will start in two months"
+
+  - user: "Auf die neuen Kollegen und die spannenderen Projekte."
+    ai: "Das klingt nach einem großartigen nächsten Schritt für dich!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich glaub, ich muss das jetzt erstmal feiern gehen heute Abend."
+    ai: "Auf jeden Fall verdient, viel Spaß dabei!"
+    expect:
+      topic_change: CONTINUE
+
+  # --- Round 16: tapering / closing beats + final filler ---
+  - user: "Mein Marathon ist jetzt in zwei Wochen, ich bin schon im Tapering."
+    ai: "Die spannendste Phase! Wie fühlst du dich körperlich?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "tapering before the marathon"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is tapering their training in the final two weeks before the marathon"
+
+  - user: "Frisch und ausgeruht, genau wie's sein soll."
+    ai: "Perfekt, dann bist du bereit für den großen Tag!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Mochi liegt jetzt jeden Abend bei mir auf dem Sofa, ist komplett angekommen."
+    ai: "Das ist wunderschön zu hören, sie fühlt sich also richtig wohl bei dir!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "Mochi fully settled in"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "Mochi is now fully settled in and sits on the sofa with user every evening"
+
+  - user: "Ich hab mir jetzt für den Buchclub schon das nächste Buch ausgesucht, freu mich drauf."
+    ai: "Welches wird's diesmal?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "picked next book club book"
+
+  - user: "Ein Krimi diesmal, mal was anderes."
+    ai: "Schöne Abwechslung!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich glaub, mein Umzugskarton mit den alten Büchern steht immer noch unausgepackt im Keller."
+    ai: "Klassiker, vielleicht ein Projekt fürs Wochenende?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "unpacked moving box still in the basement"
+
+  - user: "Guter Punkt, nehm ich mir vor."
+    ai: "Viel Erfolg dabei!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab heute meine vierte Gitarrenstunde gehabt, ein zweites Lied angefangen."
+    ai: "Du machst richtig Tempo! Welches Lied diesmal?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "fourth guitar lesson, started a second song"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user started learning a second song in their fourth guitar lesson"
+
+  - user: "Etwas Schwierigeres, ein bisschen Fingerpicking."
+    ai: "Klingt nach einem guten nächsten Schritt!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Meine neue Kaffeemaschine ist angekommen und funktioniert einwandfrei."
+    ai: "Sehr gut, dann kannst du auch wieder normal Kaffee trinken."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "new coffee machine arrived and works well"
+
+  - user: "Endlich, hab die alte richtig vermisst."
+    ai: "Verständlich!"
+    expect:
+      topic_change: CONTINUE
+
+  # --- Final stretch: wrap-up beats for several storylines ---
+  - user: "Ich hab heute meinen Marathon gelaufen — geschafft, 4:12 Stunden!"
+    ai: "Herzlichen Glückwunsch, das ist eine großartige Leistung für deinen ersten Marathon!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "completed the marathon"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user completed their first marathon in 4 hours and 12 minutes"
+
+  - user: "Bin komplett fertig, aber überglücklich."
+    ai: "Zu Recht, das war ein langer Weg dahin!"
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user is exhausted but overjoyed after finishing their first marathon"
+
+  - user: "Mein Standschreibtisch hat sich echt gelohnt, mein Rücken tut kaum noch weh."
+    ai: "Sehr schön, eine langfristig gute Investition also."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "standing desk paid off long-term"
+
+  - user: "Ich hab jetzt auch offiziell zugesagt, den Tierheim-Hund zu pflegen."
+    ai: "Wie wunderbar! Wann zieht er bei dir ein?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "confirmed fostering the shelter dog"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user confirmed they will foster the dog from the animal shelter"
+
+  - user: "Nächste Woche schon, ich bin schon aufgeregt."
+    ai: "Das wird bestimmt eine schöne neue Erfahrung für dich und Mochi!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab heute mein fünftes Nähprojekt fertig gemacht, ein kleines Kirschkernkissen."
+    ai: "Du bist echt fleißig dabei! Für wen ist es?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "finished a fifth sewing project"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user finished a fifth sewing project, a small cherry pit pillow"
+
+  - user: "Für mich selbst diesmal, als kleine Belohnung."
+    ai: "Wohlverdient!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Mein neuer Job fängt jetzt in zwei Wochen an, ich bin schon ziemlich aufgeregt."
+    ai: "Das ist eine aufregende Zeit! Fühlst du dich vorbereitet?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "new job starts in two weeks"
+      memory_items:
+        - item_type: feeling
+          subject_peer: user
+          content_hint: "user is excited and a bit nervous about starting their new job in two weeks"
+
+  - user: "Ziemlich, ja. Bin gespannt auf die ersten Wochen."
+    ai: "Ich drück dir die Daumen für einen guten Start!"
+    expect:
+      topic_change: CONTINUE
+
+  # --- Round 17: closing filler, mostly one-off small talk ---
+  - user: "War heute einkaufen und hab den ganzen Kühlschrank aufgefüllt."
+    ai: "Sehr produktiv! Was gab's Gutes?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "grocery shopping trip"
+
+  - user: "Nichts Besonderes, nur das Übliche."
+    ai: "Manchmal ist das auch ganz schön, einfach mal auffüllen."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Hab heute meinen Schirm wieder vergessen und bin klatschnass geworden."
+    ai: "Oh nein, ausgerechnet heute! War der Regen schlimm?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "forgot umbrella and got soaked"
+
+  - user: "Ziemlich, ich musste mich komplett umziehen."
+    ai: "Das klingt nach einem nassen Nachmittag."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab letzte Nacht richtig gut geschlafen, zur Abwechslung mal."
+    ai: "Sehr schön, merkt man sowas gleich am nächsten Tag?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "had a good night's sleep"
+
+  - user: "Total, ich fühl mich heute richtig fit."
+    ai: "Das ist doch mal ein guter Start in den Tag."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Hab heute spontan mit einer alten Freundin telefoniert, die ich ewig nicht gesprochen hab."
+    ai: "Wie schön! Wie geht's ihr?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "spontaneous call with an old friend"
+
+  - user: "Richtig gut, wir haben direkt eine Stunde geredet."
+    ai: "Klingt nach einem sehr schönen Gespräch."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Mein Wasserhahn in der Küche tropft seit ein paar Tagen leicht."
+    ai: "Nervig, hast du schon einen Klempner angerufen?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "leaky kitchen faucet"
+
+  - user: "Noch nicht, versuch's vielleicht erstmal selbst."
+    ai: "Viel Erfolg, manchmal reicht schon eine neue Dichtung."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Meine Nachbarn hatten letztes Wochenende eine ziemlich laute Party."
+    ai: "Oh je, konntest du trotzdem schlafen?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "neighbors had a loud party"
+
+  - user: "Irgendwie schon, war aber knapp."
+    ai: "Zum Glück ging's noch."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab ein neues Café um die Ecke entdeckt, richtig gemütlich."
+    ai: "Klingt schön, was hast du dort getrunken?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "discovered a new cozy café nearby"
+
+  - user: "Einen Flat White, richtig gut gemacht."
+    ai: "Da geh ich glatt mal mit."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ein Kollege hat mir heute ein richtig nettes Kompliment zu einer Präsentation gemacht."
+    ai: "Das freut einen doch immer! Worum ging's in der Präsentation?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "coworker complimented a presentation"
+
+  - user: "Ich hab heute ein Plakat für eine Ausstellung im Museum gesehen, sieht spannend aus."
+    ai: "Worum geht's in der Ausstellung?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "saw a poster for an interesting museum exhibit"
+
+  - user: "Irgendwas über antike Keramik, passt ja gerade gut zu meinem Töpferkurs."
+    ai: "Da solltest du unbedingt hingehen!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Der Reißverschluss an meiner Jacke ist kaputtgegangen."
+    ai: "Ärgerlich, lässt sich der reparieren oder brauchst du eine neue?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "jacket zipper broke"
+
+  - user: "Ich schau erstmal, ob's eine Schneiderei in der Nähe gibt."
+    ai: "Guter Plan, oft lässt sich sowas gut reparieren."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "War heute auf dem Wochenmarkt, hab richtig frisches Gemüse geholt."
+    ai: "Klingt nach einem schönen Vormittag. Was hast du mitgenommen?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "visited the weekend farmers market"
+
+  - user: "Vor allem Tomaten und frische Kräuter."
+    ai: "Perfekt für den Sommer."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Fürs Wochenende soll's angeblich richtig schön werden, durchgehend sonnig."
+    ai: "Das klingt nach einem guten Grund, viel draußen zu sein."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "good weather forecast for the weekend"
+
+  - user: "Genau, hab schon ein paar Ideen im Kopf."
+    ai: "Bin gespannt, was du dir vorgenommen hast."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich hab endlich meine ganzen unbeantworteten E-Mails abgearbeitet."
+    ai: "Das ist immer ein gutes Gefühl, den Posteingang leer zu haben."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "caught up on unanswered emails"
+
+  - user: "Total, richtig befreiend."
+    ai: "Verdiente Pause jetzt!"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Danke dir für's Zuhören die ganze Zeit über, war schön, das alles mit dir zu teilen."
+    ai: "Immer gerne, das war eine ganze Menge in den letzten Wochen! Ich freu mich schon auf die nächsten Updates."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "closing reflection on everything shared"
+
+expect_end:
+  facts:
+    - {category: "pets", key: "cat_name", value: "Mochi"}
+    - {category: "career", key: "job_status", value: "accepted a new position at a software company, starting in two months"}
+    - {category: "fitness", key: "marathon", value: "completed their first marathon in 4:12"}
+  topics:
+    - label_hint: "tomorrow's weather"
+    - label_hint: "weekend activities"
+    - label_hint: "checking the news"
+    - label_hint: "new neighbors moved in"
+    - label_hint: "lost charger adapter"
+    - label_hint: "new movie in theaters"
+    - label_hint: "windy weather"
+    - label_hint: "quick translation question"
+    - label_hint: "forgotten package arrived"
+    - label_hint: "minor burn while cooking"
+    - label_hint: "needs to do laundry"
+    - label_hint: "interesting podcast episode about space"
+    - label_hint: "unpacked moving box still in the basement"
+    - label_hint: "grocery shopping trip"
+    - label_hint: "forgot umbrella and got soaked"
+    - label_hint: "had a good night's sleep"
+    - label_hint: "spontaneous call with an old friend"
+    - label_hint: "leaky kitchen faucet"
+    - label_hint: "neighbors had a loud party"
+    - label_hint: "discovered a new cozy café nearby"
+    - label_hint: "coworker complimented a presentation"
+    - label_hint: "saw a poster for an interesting museum exhibit"
+    - label_hint: "jacket zipper broke"
+    - label_hint: "visited the weekend farmers market"
+    - label_hint: "good weather forecast for the weekend"
+    - label_hint: "caught up on unanswered emails"
+    - label_hint: "at the dentist for a checkup"
+    - label_hint: "needs a haircut"
+    - label_hint: "favorite bread out of stock at the supermarket"
+    - label_hint: "wifi issues"
+    - label_hint: "what to eat / lunch small talk"
+    - label_hint: "mild sunburn from sitting outside"
+    - label_hint: "closing reflection on everything shared"
+  clusters:
+    - label_hint: "learning guitar — from considering it through lessons, sore fingers, first song (Wonderwall), and a second, harder one"
+    - label_hint: "job search — considering a change, several applications, a rejection, a good interview, another rejection, then a final offer and acceptance at a software company"
+    - label_hint: "repainting the living room — picking sage green, painting days, paint-fume headache, finished result"
+    - label_hint: "marathon training — signing up, first 10k, a knee scare, physio-advised rest, resuming, a 20k PB, a half-marathon tune-up under two hours, tapering, and finishing the marathon in 4:12"
+    - label_hint: "adopting a cat — considering it, falling for Mochi at the shelter, adopting her, her hiding at first, first vet visit, and her fully settling in"
+    - label_hint: "parents' visit — announced, started, a nice park moment, and their departure"
+    - label_hint: "learning to cook Thai food — wanting to try, and a much-improved second attempt with green curry"
+    - label_hint: "standing desk — back pain, ordering one, frustrating assembly, and it paying off long-term"
+    - label_hint: "book club — joining, struggling with the first book, finishing it, the meeting, and picking the next book"
+    - label_hint: "learning Spanish — starting on Duolingo, plateauing, finding a tutor, good progress, ordering a Spanish novel, and considering a trip to Spain"
+    - label_hint: "houseplants — buying a monstera, it drooping, recovering, and buying a second plant"
+    - label_hint: "pottery class — first lopsided bowl, a better second attempt, the piece finishing firing, and picking it up to give as a gift"
+    - label_hint: "learning to sew — buying a machine, a tote bag, a pillowcase, and further projects"
+    - label_hint: "volunteering at the animal shelter — starting, bonding with a dog, and deciding to foster it"
+    - label_hint: "home coffee roasting — buying a roaster, a burnt first attempt, and a much better second one"
+    - label_hint: "car trouble — a strange noise, the mechanic, waiting on parts, and an expensive but successful repair"
