@@ -25,8 +25,11 @@ class EvalReportFormatter:
             f"- model: {report.model_identity}",
             f"- embedder: {report.embedder_identity}",
             f"- db: `{report.db_path}`",
-            "",
+            f"- git commit: `{report.git_commit}`",
         ]
+        if report.tag:
+            lines.append(f"- tag: `{report.tag}`")
+        lines.append("")
         lines.extend(self._scorecard(report))
         lines.append("")
         lines.append("## Turns")

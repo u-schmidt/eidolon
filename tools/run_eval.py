@@ -20,6 +20,7 @@ every run leaves a trace DB for drill-down).
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -50,7 +51,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reports-dir", default="tools/eval/reports", help="Directory to write the report files to",
     )
+    parser.add_argument(
+        "--tag", default=None,
+        help="Free-form label for this run (e.g. 'prompt-17'), recorded in the report for later comparison",
+    )
     return parser
+
+
+def _current_git_commit() -> str:
+    """Short commit hash of HEAD, suffixed '-dirty' if the working tree has
+    uncommitted changes — the closest thing this project has to a version
+    number, recorded so eval reports can be compared against what actually
+    ran, not what was last committed."""
+    commit = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    dirty = bool(
+        subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, check=True).stdout.strip()
+    )
+    return f"{commit}-dirty" if dirty else commit
 
 
 def main() -> None:
@@ -104,6 +123,8 @@ def main() -> None:
         model_identity=f"{llm_cfg.provider}/{llm_cfg.model}",
         embedder_identity=f"{embedder_cfg.provider}/{embedder_cfg.model}",
         db_path=db_path,
+        git_commit=_current_git_commit(),
+        tag=args.tag,
     )
 
     formatter = EvalReportFormatter()

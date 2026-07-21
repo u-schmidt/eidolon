@@ -94,5 +94,7 @@ class EvalReport:
     model_identity: str
     embedder_identity: str
     db_path: str
+    git_commit: str
+    tag: str | None = None
     turn_results: list[TurnResult] = field(default_factory=list)
     end_result: EndResult = field(default_factory=EndResult)

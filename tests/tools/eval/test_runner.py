@@ -53,7 +53,7 @@ class TestEvalRunner:
             EvalTurn(user="around 2000 euros", ai="Got it", expect=TurnExpectation(topic_change="CONTINUE")),
         ])
 
-        report = runner.run(script, model_identity="sim/sim", embedder_identity="sim/sim", db_path=":memory:")
+        report = runner.run(script, model_identity="sim/sim", embedder_identity="sim/sim", db_path=":memory:", git_commit="abc1234")
 
         assert [tr.topic_change_actual for tr in report.turn_results] == ["NEW_TOPIC", "CONTINUE"]
         assert [tr.topic_change_pass for tr in report.turn_results] == [True, True]
@@ -84,7 +84,7 @@ class TestEvalRunner:
             ),
         ])
 
-        report = runner.run(script, model_identity="sim/sim", embedder_identity="sim/sim", db_path=":memory:")
+        report = runner.run(script, model_identity="sim/sim", embedder_identity="sim/sim", db_path=":memory:", git_commit="abc1234")
 
         match = report.turn_results[0].memory_item_matches[0]
         assert match.matched_item is not None
@@ -109,7 +109,7 @@ class TestEvalRunner:
             ),
         )
 
-        report = runner.run(script, model_identity="sim/sim", embedder_identity="sim/sim", db_path=":memory:")
+        report = runner.run(script, model_identity="sim/sim", embedder_identity="sim/sim", db_path=":memory:", git_commit="abc1234")
 
         match = report.end_result.fact_matches[0]
         assert match.matched_fact is not None
@@ -128,7 +128,7 @@ class TestEvalRunner:
             expect_end=EndExpectation(clusters=[ClusterHint(label_hint="bike purchase saga")]),
         )
 
-        report = runner.run(script, model_identity="sim/sim", embedder_identity="sim/sim", db_path=":memory:")
+        report = runner.run(script, model_identity="sim/sim", embedder_identity="sim/sim", db_path=":memory:", git_commit="abc1234")
 
         match = report.end_result.cluster_matches[0]
         assert match.matched_cluster is not None

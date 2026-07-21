@@ -31,6 +31,8 @@ class EvalRunner:
         model_identity: str,
         embedder_identity: str,
         db_path: str,
+        git_commit: str,
+        tag: str | None = None,
     ) -> EvalReport:
         active_topic_id: int | None = None
         environment = EnvironmentSnapshot()
@@ -76,6 +78,8 @@ class EvalRunner:
             model_identity=model_identity,
             embedder_identity=embedder_identity,
             db_path=db_path,
+            git_commit=git_commit,
+            tag=tag,
             turn_results=turn_results,
             end_result=end_result,
         )

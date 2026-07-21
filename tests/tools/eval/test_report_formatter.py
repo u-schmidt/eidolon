@@ -73,6 +73,8 @@ def _report() -> EvalReport:
         model_identity="lm_studio/deepseek-v4",
         embedder_identity="lm_studio/nomic-embed-text",
         db_path="/tmp/eval.db",
+        git_commit="abc1234",
+        tag="prompt-17",
         turn_results=[turn],
         end_result=end,
     )
@@ -85,6 +87,16 @@ class TestToMarkdown:
         assert "# Eval report: bike script" in markdown
         assert "lm_studio/deepseek-v4" in markdown
         assert "lm_studio/nomic-embed-text" in markdown
+        assert "git commit: `abc1234`" in markdown
+        assert "tag: `prompt-17`" in markdown
+
+    def test_omits_tag_line_when_not_given(self):
+        report = _report()
+        report.tag = None
+
+        markdown = EvalReportFormatter().to_markdown(report)
+
+        assert "- tag:" not in markdown
 
     def test_scorecard_reflects_results(self):
         markdown = EvalReportFormatter().to_markdown(_report())
@@ -138,6 +150,7 @@ class TestToMarkdown:
     def test_scorecard_handles_empty_report_as_not_applicable(self):
         empty = EvalReport(
             script_name="empty", peer_id="p", model_identity="m", embedder_identity="e", db_path="db",
+            git_commit="abc1234",
         )
 
         markdown = EvalReportFormatter().to_markdown(empty)
