@@ -1,0 +1,124 @@
+# Tests recurring-topic clustering (see core/consolidation/cluster_consolidator.py):
+# the same underlying subject — "buying a new bike" — resurfaces across
+# several separately closed topics over the course of a conversation.
+# Without clustering, associative retrieval's per-turn limit means the
+# earliest beats of this story would eventually fall out of context even
+# though a human would obviously treat them as one ongoing thread.
+#
+# Each bike beat is deliberately separated by a clearly unrelated
+# interstitial topic (work, dinner, weather, a movie) — topics never
+# reopen once closed, so without a hard topic switch in between, a real
+# model may just judge consecutive bike-adjacent turns as one long
+# CONTINUE instead of actually closing and reopening the bike topic each
+# time, which would defeat the point (nothing to cluster if it never
+# closed). Even with a clear switch, real topic detection doesn't always
+# split exactly as scripted (see plan-phase2.md §6/§5 finding 5/6) — a
+# turn scored CONTINUE where NEW_TOPIC was expected here is itself a
+# useful signal about this shape of conversation, not just noise to
+# shrug off. topic_change is asserted (tier 1) on every turn regardless,
+# same as example_bike_and_coffee.yaml — these transitions have a
+# genuinely correct answer, unlike cluster membership itself.
+#
+# expect_end.facts is deliberately empty — this script is about
+# clustering, not fact consolidation (see fact_correction.yaml for that).
+# expect_end.clusters is tier 2 / report-only, like topics — cluster
+# membership and the rewritten narrative are ClusterConsolidator's own
+# LLM judgment call, never asserted exactly.
+
+name: "bike saga — recurring topic clustering"
+peer_id: "eval-peer-bike-saga"
+language: "de"
+
+turns:
+  - user: "Ich überlege, mir ein neues Fahrrad zu kaufen."
+    ai: "Klingt gut! Hast du schon eine Vorstellung, was für eins es sein soll?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "considering buying a new bike"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is considering buying a new bike"
+
+  - user: "Wie läuft's eigentlich bei dir auf der Arbeit?"
+    ai: "Ganz gut, viel zu tun aber nichts Dramatisches. Und bei dir?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "work update"
+
+  - user: "Ich war heute in einem Fahrradladen, konnte mich aber nicht entscheiden."
+    ai: "Was hat dir denn nicht gefallen?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "bike shop visit, undecided"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user went to a bike shop but couldn't decide on a bike"
+
+  - user: "Hast du eigentlich schon Pläne fürs Abendessen?"
+    ai: "Noch nicht, hast du eine Idee?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "dinner plans"
+
+  - user: "Ich hab mit einem Freund gesprochen — mein altes Rad wurde ja im August gestohlen, deshalb brauch ich unbedingt ein neues."
+    ai: "Oh, das wusste ich noch gar nicht! Das ist natürlich ärgerlich."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "old bike was stolen in August"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user's old bike was stolen in August"
+
+  - user: "Wird's am Wochenende eigentlich schön?"
+    ai: "Sieht ganz gut aus, meist sonnig und um die 20 Grad."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "weekend weather"
+
+  - user: "Ich hab online ein schönes Rad gesehen, aber meine Größe war nicht verfügbar. Ich schau jetzt mal in Läden in Hamburg."
+    ai: "Guter Plan, viel Erfolg bei der Suche!"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "found a bike online, size unavailable, will check Hamburg shops"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user found a bike online but the size wasn't available, plans to check shops in Hamburg"
+
+  - user: "Warst du am Wochenende im Kino?"
+    ai: "Ja, hab mir den neuen Film angeschaut — war ganz nett."
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "weekend movie"
+
+  - user: "Ich hab jetzt endlich ein Fahrrad gekauft, in einem Laden in Hamburg ganz in der Nähe vom Fischmarkt."
+    ai: "Glückwunsch! Wie fühlt es sich an, endlich eins zu haben?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "bought a new bike near Fischmarkt in Hamburg"
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user bought a new bike at a shop near Fischmarkt in Hamburg"
+
+  - user: "Bin schon eine erste Runde gefahren, war richtig schön!"
+    ai: "Das freut mich für dich, klingt nach einem guten Kauf!"
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user already went on a first ride and enjoyed it"
+
+expect_end:
+  facts: []
+  topics:
+    - label_hint: "work update"
+    - label_hint: "dinner plans"
+    - label_hint: "weekend weather"
+    - label_hint: "weekend movie"
+  clusters:
+    - label_hint: "bike purchase saga — considering, shopping, old bike stolen in August, found online but wrong size, finally bought near Fischmarkt in Hamburg"
