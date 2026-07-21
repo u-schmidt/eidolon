@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -103,12 +103,23 @@ class TestSimulate:
 class TestSimulateEnvironmentAndAges:
     def test_reconstructs_environment_and_relative_ages(self, tmp_path):
         """Ages must be computed relative to the turn's own recorded time,
-        not today — so replaying an old turn shows ages as they were then."""
+        not today — so replaying an old turn shows ages as they were then.
+
+        The reference "now" the simulator uses is the trace event's own
+        created_at, set by SQLite's DEFAULT CURRENT_TIMESTAMP — which is
+        always UTC (same convention every created_at column in the schema
+        uses, see core/trace/migrations.py and core/stores/migrations.py).
+        The synthetic fact timestamp built here must use the same UTC
+        clock, not naive local time — otherwise the two ages get compared
+        across a timezone offset, which silently corrupts the day count
+        whenever the offset straddles a calendar-day boundary (it doesn't
+        show up as a random flake; it reproduces deterministically for
+        however long the test happens to run close to that boundary)."""
         db_path = str(tmp_path / "trace.db")
         tracer = SqliteTracer(db_path)
         tracer.connect()
 
-        three_weeks_ago = (datetime.now() - timedelta(days=21)).strftime("%Y-%m-%d %H:%M:%S")
+        three_weeks_ago = (datetime.now(UTC) - timedelta(days=21)).strftime("%Y-%m-%d %H:%M:%S")
         tracer.record(
             "context_retrieval",
             {
@@ -118,7 +129,7 @@ class TestSimulateEnvironmentAndAges:
                 "is_new_topic": False,
                 "environment": {
                     "situation": "conversation", "location": None,
-                    "time": datetime.now().isoformat(), "day_of_week": datetime.now().strftime("%A"),
+                    "time": datetime.now(UTC).isoformat(), "day_of_week": datetime.now(UTC).strftime("%A"),
                 },
                 "facts": [{"category": "work", "key": "role", "value": "engineer", "created_at": three_weeks_ago}],
                 "related_topics": [],
