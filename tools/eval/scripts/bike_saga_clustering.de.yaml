@@ -16,11 +16,11 @@
 # turn scored CONTINUE where NEW_TOPIC was expected here is itself a
 # useful signal about this shape of conversation, not just noise to
 # shrug off. topic_change is asserted (tier 1) on every turn regardless,
-# same as example_bike_and_coffee.yaml — these transitions have a
+# same as example_bike_and_coffee.en.yaml — these transitions have a
 # genuinely correct answer, unlike cluster membership itself.
 #
 # expect_end.facts is deliberately empty — this script is about
-# clustering, not fact consolidation (see fact_correction.yaml for that).
+# clustering, not fact consolidation (see fact_correction.de.yaml for that).
 # expect_end.clusters is tier 2 / report-only, like topics — cluster
 # membership and the rewritten narrative are ClusterConsolidator's own
 # LLM judgment call, never asserted exactly.

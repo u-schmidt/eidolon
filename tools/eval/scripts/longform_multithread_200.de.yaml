@@ -5,11 +5,11 @@
 # Sixteen recurring storylines (guitar lessons, a job search, an apartment
 # repaint, marathon training, adopting a cat, ...) each resurface 4-9 times,
 # spread across the whole script and separated by unrelated turns — same
-# "topics never reopen once closed" design as bike_saga_clustering.yaml, so
+# "topics never reopen once closed" design as bike_saga_clustering.de.yaml, so
 # each recurrence is scripted as its own NEW_TOPIC and ClusterConsolidator
 # has real work to do tying them back together. Interleaved with one-off
 # small talk (weather, weekend plans, a broken umbrella, ...) in the same
-# spirit as long_noisy_weak_topics.yaml, plus short CONTINUE follow-ups
+# spirit as long_noisy_weak_topics.de.yaml, plus short CONTINUE follow-ups
 # after roughly half of all topic openings, so the shape is closer to a
 # real multi-week chat than a flat list of unrelated facts.
 #
