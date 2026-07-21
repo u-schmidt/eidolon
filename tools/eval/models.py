@@ -62,11 +62,21 @@ class TopicHint:
 
 
 @dataclass
+class ClusterHint:
+    """A recurring-topic cluster expected to exist at script end — tier 2,
+    report-only, like TopicHint. Cluster membership is an LLM judgment
+    call (see ClusterConsolidator), so this is never asserted exactly."""
+
+    label_hint: str
+
+
+@dataclass
 class EndExpectation:
     """What a script author expects once every turn has been played."""
 
     facts: list[FactExpectation] = field(default_factory=list)
     topics: list[TopicHint] = field(default_factory=list)
+    clusters: list[ClusterHint] = field(default_factory=list)
 
 
 @dataclass

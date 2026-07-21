@@ -8,6 +8,7 @@ from typing import Any
 import yaml
 
 from tools.eval.models import (
+    ClusterHint,
     EndExpectation,
     EvalScript,
     EvalTurn,
@@ -59,4 +60,5 @@ class EvalScriptLoader:
             for f in raw.get("facts", [])
         ]
         topics = [TopicHint(label_hint=t["label_hint"]) for t in raw.get("topics", [])]
-        return EndExpectation(facts=facts, topics=topics)
+        clusters = [ClusterHint(label_hint=c["label_hint"]) for c in raw.get("clusters", [])]
+        return EndExpectation(facts=facts, topics=topics, clusters=clusters)

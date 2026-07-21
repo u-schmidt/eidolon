@@ -59,6 +59,9 @@ class EvalReportFormatter:
         fact_scores = [m.score for m in report.end_result.fact_matches]
         avg_fact_similarity = f"{sum(fact_scores) / len(fact_scores):.2f}" if fact_scores else "n/a"
 
+        cluster_scores = [m.score for m in report.end_result.cluster_matches]
+        avg_cluster_similarity = f"{sum(cluster_scores) / len(cluster_scores):.2f}" if cluster_scores else "n/a"
+
         scores = [m.score for tr in report.turn_results for m in tr.memory_item_matches]
         avg_similarity = f"{sum(scores) / len(scores):.2f}" if scores else "n/a"
 
@@ -72,6 +75,7 @@ class EvalReportFormatter:
             "",
             f"- topic-change accuracy: {topic_accuracy}",
             f"- end-fact similarity (avg): {avg_fact_similarity}",
+            f"- end-cluster similarity (avg): {avg_cluster_similarity}",
             f"- memory-item similarity (avg): {avg_similarity}",
             f"- memory-item type match: {type_match_rate}",
         ]
@@ -144,5 +148,27 @@ class EvalReportFormatter:
             lines.append("Actual closed topics:")
             for topic in end.actual_topics:
                 lines.append(f"- {topic['label']}: {topic['summary']}")
+
+        for cluster_match in end.cluster_matches:
+            expected_cluster = cluster_match.expected
+            actual_desc = (
+                f"{cluster_match.matched_cluster['label']} "
+                f"(holding {cluster_match.matched_cluster['topic_count']} topics): "
+                f"{cluster_match.matched_cluster['summary']}"
+                if cluster_match.matched_cluster
+                else "(none)"
+            )
+            lines.append(
+                f'- cluster hint: "{expected_cluster.label_hint}" → score {cluster_match.score:.2f} '
+                f"matched: {actual_desc}"
+            )
+
+        if end.actual_clusters:
+            lines.append("")
+            lines.append("Full cluster list (review for stray/unexpected clusters):")
+            for cluster in end.actual_clusters:
+                lines.append(
+                    f"- {cluster['label']} (holding {cluster['topic_count']} topics): {cluster['summary']}"
+                )
 
         return lines

@@ -175,6 +175,11 @@ class StorageProvider(Protocol):
 
     # ── Topic Clusters ─────────────────────────────────────
 
+    def get_clusters(self, peer_id: str) -> list[dict]:
+        """Return every cluster for ``peer_id``, unscored — the full set,
+        not just ones relevant to some query. Mirrors ``get_facts``."""
+        ...
+
     def create_cluster(
         self,
         peer_id: str,

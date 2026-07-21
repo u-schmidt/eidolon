@@ -35,6 +35,8 @@ expect_end:
     - {category: preference, key: bike_budget, value: "2000 EUR"}
   topics:
     - label_hint: "buying a road bike"
+  clusters:
+    - label_hint: "bike purchase saga"
 """
 
 
@@ -84,6 +86,8 @@ class TestEvalScriptLoader:
         assert (fact.category, fact.key, fact.value) == ("preference", "bike_budget", "2000 EUR")
         assert script.expect_end.topics == [script.expect_end.topics[0]]
         assert script.expect_end.topics[0].label_hint == "buying a road bike"
+        assert len(script.expect_end.clusters) == 1
+        assert script.expect_end.clusters[0].label_hint == "bike purchase saga"
 
     def test_missing_expect_end_defaults_to_empty(self):
         tmp = tempfile.mkdtemp()
@@ -94,4 +98,5 @@ class TestEvalScriptLoader:
 
         assert script.expect_end.facts == []
         assert script.expect_end.topics == []
+        assert script.expect_end.clusters == []
         assert script.language == "en"

@@ -430,6 +430,26 @@ class SqliteStore:
 
     # ── Topic Clusters ─────────────────────────────────────
 
+    def get_clusters(self, peer_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, peer_id, label, summary, tags, topic_count, created_at, updated_at "
+            "FROM topic_clusters WHERE peer_id = ? ORDER BY id",
+            (peer_id,),
+        ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "peer_id": row[1],
+                "label": row[2],
+                "summary": row[3],
+                "tags": json.loads(row[4]),
+                "topic_count": row[5],
+                "created_at": row[6],
+                "updated_at": row[7],
+            }
+            for row in rows
+        ]
+
     def create_cluster(
         self,
         peer_id: str,

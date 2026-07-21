@@ -67,6 +67,7 @@ class EvalRunner:
             script.expect_end,
             self._storage.get_facts(script.peer_id),
             self._storage.get_recent_topics(script.peer_id, limit=len(script.turns) or 1),
+            self._storage.get_clusters(script.peer_id),
         )
 
         return EvalReport(

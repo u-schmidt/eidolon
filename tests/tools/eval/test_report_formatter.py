@@ -7,9 +7,9 @@ import tempfile
 from pathlib import Path
 
 from core.models import Fact, MemoryItem
-from tools.eval.models import FactExpectation, MemoryItemHint, TopicHint
+from tools.eval.models import ClusterHint, FactExpectation, MemoryItemHint, TopicHint
 from tools.eval.report_formatter import EvalReportFormatter
-from tools.eval.results import EndResult, EvalReport, FactMatch, MemoryItemMatch, TurnResult
+from tools.eval.results import ClusterMatch, EndResult, EvalReport, FactMatch, MemoryItemMatch, TurnResult
 
 
 def _report() -> EvalReport:
@@ -45,6 +45,8 @@ def _report() -> EvalReport:
     stray_fact = Fact(
         peer_id="eval-peer", category="location", key="city", value="Hamburg", source="ai",
     )
+    matched_cluster = {"id": 1, "label": "Bike saga", "summary": "Consolidated bike story", "topic_count": 3}
+    stray_cluster = {"id": 2, "label": "Weather chat", "summary": "About the weather", "topic_count": 2}
     end = EndResult(
         fact_matches=[
             FactMatch(
@@ -56,6 +58,14 @@ def _report() -> EvalReport:
         actual_facts=[matched_fact, stray_fact],
         expected_topics=[TopicHint(label_hint="buying a bike")],
         actual_topics=[{"label": "Bike", "summary": "User wants a bike"}],
+        cluster_matches=[
+            ClusterMatch(
+                expected=ClusterHint(label_hint="bike purchase saga"),
+                score=0.88,
+                matched_cluster=matched_cluster,
+            )
+        ],
+        actual_clusters=[matched_cluster, stray_cluster],
     )
     return EvalReport(
         script_name="bike script",
@@ -81,6 +91,7 @@ class TestToMarkdown:
 
         assert "topic-change accuracy: 1/1" in markdown
         assert "end-fact similarity (avg): 0.95" in markdown
+        assert "end-cluster similarity (avg): 0.88" in markdown
         assert "memory-item similarity (avg): 0.91" in markdown
         assert "memory-item type match: 1/1" in markdown
 
@@ -107,6 +118,23 @@ class TestToMarkdown:
         assert 'location/city = "Hamburg"' in markdown
         assert 'finance/budget_item = "2000 euros"' in markdown
 
+    def test_reports_cluster_match_with_holding_count(self):
+        markdown = EvalReportFormatter().to_markdown(_report())
+
+        assert 'cluster hint: "bike purchase saga"' in markdown
+        assert "Bike saga (holding 3 topics): Consolidated bike story" in markdown
+        assert "score 0.88" in markdown
+
+    def test_full_cluster_list_surfaces_a_stray_cluster(self):
+        # A cluster that matched no expectation (e.g. the model merged
+        # topics the script never anticipated) is otherwise invisible —
+        # nothing in cluster_matches would ever point at it.
+        markdown = EvalReportFormatter().to_markdown(_report())
+
+        assert "Full cluster list" in markdown
+        assert "Weather chat (holding 2 topics): About the weather" in markdown
+        assert "Bike saga (holding 3 topics): Consolidated bike story" in markdown
+
     def test_scorecard_handles_empty_report_as_not_applicable(self):
         empty = EvalReport(
             script_name="empty", peer_id="p", model_identity="m", embedder_identity="e", db_path="db",
@@ -116,6 +144,7 @@ class TestToMarkdown:
 
         assert "topic-change accuracy: n/a" in markdown
         assert "end-fact similarity (avg): n/a" in markdown
+        assert "end-cluster similarity (avg): n/a" in markdown
         assert "memory-item similarity (avg): n/a" in markdown
 
 

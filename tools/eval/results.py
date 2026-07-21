@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from core.models import Fact, MemoryItem
-from tools.eval.models import FactExpectation, MemoryItemHint, TopicHint
+from tools.eval.models import ClusterHint, FactExpectation, MemoryItemHint, TopicHint
 
 
 @dataclass
@@ -52,20 +52,36 @@ class FactMatch:
 
 
 @dataclass
+class ClusterMatch:
+    """An expected cluster paired with its best-matching actual cluster,
+    if any — embedding-similarity scored against label+summary, same
+    reasoning as FactMatch: cluster membership and wording are the
+    LLM's judgment call (see ClusterConsolidator), never asserted
+    exactly."""
+
+    expected: ClusterHint
+    score: float
+    matched_cluster: dict | None
+
+
+@dataclass
 class EndResult:
     """Scored outcome of the script's end-of-run expectations.
 
-    ``actual_facts`` is the full consolidated profile, not just what
-    matched an expectation — a lingering duplicate from a botched
+    ``actual_facts``/``actual_clusters`` are the full sets, not just
+    what matched an expectation — a lingering duplicate from a botched
     update-in-place (e.g. a stale "Hamburg" fact alongside a new
-    "Berlin" one) would never appear in ``fact_matches``, since nothing
-    is looking for it there.
+    "Berlin" one, or a cluster nobody scripted for) would never appear
+    in ``fact_matches``/``cluster_matches``, since nothing is looking
+    for it there.
     """
 
     fact_matches: list[FactMatch] = field(default_factory=list)
     actual_facts: list[Fact] = field(default_factory=list)
     expected_topics: list[TopicHint] = field(default_factory=list)
     actual_topics: list[dict] = field(default_factory=list)
+    cluster_matches: list[ClusterMatch] = field(default_factory=list)
+    actual_clusters: list[dict] = field(default_factory=list)
 
 
 @dataclass

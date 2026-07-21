@@ -5,7 +5,15 @@ from __future__ import annotations
 from core import Eidolon
 from core.models import Fact
 from tests.core.test_eidolon import MockEmbedder, MockStorage
-from tools.eval.models import EndExpectation, EvalScript, EvalTurn, FactExpectation, MemoryItemHint, TurnExpectation
+from tools.eval.models import (
+    ClusterHint,
+    EndExpectation,
+    EvalScript,
+    EvalTurn,
+    FactExpectation,
+    MemoryItemHint,
+    TurnExpectation,
+)
 from tools.eval.runner import EvalRunner
 from tools.eval.scorer import EvalScorer
 
@@ -105,4 +113,24 @@ class TestEvalRunner:
 
         match = report.end_result.fact_matches[0]
         assert match.matched_fact is not None
+        assert match.score == 1.0
+
+    def test_end_result_reads_final_clusters_from_storage(self):
+        storage = MockStorage()
+        cid = storage.create_cluster("eval-peer", "Bike saga", "consolidated bike story")
+        llm = QueuedLLM(["CONTINUE"])
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+        runner = EvalRunner(eidolon, storage, EvalScorer(embedder))
+
+        script = _script(
+            [EvalTurn(user="hi", ai="hello", expect=TurnExpectation())],
+            expect_end=EndExpectation(clusters=[ClusterHint(label_hint="bike purchase saga")]),
+        )
+
+        report = runner.run(script, model_identity="sim/sim", embedder_identity="sim/sim", db_path=":memory:")
+
+        match = report.end_result.cluster_matches[0]
+        assert match.matched_cluster is not None
+        assert match.matched_cluster["id"] == cid
         assert match.score == 1.0

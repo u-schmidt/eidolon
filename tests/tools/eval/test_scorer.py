@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from core.models import Fact, MemoryItem, TopicChange
-from tools.eval.models import EndExpectation, FactExpectation, MemoryItemHint, TurnExpectation
+from tools.eval.models import ClusterHint, EndExpectation, FactExpectation, MemoryItemHint, TurnExpectation
 from tools.eval.scorer import EvalScorer
 
 
@@ -133,7 +133,7 @@ class TestScoreEnd:
         )
         actual = [Fact(peer_id="p1", category="preference", key="bike_budget", value="2000 EUR", source="user")]
 
-        result = scorer.score_end(expectation, actual, [])
+        result = scorer.score_end(expectation, actual, [], [])
 
         match = result.fact_matches[0]
         assert match.score == 1.0
@@ -147,7 +147,7 @@ class TestScoreEnd:
         )
         actual = [Fact(peer_id="p1", category="preference", key="bike_budget", value="2000 EUR", source="user")]
 
-        result = scorer.score_end(expectation, actual, [])
+        result = scorer.score_end(expectation, actual, [], [])
 
         assert result.actual_facts == actual
 
@@ -167,7 +167,7 @@ class TestScoreEnd:
         )
         actual = [Fact(peer_id="p1", category="finance", key="budget_item", value="2000 euros", source="ai")]
 
-        result = scorer.score_end(expectation, actual, [])
+        result = scorer.score_end(expectation, actual, [], [])
 
         match = result.fact_matches[0]
         assert match.matched_fact is actual[0]
@@ -179,8 +179,63 @@ class TestScoreEnd:
             facts=[FactExpectation(category="preference", key="bike_budget", value="2000 EUR")]
         )
 
-        result = scorer.score_end(expectation, [], [])
+        result = scorer.score_end(expectation, [], [], [])
 
         match = result.fact_matches[0]
         assert match.score == 0.0
         assert match.matched_fact is None
+
+
+class TestScoreEndClusters:
+    def test_scores_exact_match_highly(self):
+        embedder = FakeEmbedder({
+            "bike purchase saga": [1.0, 0.0],
+            "Bike saga: consolidated bike story": [1.0, 0.0],
+        })
+        scorer = EvalScorer(embedder)
+        expectation = EndExpectation(clusters=[ClusterHint(label_hint="bike purchase saga")])
+        actual = [{"id": 1, "label": "Bike saga", "summary": "consolidated bike story", "topic_count": 2}]
+
+        result = scorer.score_end(expectation, [], [], actual)
+
+        match = result.cluster_matches[0]
+        assert match.score == 1.0
+        assert match.matched_cluster is actual[0]
+
+    def test_includes_full_actual_clusters_list_for_stray_review(self):
+        embedder = FakeEmbedder({"Bike saga: summary": [1.0, 0.0]})
+        scorer = EvalScorer(embedder)
+        expectation = EndExpectation()
+        actual = [{"id": 1, "label": "Bike saga", "summary": "summary", "topic_count": 2}]
+
+        result = scorer.score_end(expectation, [], [], actual)
+
+        assert result.actual_clusters == actual
+
+    def test_no_actual_clusters_scores_zero(self):
+        scorer = EvalScorer(FakeEmbedder({}))
+        expectation = EndExpectation(clusters=[ClusterHint(label_hint="bike purchase saga")])
+
+        result = scorer.score_end(expectation, [], [], [])
+
+        match = result.cluster_matches[0]
+        assert match.score == 0.0
+        assert match.matched_cluster is None
+
+    def test_picks_best_scoring_cluster_among_several(self):
+        embedder = FakeEmbedder({
+            "bike purchase saga": [1.0, 0.0],
+            "Bike saga: about a bike": [0.95, 0.05],
+            "Weather chat: about the weather": [0.0, 1.0],
+        })
+        scorer = EvalScorer(embedder)
+        expectation = EndExpectation(clusters=[ClusterHint(label_hint="bike purchase saga")])
+        actual = [
+            {"id": 1, "label": "Weather chat", "summary": "about the weather", "topic_count": 2},
+            {"id": 2, "label": "Bike saga", "summary": "about a bike", "topic_count": 3},
+        ]
+
+        result = scorer.score_end(expectation, [], [], actual)
+
+        match = result.cluster_matches[0]
+        assert match.matched_cluster is actual[1]

@@ -141,6 +141,9 @@ class MockStorage:
                                   tracer=None, request_id=None, now=None) -> list[dict]:
         return self.cluster_candidates.get(topic_id, [])[:limit]
 
+    def get_clusters(self, peer_id: str) -> list[dict]:
+        return [c for c in self.clusters.values() if c["peer_id"] == peer_id]
+
     def store_memory_item(self, item: MemoryItem) -> int:
         self.stored_items.append(item)
         item.id = len(self.stored_items)
