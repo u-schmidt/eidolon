@@ -317,14 +317,25 @@ class SqliteStore:
     ) -> list[dict]:
         """Search topics by embedding similarity, tag overlap, peer, and recency.
 
+        `peer_id`, when given, is a hard SQL filter — only that peer's closed,
+        unclustered topics are ever scanned or scored, both to bound the
+        scan cost and to prevent a different peer's topic from ever
+        surfacing in this peer's results regardless of how well it scores.
+        `peer_id=None` searches every peer (used by callers that
+        intentionally want that).
+
         `weights` overrides the semantic/tag_overlap/person/temporal scoring
-        weights when provided (see `_DEFAULT_WEIGHTS`). The `temporal` term is
-        a recency *re-ranking* signal: it's added only to candidates that
-        already have some semantic/tag/person relevance, so it re-orders
-        relevant topics by recency but never pulls in a merely-recent one.
-        `now` is the reference time for the recency decay (defaults to the
-        current UTC time); a topic's recency uses its `closed_at` (last
-        active) falling back to `created_at`.
+        weights when provided (see `_DEFAULT_WEIGHTS`). `person` still
+        contributes as before — with `peer_id` now a hard filter it's
+        satisfied by every surviving candidate, so it no longer
+        differentiates ranking, but its score contribution is unchanged for
+        backward compatibility. The `temporal` term is a recency
+        *re-ranking* signal: it's added only to candidates that already
+        have some semantic/tag/person relevance, so it re-orders relevant
+        topics by recency but never pulls in a merely-recent one. `now` is
+        the reference time for the recency decay (defaults to the current
+        UTC time); a topic's recency uses its `closed_at` (last active)
+        falling back to `created_at`.
 
         When `tracer` is given, one `retrieval_scoring_summary` event is
         recorded for the whole call, carrying the top `limit + _TRACE_TOP_K_PADDING`
@@ -337,10 +348,23 @@ class SqliteStore:
         now = now or datetime.now(UTC)
         if now.tzinfo is None:
             now = now.replace(tzinfo=UTC)
-        rows = self._conn.execute(
-            "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
-            "FROM topics WHERE status='closed' AND cluster_id IS NULL"
-        ).fetchall()
+        # Hard-filtered in SQL when given — not just a soft scoring bonus.
+        # Without this, a different peer's highly-relevant-by-content topic
+        # could outscore and surface ahead of (or alongside) the querying
+        # peer's own topics: a real cross-peer context leak, not just a
+        # performance concern. `peer_id=None` keeps the old "search
+        # everyone" behavior for callers that intentionally omit it.
+        if peer_id:
+            rows = self._conn.execute(
+                "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
+                "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ?",
+                (peer_id,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
+                "FROM topics WHERE status='closed' AND cluster_id IS NULL"
+            ).fetchall()
 
         scored: list[tuple[float, dict, dict]] = []
 
@@ -827,13 +851,30 @@ class SqliteStore:
     ) -> list[MemoryItem]:
         """Search memory items by embedding similarity, peer, and recency.
 
-        `weights` overrides the semantic/person/temporal scoring weights when
-        provided (see `_DEFAULT_WEIGHTS`). `tag_overlap` doesn't apply (memory
-        items carry no tags). The `temporal` term is a recency *re-ranking*
-        signal, added only to candidates that already have semantic/person
-        relevance (see `search_topics`); an item's recency uses its
-        `created_at`. `now` is the reference time for the decay (defaults to
-        the current UTC time).
+        `peer_id`, when given, is a hard SQL filter, joined through
+        `messages` (memory_items carry no peer_id column of their own —
+        only a `message_id`, and `messages.peer_id` is the real identifier).
+        `peer_id=None` searches every peer.
+
+        This replaces a previous soft "person" score that compared
+        `peer_id` against `source_peer`/`subject_peer` — those are always
+        `FragmentaryExtractor`'s fixed `"user"/"ai"/"other"` vocabulary, a
+        different value space from the real peer_id (same confusion
+        `FactConsolidator` had — see `_PROFILE_SUBJECT` there). That
+        comparison only ever matched when `peer_id` happened to literally
+        equal `"user"`; for any real multi-tenant peer_id it silently never
+        fired, so memory-item retrieval had no working peer-scoping signal
+        at all beyond semantic similarity. There is no `person` scoring
+        dimension anymore — the join makes it a hard prerequisite, not a
+        ranking signal.
+
+        `weights` overrides the semantic/temporal scoring weights when
+        provided (see `_DEFAULT_WEIGHTS`). `tag_overlap` doesn't apply
+        (memory items carry no tags). The `temporal` term is a recency
+        *re-ranking* signal, added only to candidates that already have
+        semantic relevance (see `search_topics`); an item's recency uses
+        its `created_at`. `now` is the reference time for the decay
+        (defaults to the current UTC time).
 
         When `tracer` is given, one `retrieval_scoring_summary` event is
         recorded for the whole call — see `search_topics` for the shape.
@@ -842,11 +883,20 @@ class SqliteStore:
         now = now or datetime.now(UTC)
         if now.tzinfo is None:
             now = now.replace(tzinfo=UTC)
-        rows = self._conn.execute(
-            "SELECT id, content, item_type, source_peer, subject_peer, "
-            "attribution_type, topic_id, message_id, embedding, created_at "
-            "FROM memory_items"
-        ).fetchall()
+        if peer_id:
+            rows = self._conn.execute(
+                "SELECT mi.id, mi.content, mi.item_type, mi.source_peer, mi.subject_peer, "
+                "mi.attribution_type, mi.topic_id, mi.message_id, mi.embedding, mi.created_at "
+                "FROM memory_items mi JOIN messages m ON mi.message_id = m.id "
+                "WHERE m.peer_id = ?",
+                (peer_id,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT id, content, item_type, source_peer, subject_peer, "
+                "attribution_type, topic_id, message_id, embedding, created_at "
+                "FROM memory_items"
+            ).fetchall()
 
         scored: list[tuple[float, MemoryItem, dict]] = []
 
@@ -864,7 +914,6 @@ class SqliteStore:
             )
             score = 0.0
             semantic_raw = semantic_weighted = 0.0
-            person_weighted = 0.0
 
             # Embedding similarity
             if query_embedding and row[8]:
@@ -873,12 +922,8 @@ class SqliteStore:
                 semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
                 score += semantic_weighted
 
-            # Peer filter
-            if peer_id and (item.source_peer == peer_id or item.subject_peer == peer_id):
-                person_weighted = w.get("person", _DEFAULT_WEIGHTS["person"])
-                score += person_weighted
-
-            # NOTE: no tag_overlap — items carry no tags.
+            # NOTE: no tag_overlap — items carry no tags. No person term —
+            # peer_id is already a hard SQL filter above (see search_clusters).
             # Temporal recency re-ranks relevant items only (see search_topics).
             # row[9] is the raw created_at string (item.timestamp is typed
             # datetime but actually carries this same string at runtime).
@@ -891,7 +936,6 @@ class SqliteStore:
                 "candidate_id": item.id,
                 "semantic_raw": semantic_raw,
                 "semantic_weighted": semantic_weighted,
-                "person_weighted": person_weighted,
                 "temporal_raw": temporal_raw,
                 "temporal_weighted": temporal_weighted,
                 "final_score": final_score,

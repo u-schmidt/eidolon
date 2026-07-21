@@ -143,6 +143,12 @@ class StorageProvider(Protocol):
     ) -> list[dict]:
         """Search topics by embedding similarity, tag overlap, peer, and recency.
 
+        ``peer_id``, when given, is a hard filter, not just a scoring
+        bonus — only that peer's topics are ever scanned, both to bound
+        the scan cost and so a different peer's topic can never surface
+        in these results regardless of how well it scores. ``peer_id=None``
+        searches every peer.
+
         ``weights`` overrides the per-dimension scoring weights
         (semantic, tag_overlap, person, temporal) when provided. The
         ``temporal`` term is a recency *re-ranking* signal — it only
@@ -299,6 +305,13 @@ class StorageProvider(Protocol):
         now: datetime | None = None,
     ) -> list[MemoryItem]:
         """Search memory items by embedding similarity, peer, and recency.
+
+        ``peer_id``, when given, is a hard filter joined through
+        ``messages`` (memory items carry no ``peer_id`` of their own, only
+        a ``message_id`` — ``messages.peer_id`` is the real identifier).
+        ``peer_id=None`` searches every peer. There is no ``person``
+        scoring dimension here (unlike ``search_topics``) — peer-scoping
+        is a hard prerequisite via the join, not a ranking signal.
 
         ``weights`` overrides the per-dimension scoring weights when
         provided. ``tag_overlap`` has no effect (memory items carry no

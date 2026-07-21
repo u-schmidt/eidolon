@@ -220,6 +220,32 @@ class TestTopics:
         assert len(results) == 1
         assert results[0]["peer_id"] == "user"
 
+    def test_search_topics_excludes_other_peers_even_with_strong_match(self, store: SqliteStore):
+        """peer_id is a hard SQL filter, not just a soft scoring bonus —
+        a different peer's topic must never surface regardless of how
+        well it scores on tags/semantics. Without this, one peer's
+        conversation could leak into another peer's retrieved context."""
+        store.create_topic("Bello", summary="", tags=["fitness"], peer_id="someone_else", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(1, "")
+        store.create_topic("Bello 2", summary="", tags=["fitness"], peer_id="user", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(2, "")
+
+        results = store.search_topics(query_embedding=[1.0, 0.0, 0.0], tags=["fitness"], peer_id="user")
+
+        assert [r["id"] for r in results] == [2]
+
+    def test_search_topics_with_no_peer_id_searches_every_peer(self, store: SqliteStore):
+        """peer_id=None keeps the pre-existing 'search everyone' behavior
+        for callers that intentionally omit it — not a new default."""
+        store.create_topic("Bello", summary="", tags=["fitness"], peer_id="someone_else")
+        store.close_topic(1, "")
+        store.create_topic("Bello 2", summary="", tags=["fitness"], peer_id="user")
+        store.close_topic(2, "")
+
+        results = store.search_topics(tags=["fitness"])
+
+        assert {r["id"] for r in results} == {1, 2}
+
     def test_search_topics_returns_correct_created_at(self, store: SqliteStore):
         store.create_topic("Bello", summary="", tags=["fitness"])
         store.close_topic(1, "")
@@ -559,31 +585,76 @@ class TestMemoryItems:
         assert isinstance(mid, int)
 
     def test_search_by_peer(self, store: SqliteStore):
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
         store.store_memory_item(MemoryItem(
             content="About Bello", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=msg_id, embedding=[1.0, 0.0, 0.0],
         ))
+        other_msg_id = store.store_message(turn_id=1, role="ai", content="hi", peer_id="someone_else")
         store.store_memory_item(MemoryItem(
             content="About Mampfi", item_type="essence",
             source_peer="ai", subject_peer="user", attribution_type="observation",
+            message_id=other_msg_id, embedding=[1.0, 0.0, 0.0],
         ))
 
-        # Without embedding, peer filter still works via score
-        results = store.search_memory_items(peer_id="user")
-        assert len(results) >= 1
+        results = store.search_memory_items(peer_id="user", query_embedding=[1.0, 0.0, 0.0])
+        assert [item.content for item in results] == ["About Bello"]
+
+    def test_search_memory_items_excludes_other_peers_even_with_matching_source_peer(self, store: SqliteStore):
+        """Regression: source_peer/subject_peer are always the fixed
+        "user"/"ai"/"other" extraction vocabulary, never the real peer_id
+        — an item belonging to a different real peer must never surface
+        just because its source_peer happens to say "user" too, even
+        with a strong semantic match."""
+        mine_msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        store.store_memory_item(MemoryItem(
+            content="Mine", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=mine_msg_id, embedding=[1.0, 0.0, 0.0],
+        ))
+        theirs_msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="telegram:999")
+        store.store_memory_item(MemoryItem(
+            content="Theirs", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=theirs_msg_id, embedding=[1.0, 0.0, 0.0],
+        ))
+
+        results = store.search_memory_items(peer_id="user", query_embedding=[1.0, 0.0, 0.0])
+        assert [item.content for item in results] == ["Mine"]
+
+    def test_search_memory_items_finds_items_for_a_real_non_literal_peer_id(self, store: SqliteStore):
+        """The messages join makes peer-scoping work for any real peer_id
+        — not just the literal string "user", which is all the old
+        source_peer/subject_peer comparison ever matched."""
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="telegram:12345")
+        store.store_memory_item(MemoryItem(
+            content="About a trip", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=msg_id, embedding=[1.0, 0.0, 0.0],
+        ))
+
+        results = store.search_memory_items(peer_id="telegram:12345", query_embedding=[1.0, 0.0, 0.0])
+        assert [item.content for item in results] == ["About a trip"]
 
     def test_search_memory_items_records_scoring_summary_event(self, store: SqliteStore):
+        msg_id1 = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
         store.store_memory_item(MemoryItem(
             content="About Bello", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=msg_id1, embedding=[1.0, 0.0, 0.0],
         ))
+        msg_id2 = store.store_message(turn_id=2, role="user", content="hi", peer_id="user")
         store.store_memory_item(MemoryItem(
             content="About Mampfi", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=msg_id2, embedding=[1.0, 0.0, 0.0],
         ))
 
         tracer = SpyTracer()
-        results = store.search_memory_items(peer_id="user", limit=1, tracer=tracer, request_id="req1")
+        results = store.search_memory_items(
+            peer_id="user", query_embedding=[1.0, 0.0, 0.0], limit=1, tracer=tracer, request_id="req1"
+        )
 
         assert len(results) == 1
         events = tracer.events_of_type("retrieval_scoring_summary")
@@ -598,11 +669,13 @@ class TestMemoryItems:
         assert included_flags.count(False) == 1
 
     def test_search_memory_items_no_tracer_does_not_raise(self, store: SqliteStore):
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
         store.store_memory_item(MemoryItem(
             content="About Bello", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=msg_id, embedding=[1.0, 0.0, 0.0],
         ))
-        results = store.search_memory_items(peer_id="user")
+        results = store.search_memory_items(peer_id="user", query_embedding=[1.0, 0.0, 0.0])
         assert len(results) == 1
 
 
@@ -771,17 +844,20 @@ class TestTemporalScoring:
         assert results == []
 
     def test_reranks_equally_relevant_memory_items_by_recency(self, store: SqliteStore):
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
         old_id = store.store_memory_item(MemoryItem(
             content="old", item_type="essence", source_peer="user",
             subject_peer="user", attribution_type="self_statement",
+            message_id=msg_id, embedding=[1.0, 0.0, 0.0],
         ))
         new_id = store.store_memory_item(MemoryItem(
             content="new", item_type="essence", source_peer="user",
             subject_peer="user", attribution_type="self_statement",
+            message_id=msg_id, embedding=[1.0, 0.0, 0.0],
         ))
         store._conn.execute("UPDATE memory_items SET created_at = ? WHERE id = ?", ("2020-01-01 00:00:00", old_id))
         store._conn.execute("UPDATE memory_items SET created_at = ? WHERE id = ?", ("2025-12-31 00:00:00", new_id))
         store._conn.commit()
 
-        results = store.search_memory_items(peer_id="user", now=self._NOW)
+        results = store.search_memory_items(peer_id="user", query_embedding=[1.0, 0.0, 0.0], now=self._NOW)
         assert [item.id for item in results] == [new_id, old_id]
