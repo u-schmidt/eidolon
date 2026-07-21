@@ -30,7 +30,7 @@ vec = [
 testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
-include = ["core*", "providers*", "adapters*", "tools*"]
+include = ["core*", "adapters*", "tools*"]
 exclude = ["data*", "tests*"]
 
 [tool.ruff]
