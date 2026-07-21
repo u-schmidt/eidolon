@@ -70,6 +70,8 @@ rsync -a --delete \
     --exclude='tests' \
     --exclude='tools' \
     --exclude='.pytest_cache' \
+    --exclude='.ruff_cache' \
+    --exclude='.mypy_cache' \
     --exclude='eidolon.egg-info' \
     --exclude='__pycache__' \
     --exclude='*.pyc' \

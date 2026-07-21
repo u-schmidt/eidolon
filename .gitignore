@@ -32,6 +32,14 @@ htmlcov/
 .pytest_cache/
 data/
 
+# Linting / type-checking caches
+.ruff_cache/
+.mypy_cache/
+
 # Eval run artifacts (scripts under tools/eval/scripts/ stay tracked)
 tools/eval/reports/*
 !tools/eval/reports/.gitkeep
+
+# Claude Code local settings — personal, machine-specific (permissions,
+# local paths); a shared .claude/settings.json would be fine to commit
+.claude/settings.local.json
