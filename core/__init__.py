@@ -32,6 +32,7 @@ from __future__ import annotations
 import time
 import uuid
 
+from core.consolidation.cluster_consolidator import ClusterConsolidator
 from core.consolidation.fact_consolidator import FactConsolidator
 from core.detection.topic_detector import TopicDetector
 from core.extraction.fragmentary_extractor import FragmentaryExtractor
@@ -83,6 +84,13 @@ class Eidolon:
     facts_target_max : int
         Soft guidance passed to ``FactConsolidator`` for the target
         profile size — not enforced in code, only steered via its prompt.
+    clustering_enabled : bool
+        Whether a closed topic is evaluated for recurring-thread
+        clustering (see ``store_turn``'s step 1b and
+        ``ClusterConsolidator``).
+    clustering_shortlist_size : int
+        Max candidates shown to the LLM per topic close — see
+        ``ClusterConsolidator``.
     tracer : Tracer | None
         Debug tracer recording per-step prompts/responses/scores/durations
         and otherwise-silent failures. Defaults to a no-op tracer — off
@@ -99,6 +107,8 @@ class Eidolon:
         retrieval_limits: dict[str, int] | None = None,
         facts_consolidation_interval: int = 20,
         facts_target_max: int = 100,
+        clustering_enabled: bool = True,
+        clustering_shortlist_size: int = 5,
         tracer: Tracer | None = None,
     ) -> None:
         self._storage = storage
@@ -112,7 +122,11 @@ class Eidolon:
         self._fact_consolidator = FactConsolidator(
             storage, llm, target_max=facts_target_max, tracer=self._tracer
         )
+        self._cluster_consolidator = ClusterConsolidator(
+            storage, llm, embedder, shortlist_size=clustering_shortlist_size, tracer=self._tracer
+        )
         self._consolidation_interval = facts_consolidation_interval
+        self._clustering_enabled = clustering_enabled
         self._embedder = embedder
         self._language = language
 
@@ -360,7 +374,16 @@ class Eidolon:
         # topic is never left stuck 'active' forever.
         if old_topic_id is not None and new_topic_label is not None:
             summarized = self._summarizer.summarize(old_topic_id, request_id=request_id, session_id=session_id)
-            if not summarized:
+            if summarized:
+                # 1b. Evaluate the freshly-closed topic for recurring-thread
+                # clustering — only meaningful with a real summary (the
+                # fallback path below has nothing worth clustering). See
+                # ClusterConsolidator.
+                if self._clustering_enabled:
+                    self._cluster_consolidator.consolidate_topic(
+                        old_topic_id, peer_id, request_id=request_id, session_id=session_id
+                    )
+            else:
                 self._storage.close_topic(old_topic_id, f"Continued to: {new_topic_label}")
 
         # 2. Create new topic if topic changed
@@ -528,6 +551,16 @@ class Eidolon:
             {"peer_id": peer_id, "category": category, "key": key, "value": value, "action": action},
             request_id=request_id or _new_request_id(), session_id=session_id,
         )
+
+    def inspect_cluster(self, cluster_id: int) -> list[dict]:
+        """Return every topic assigned to `cluster_id`, oldest first.
+
+        For explicit user-driven inspection (the `eidolon_inspect_cluster`
+        tool) — a cluster's injected summary is deliberately compact, this
+        gives the full member-topic breakdown (label, summary, closed
+        date) behind it on demand.
+        """
+        return self._storage.get_topics_by_cluster(cluster_id)
 
     # ── Internal Helpers ────────────────────────────────────
 

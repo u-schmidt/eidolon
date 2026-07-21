@@ -82,6 +82,28 @@ MIGRATIONS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS idx_topics_peer_status ON topics(peer_id, status);
     CREATE INDEX IF NOT EXISTS idx_memory_items_subject_type ON memory_items(subject_peer, item_type);
     """,
+    6: """
+    -- Recurring-topic clustering (Phase 2 workstream #5). A topic joins
+    -- at most one cluster; once it does, it's excluded from individual
+    -- topic retrieval (see search_topics/get_recent_topics) in favor of
+    -- its cluster's consolidated summary.
+    CREATE TABLE IF NOT EXISTS topic_clusters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        peer_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        tags TEXT DEFAULT '[]',
+        embedding BLOB,
+        topic_count INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    ALTER TABLE topics ADD COLUMN cluster_id INTEGER REFERENCES topic_clusters(id);
+
+    CREATE INDEX IF NOT EXISTS idx_topics_cluster ON topics(cluster_id);
+    CREATE INDEX IF NOT EXISTS idx_topic_clusters_peer ON topic_clusters(peer_id);
+    """,
 }
 
 

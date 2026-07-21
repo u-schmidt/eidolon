@@ -107,6 +107,8 @@ class RetrievalConfig:
     memory_items_new: int = 4         # was hardcoded 3
     memory_items_continue: int = 2    # was hardcoded 1
     recent_topics: int = 2            # most-recently-closed topics, regardless of relevance
+    cluster_summaries: int = 3        # recurring-topic clusters competing for injection per turn
+    cluster_recent_topics: int = 2    # member topics shown in a cluster's "newest: ..." tail
 
 
 @dataclass
@@ -118,6 +120,17 @@ class FactsConfig:
 
     consolidation_interval: int = 20  # reconcile every N user turns
     target_max: int = 100  # soft guidance to the LLM, not hard-enforced
+
+
+@dataclass
+class ClusteringConfig:
+    """Recurring-topic clustering configuration.
+
+    See ``core/consolidation/cluster_consolidator.py``.
+    """
+
+    enabled: bool = True
+    shortlist_size: int = 5  # candidates shown to the LLM per topic close
 
 
 @dataclass
@@ -146,6 +159,7 @@ class EidolonConfig:
     models: dict[str, ModelConfig] = field(default_factory=default_models)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
     facts: FactsConfig = field(default_factory=FactsConfig)
+    clustering: ClusteringConfig = field(default_factory=ClusteringConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     language: str = "en"
     timezone: str = "UTC"  # IANA name (e.g. "Europe/Berlin"); used to display env time
@@ -193,10 +207,16 @@ class EidolonConfig:
                 "memory_items_new": self.retrieval.memory_items_new,
                 "memory_items_continue": self.retrieval.memory_items_continue,
                 "recent_topics": self.retrieval.recent_topics,
+                "cluster_summaries": self.retrieval.cluster_summaries,
+                "cluster_recent_topics": self.retrieval.cluster_recent_topics,
             },
             "facts": {
                 "consolidation_interval": self.facts.consolidation_interval,
                 "target_max": self.facts.target_max,
+            },
+            "clustering": {
+                "enabled": self.clustering.enabled,
+                "shortlist_size": self.clustering.shortlist_size,
             },
             "debug": {
                 "enabled": self.debug.enabled,

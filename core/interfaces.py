@@ -154,16 +154,126 @@ class StorageProvider(Protocol):
         is recorded for the whole call, carrying the top scored candidates
         (with per-dimension breakdown) plus total/included counts.
 
+        Only considers topics not yet assigned to a cluster (see
+        ``search_clusters``) — a clustered topic is represented by its
+        cluster's consolidated summary instead of competing individually.
+
         Returns topic dicts ordered by relevance.
         """
         ...
 
     def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
-        """Return `peer_id`'s most recently closed topics, newest first.
+        """Return `peer_id`'s most recently closed, unclustered topics,
+        newest first.
 
         Pure recency, not relevance — used to surface "what we discussed
         last" alongside (and independent of) ``search_topics``'s
-        relevance ranking, which has no recency term.
+        relevance ranking, which has no recency term. Excludes clustered
+        topics for the same reason ``search_topics`` does.
+        """
+        ...
+
+    # ── Topic Clusters ─────────────────────────────────────
+
+    def create_cluster(
+        self,
+        peer_id: str,
+        label: str,
+        summary: str,
+        tags: list[str] | None = None,
+        embedding: list[float] | None = None,
+    ) -> int:
+        """Create a new topic cluster and return its id. ``topic_count``
+        starts at 0 — the caller assigns member topics separately via
+        ``assign_topic_to_cluster``."""
+        ...
+
+    def get_cluster(self, cluster_id: int) -> dict | None:
+        """Return a cluster dict by id, or None if not found."""
+        ...
+
+    def update_cluster(
+        self,
+        cluster_id: int,
+        summary: str,
+        label: str | None = None,
+        tags: list[str] | None = None,
+        embedding: list[float] | None = None,
+    ) -> None:
+        """Rewrite a cluster's summary in place (and optionally its label/
+        tags/embedding). Bumps ``updated_at``. Mirrors
+        ``FactConsolidator``'s update-in-place promise — the summary is
+        replaced, not appended to."""
+        ...
+
+    def assign_topic_to_cluster(self, topic_id: int, cluster_id: int) -> None:
+        """Assign ``topic_id`` to ``cluster_id`` and increment the
+        cluster's ``topic_count``. Once assigned, the topic is excluded
+        from ``search_topics``/``get_recent_topics``."""
+        ...
+
+    def get_topics_by_cluster(self, cluster_id: int) -> list[dict]:
+        """Return every topic assigned to ``cluster_id``, oldest first —
+        the full member list, for the ``eidolon_inspect_cluster`` tool."""
+        ...
+
+    def get_recent_topics_in_cluster(self, cluster_id: int, limit: int) -> list[dict]:
+        """Return ``cluster_id``'s most recently closed member topics,
+        newest first — the short "newest: ..." tail shown alongside a
+        cluster's summary in context injection."""
+        ...
+
+    def search_clusters(
+        self,
+        query_embedding: list[float] | None = None,
+        tags: list[str] | None = None,
+        peer_id: str | None = None,
+        limit: int = 5,
+        weights: dict[str, float] | None = None,
+        tracer: Tracer | None = None,
+        request_id: str | None = None,
+        now: datetime | None = None,
+    ) -> list[dict]:
+        """Search topic clusters by embedding similarity, tag overlap, and
+        recency — same scoring formula as ``search_topics``, scanning
+        ``topic_clusters`` instead of ``topics``.
+
+        Unlike ``search_topics``, ``peer_id`` is a hard SQL filter, not a
+        soft scoring bonus — clusters never merge across peers.
+
+        Returns cluster dicts ordered by relevance.
+        """
+        ...
+
+    def search_cluster_candidates(
+        self,
+        topic_id: int,
+        peer_id: str,
+        limit: int = 5,
+        weights: dict[str, float] | None = None,
+        tracer: Tracer | None = None,
+        request_id: str | None = None,
+        now: datetime | None = None,
+    ) -> list[dict]:
+        """Shortlist candidates for ``topic_id`` to join or seed a
+        cluster — the bootstrap step run by ``ClusterConsolidator`` at
+        topic-close time. Looks up ``topic_id``'s own stored embedding/
+        tags internally (set by ``TopicSummarizer`` when it closed).
+
+        Scores BOTH still-unclustered closed topics (excluding
+        ``topic_id`` itself) and existing ``topic_clusters`` rows with
+        the same formula as ``search_topics``/``search_clusters``, so a
+        first-ever match between two never-before-clustered topics is
+        possible, not just growth of an existing cluster. Each result
+        dict carries ``candidate_kind: "topic" | "cluster"`` alongside
+        its normal fields, so the caller knows how to apply an LLM's
+        match decision. Hard-filtered to ``peer_id`` in SQL, same
+        reasoning as ``search_clusters``.
+
+        Returns candidate dicts ordered by relevance; empty if nothing
+        scores above zero (including when ``topic_id`` has no stored
+        embedding) — the caller's cue to skip the LLM call entirely for
+        a topic with nothing to merge into.
         """
         ...
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from core.context_formatter import ContextFormatter
-from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, RelatedTopic
+from core.models import ClusterSummary, ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, RelatedTopic
 
 _PREAMBLE = ContextFormatter._PREAMBLE
 
@@ -75,6 +75,56 @@ class TestContextFormatter:
         )
         assert ContextFormatter.format(bundle) == (
             f"{_PREAMBLE}\n\n[Recently discussed]\n- Recent one\n\n[Related topics]\n- Related one"
+        )
+
+    def test_formats_cluster_summary_without_recent_topics(self):
+        bundle = ContextBundle(
+            cluster_summaries=[
+                ClusterSummary(cluster_id=17, label="Bike purchase", summary="User bought a new bike.", topic_count=2)
+            ]
+        )
+        assert ContextFormatter.format(bundle) == (
+            f"{_PREAMBLE}\n\n[Recurring topics]\n"
+            "- Cluster #17 Bike purchase: User bought a new bike. — holding 2 topics"
+        )
+
+    def test_formats_cluster_summary_with_recent_topics(self):
+        bundle = ContextBundle(
+            cluster_summaries=[
+                ClusterSummary(
+                    cluster_id=17, label="Bike purchase", summary="User bought a new bike.", topic_count=2,
+                    recent_topics=[
+                        RelatedTopic(topic_id=1, label="Bought the bike", summary="fallback"),
+                        RelatedTopic(topic_id=2, label="First ride", summary="fallback"),
+                    ],
+                )
+            ]
+        )
+        assert ContextFormatter.format(bundle) == (
+            f"{_PREAMBLE}\n\n[Recurring topics]\n"
+            "- Cluster #17 Bike purchase: User bought a new bike. — holding 2 topics, "
+            "newest: Bought the bike, First ride"
+        )
+
+    def test_cluster_recent_topic_falls_back_to_summary_when_no_label(self):
+        bundle = ContextBundle(
+            cluster_summaries=[
+                ClusterSummary(
+                    cluster_id=17, label="Bike purchase", summary="summary", topic_count=1,
+                    recent_topics=[RelatedTopic(topic_id=1, summary="Bought a bike near Fischmarkt")],
+                )
+            ]
+        )
+        assert "newest: Bought a bike near Fischmarkt" in ContextFormatter.format(bundle)
+
+    def test_related_topics_come_before_recurring_topics(self):
+        bundle = ContextBundle(
+            related_topics=[RelatedTopic(topic_id=1, summary="Related one")],
+            cluster_summaries=[ClusterSummary(cluster_id=1, label="X", summary="Y", topic_count=1)],
+        )
+        assert ContextFormatter.format(bundle) == (
+            f"{_PREAMBLE}\n\n[Related topics]\n- Related one\n\n"
+            "[Recurring topics]\n- Cluster #1 X: Y — holding 1 topics"
         )
 
     def test_joins_sections_with_blank_line(self):
@@ -204,6 +254,22 @@ class TestContextFormatterRelativeAge:
         )
         assert ContextFormatter.format(bundle, now=self.NOW) == (
             f"{_PREAMBLE}\n\n[Memory fragments]\n- [essence] (user about user): Loves Bello [today]"
+        )
+
+    def test_cluster_recent_topic_age_suffix(self):
+        bundle = ContextBundle(
+            cluster_summaries=[
+                ClusterSummary(
+                    cluster_id=17, label="Bike purchase", summary="summary", topic_count=1,
+                    recent_topics=[
+                        RelatedTopic(topic_id=1, label="Bought the bike", summary="fallback", timestamp="2026-07-18 09:00:00"),
+                    ],
+                )
+            ]
+        )
+        assert ContextFormatter.format(bundle, now=self.NOW) == (
+            f"{_PREAMBLE}\n\n[Recurring topics]\n"
+            "- Cluster #17 Bike purchase: summary — holding 1 topics, newest: Bought the bike [yesterday]"
         )
 
     def test_no_age_suffix_when_timestamp_missing(self):

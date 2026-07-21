@@ -191,9 +191,13 @@ class EidolonMemoryProvider(MemoryProvider):
                 "memory_items_new": config.retrieval.memory_items_new,
                 "memory_items_continue": config.retrieval.memory_items_continue,
                 "recent_topics": config.retrieval.recent_topics,
+                "cluster_summaries": config.retrieval.cluster_summaries,
+                "cluster_recent_topics": config.retrieval.cluster_recent_topics,
             },
             facts_consolidation_interval=config.facts.consolidation_interval,
             facts_target_max=config.facts.target_max,
+            clustering_enabled=config.clustering.enabled,
+            clustering_shortlist_size=config.clustering.shortlist_size,
             tracer=tracer,
         )
 
@@ -390,6 +394,25 @@ class EidolonMemoryProvider(MemoryProvider):
                 },
             },
             {
+                "name": "eidolon_inspect_cluster",
+                "description": (
+                    "Look inside a recurring-topic cluster shown in memory context "
+                    "(e.g. 'Cluster #17') to see the full list of individual past "
+                    "topics it consolidates — each with its own summary and date. "
+                    "Use this when the consolidated summary isn't enough detail."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "cluster_id": {
+                            "type": "integer",
+                            "description": "The numeric cluster id shown in memory context, e.g. 17 for 'Cluster #17'.",
+                        },
+                    },
+                    "required": ["cluster_id"],
+                },
+            },
+            {
                 "name": "eidolon_correct_fact",
                 "description": (
                     "Correct or remove one fact in the user's durable profile "
@@ -423,6 +446,8 @@ class EidolonMemoryProvider(MemoryProvider):
         """Handle a tool call for one of this provider's tools."""
         if tool_name == "eidolon_search":
             return self._handle_search(args)
+        if tool_name == "eidolon_inspect_cluster":
+            return self._handle_inspect_cluster(args)
         if tool_name == "eidolon_correct_fact":
             return self._handle_correct_fact(args)
         raise NotImplementedError(
@@ -475,6 +500,34 @@ class EidolonMemoryProvider(MemoryProvider):
 
         except Exception as e:
             return f'{{"error": "Search failed: {e}"}}'
+
+    def _handle_inspect_cluster(self, args: dict[str, Any]) -> str:
+        """Handle eidolon_inspect_cluster tool call."""
+        if not self._eidolon or not self._initialized:
+            return json.dumps({"error": "Eidolon not initialized"})
+
+        cluster_id = args.get("cluster_id")
+        if not isinstance(cluster_id, int):
+            return json.dumps({"error": "cluster_id (integer) is required"})
+
+        try:
+            topics = self._eidolon.inspect_cluster(cluster_id)
+            return json.dumps(
+                {
+                    "cluster_id": cluster_id,
+                    "topics": [
+                        {
+                            "label": t.get("label"),
+                            "summary": t.get("summary"),
+                            "closed_at": t.get("closed_at"),
+                        }
+                        for t in topics
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return json.dumps({"error": f"Inspect failed: {e}"})
 
     def _handle_correct_fact(self, args: dict[str, Any]) -> str:
         """Handle eidolon_correct_fact tool call."""

@@ -10,7 +10,7 @@ import time
 from datetime import UTC, datetime
 
 from core.interfaces import EmbedderProvider, StorageProvider, Tracer
-from core.models import ContextBundle, EnvironmentSnapshot, RelatedTopic
+from core.models import ClusterSummary, ContextBundle, EnvironmentSnapshot, RelatedTopic
 from core.stop_words import get_stop_words
 from core.trace.null_tracer import NullTracer
 
@@ -40,8 +40,10 @@ class AssociativeRetriever:
     limits : dict | None
         Optional result-count overrides, keyed by "related_topics_new",
         "related_topics_continue", "memory_items_new", "memory_items_continue",
-        "recent_topics". Defaults: 5/2 for topics, 3/1 for items
-        (new-topic/continue), 2 for recent_topics.
+        "recent_topics", "cluster_summaries", "cluster_recent_topics".
+        Defaults: 5/2 for topics, 3/1 for items (new-topic/continue), 2
+        for recent_topics, 3 for cluster_summaries, 2 for
+        cluster_recent_topics.
     tracer : Tracer | None
         Debug tracer recording the retrieval summary and (when the storage
         backend supports it) per-candidate score breakdowns. Defaults to a
@@ -71,6 +73,8 @@ class AssociativeRetriever:
             "memory_items_new": 3,
             "memory_items_continue": 1,
             "recent_topics": 2,
+            "cluster_summaries": 3,
+            "cluster_recent_topics": 2,
         }
         self._stop_words = get_stop_words(language)
         self._tracer = tracer or NullTracer()
@@ -209,6 +213,40 @@ class AssociativeRetriever:
             now=now,
         )
 
+        # 6. Search recurring-topic clusters — same query embedding/tags,
+        # one limit regardless of new-vs-continue (clusters are longer-
+        # lived threads, not as turn-sensitive as raw topic counts).
+        cluster_results = self._storage.search_clusters(
+            query_embedding=query_embedding,
+            tags=tags,
+            peer_id=peer_id,
+            limit=self._limits.get("cluster_summaries", 3),
+            weights=self._weights,
+            tracer=self._tracer,
+            request_id=request_id,
+            now=now,
+        )
+        cluster_recent_limit = self._limits.get("cluster_recent_topics", 2)
+        cluster_summaries = [
+            ClusterSummary(
+                cluster_id=c["id"],
+                label=c["label"],
+                summary=c["summary"],
+                topic_count=c["topic_count"],
+                recent_topics=[
+                    RelatedTopic(
+                        topic_id=t["id"],
+                        summary=t["summary"],
+                        tags=t.get("tags", []),
+                        timestamp=t.get("closed_at"),
+                        label=t.get("label"),
+                    )
+                    for t in self._storage.get_recent_topics_in_cluster(c["id"], cluster_recent_limit)
+                ],
+            )
+            for c in cluster_results
+        ]
+
         self._tracer.record(
             "context_retrieval",
             {
@@ -247,6 +285,10 @@ class AssociativeRetriever:
                     }
                     for mi in memory_items
                 ],
+                "cluster_summaries": [
+                    {"id": c.cluster_id, "label": c.label, "summary": c.summary, "topic_count": c.topic_count}
+                    for c in cluster_summaries
+                ],
             },
             request_id=request_id,
             session_id=session_id,
@@ -260,6 +302,7 @@ class AssociativeRetriever:
             related_topics=related_topics,
             recent_topics=recent_topics,
             memory_items=memory_items,
+            cluster_summaries=cluster_summaries,
         )
 
     @staticmethod

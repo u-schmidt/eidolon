@@ -89,6 +89,8 @@ def main() -> None:
         language=config.language,
         facts_consolidation_interval=config.facts.consolidation_interval,
         facts_target_max=config.facts.target_max,
+        clustering_enabled=config.clustering.enabled,
+        clustering_shortlist_size=config.clustering.shortlist_size,
         tracer=tracer,
     )
 

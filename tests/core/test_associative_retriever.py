@@ -21,6 +21,8 @@ class MockStorage:
         self.topics_by_id: dict[int, dict] = {}
         self.recent_topics_data: list[dict] = []
         self.memory_items: list[MemoryItem] = []
+        self.clusters: list[dict] = []
+        self.cluster_recent_topics: dict[int, list[dict]] = {}
         self.last_recent_topics_peer_id: str | None = None
         self.last_recent_topics_limit: int | None = None
         self.last_query_embedding: list[float] | None = None
@@ -73,6 +75,26 @@ class MockStorage:
         self.last_recent_topics_peer_id = peer_id
         self.last_recent_topics_limit = limit
         return self.recent_topics_data[:limit]
+
+    def search_clusters(
+        self,
+        query_embedding: list[float] | None = None,
+        tags: list[str] | None = None,
+        peer_id: str | None = None,
+        limit: int = 5,
+        weights: dict[str, float] | None = None,
+        tracer=None,
+        request_id: str | None = None,
+        now=None,
+    ) -> list[dict]:
+        self.last_cluster_query_embedding = query_embedding
+        self.last_cluster_tags = tags
+        self.last_cluster_peer_id = peer_id
+        self.last_cluster_limit = limit
+        return self.clusters[:limit]
+
+    def get_recent_topics_in_cluster(self, cluster_id: int, limit: int) -> list[dict]:
+        return self.cluster_recent_topics.get(cluster_id, [])[:limit]
 
     def store_memory_item(self, item: MemoryItem) -> int:
         return 1
@@ -680,4 +702,100 @@ class TestAssociativeRetrieverRecentTopics:
         payload = tracer.events_of_type("context_retrieval")[0]["payload"]
         assert payload["recent_topics"] == [
             {"id": 9, "label": "Last week", "summary": "About last week", "tags": [], "timestamp": "t1"}
+        ]
+
+
+class TestAssociativeRetrieverClusters:
+    def test_cluster_summaries_populated_from_storage(self):
+        storage = MockStorage()
+        storage.clusters = [
+            {"id": 17, "label": "Bike purchase", "summary": "User bought a new bike.", "topic_count": 3},
+        ]
+        storage.cluster_recent_topics = {
+            17: [
+                {"id": 1, "label": "Bought the bike", "summary": "fallback", "tags": [], "closed_at": "t1"},
+            ]
+        }
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        assert len(bundle.cluster_summaries) == 1
+        cluster = bundle.cluster_summaries[0]
+        assert cluster.cluster_id == 17
+        assert cluster.label == "Bike purchase"
+        assert cluster.topic_count == 3
+        assert len(cluster.recent_topics) == 1
+        assert cluster.recent_topics[0].topic_id == 1
+        assert cluster.recent_topics[0].label == "Bought the bike"
+
+    def test_cluster_query_scoped_to_peer(self):
+        storage = MockStorage()
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        retriever.retrieve(
+            message="hi", peer_id="alice", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        assert storage.last_cluster_peer_id == "alice"
+
+    def test_cluster_summaries_respect_configured_limit(self):
+        storage = MockStorage()
+        storage.clusters = [
+            {"id": i, "label": f"Cluster {i}", "summary": "summary", "topic_count": 1} for i in range(5)
+        ]
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder, limits={
+            "related_topics_new": 5, "related_topics_continue": 2,
+            "memory_items_new": 3, "memory_items_continue": 1,
+            "recent_topics": 2, "cluster_summaries": 2, "cluster_recent_topics": 2,
+        })
+
+        bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        assert len(bundle.cluster_summaries) == 2
+
+    def test_cluster_summaries_limit_defaults_when_not_in_custom_limits(self):
+        """Same backward-compat guarantee as recent_topics — a limits dict
+        missing the cluster keys must fall back to defaults, not KeyError."""
+        storage = MockStorage()
+        storage.clusters = [
+            {"id": i, "label": f"Cluster {i}", "summary": "summary", "topic_count": 1} for i in range(5)
+        ]
+        embedder = MockEmbedder()
+        limits = {
+            "related_topics_new": 5, "related_topics_continue": 2,
+            "memory_items_new": 3, "memory_items_continue": 1,
+        }
+        retriever = AssociativeRetriever(storage, embedder, limits=limits)
+
+        bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        assert len(bundle.cluster_summaries) == 3  # built-in default
+
+    def test_records_cluster_summaries_in_context_retrieval_event(self):
+        storage = MockStorage()
+        storage.clusters = [
+            {"id": 17, "label": "Bike purchase", "summary": "User bought a new bike.", "topic_count": 3},
+        ]
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        retriever = AssociativeRetriever(storage, embedder, tracer=tracer)
+
+        retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True, request_id="req1",
+        )
+
+        payload = tracer.events_of_type("context_retrieval")[0]["payload"]
+        assert payload["cluster_summaries"] == [
+            {"id": 17, "label": "Bike purchase", "summary": "User bought a new bike.", "topic_count": 3}
         ]

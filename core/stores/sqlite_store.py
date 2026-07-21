@@ -269,7 +269,7 @@ class SqliteStore:
         """
         rows = self._conn.execute(
             "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
-            "FROM topics WHERE status='closed' AND peer_id = ? "
+            "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ? "
             "ORDER BY closed_at DESC, id DESC LIMIT ?",
             (peer_id, limit),
         ).fetchall()
@@ -339,7 +339,7 @@ class SqliteStore:
             now = now.replace(tzinfo=UTC)
         rows = self._conn.execute(
             "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
-            "FROM topics WHERE status='closed'"
+            "FROM topics WHERE status='closed' AND cluster_id IS NULL"
         ).fetchall()
 
         scored: list[tuple[float, dict, dict]] = []
@@ -427,6 +427,360 @@ class SqliteStore:
             )
 
         return [t for _, t in results]
+
+    # ── Topic Clusters ─────────────────────────────────────
+
+    def create_cluster(
+        self,
+        peer_id: str,
+        label: str,
+        summary: str,
+        tags: list[str] | None = None,
+        embedding: list[float] | None = None,
+    ) -> int:
+        tags_json = json.dumps(tags or [])
+        embed_blob = _serialize_embedding(embedding) if embedding else None
+        cur = self._conn.execute(
+            "INSERT INTO topic_clusters (peer_id, label, summary, tags, embedding) VALUES (?, ?, ?, ?, ?)",
+            (peer_id, label, summary, tags_json, embed_blob),
+        )
+        self._conn.commit()
+        return cur.lastrowid  # type: ignore[return-value]
+
+    def get_cluster(self, cluster_id: int) -> dict | None:
+        row = self._conn.execute(
+            "SELECT id, peer_id, label, summary, tags, topic_count, created_at, updated_at "
+            "FROM topic_clusters WHERE id = ?",
+            (cluster_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "peer_id": row[1],
+            "label": row[2],
+            "summary": row[3],
+            "tags": json.loads(row[4]),
+            "topic_count": row[5],
+            "created_at": row[6],
+            "updated_at": row[7],
+        }
+
+    def update_cluster(
+        self,
+        cluster_id: int,
+        summary: str,
+        label: str | None = None,
+        tags: list[str] | None = None,
+        embedding: list[float] | None = None,
+    ) -> None:
+        sets = ["summary = ?", "updated_at = CURRENT_TIMESTAMP"]
+        params: list = [summary]
+        if label is not None:
+            sets.append("label = ?")
+            params.append(label)
+        if tags is not None:
+            sets.append("tags = ?")
+            params.append(json.dumps(tags))
+        if embedding is not None:
+            sets.append("embedding = ?")
+            params.append(_serialize_embedding(embedding))
+        params.append(cluster_id)
+        self._conn.execute(f"UPDATE topic_clusters SET {', '.join(sets)} WHERE id = ?", params)
+        self._conn.commit()
+
+    def assign_topic_to_cluster(self, topic_id: int, cluster_id: int) -> None:
+        self._conn.execute("UPDATE topics SET cluster_id = ? WHERE id = ?", (cluster_id, topic_id))
+        self._conn.execute(
+            "UPDATE topic_clusters SET topic_count = topic_count + 1 WHERE id = ?", (cluster_id,)
+        )
+        self._conn.commit()
+
+    def get_topics_by_cluster(self, cluster_id: int) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
+            "FROM topics WHERE cluster_id = ? ORDER BY closed_at ASC, id ASC",
+            (cluster_id,),
+        ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "label": row[1],
+                "summary": row[2],
+                "tags": json.loads(row[3]),
+                "status": row[4],
+                "peer_id": row[5],
+                "created_at": row[6],
+                "closed_at": row[7],
+            }
+            for row in rows
+        ]
+
+    def get_recent_topics_in_cluster(self, cluster_id: int, limit: int) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
+            "FROM topics WHERE cluster_id = ? ORDER BY closed_at DESC, id DESC LIMIT ?",
+            (cluster_id, limit),
+        ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "label": row[1],
+                "summary": row[2],
+                "tags": json.loads(row[3]),
+                "status": row[4],
+                "peer_id": row[5],
+                "created_at": row[6],
+                "closed_at": row[7],
+            }
+            for row in rows
+        ]
+
+    def search_clusters(
+        self,
+        query_embedding: list[float] | None = None,
+        tags: list[str] | None = None,
+        peer_id: str | None = None,
+        limit: int = 5,
+        weights: dict[str, float] | None = None,
+        tracer: Tracer | None = None,
+        request_id: str | None = None,
+        now: datetime | None = None,
+    ) -> list[dict]:
+        """See StorageProvider.search_clusters. Same scoring shape as
+        search_topics, but scanning topic_clusters and hard-filtering
+        peer_id in SQL instead of scoring it as a soft "person" bonus —
+        clusters must never merge across peers.
+        """
+        w = weights or _DEFAULT_WEIGHTS
+        now = now or datetime.now(UTC)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+
+        if not peer_id:
+            return []
+
+        rows = self._conn.execute(
+            "SELECT id, peer_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
+            "FROM topic_clusters WHERE peer_id = ?",
+            (peer_id,),
+        ).fetchall()
+
+        scored: list[tuple[float, dict, dict]] = []
+
+        for row in rows:
+            cluster = {
+                "id": row[0],
+                "peer_id": row[1],
+                "label": row[2],
+                "summary": row[3],
+                "tags": json.loads(row[4]),
+                "topic_count": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
+            }
+            score = 0.0
+            semantic_raw = semantic_weighted = 0.0
+            tag_overlap_raw = tag_overlap_weighted = 0.0
+
+            if query_embedding and row[5]:
+                stored_emb = _deserialize_embedding(row[5])
+                semantic_raw = _cosine_similarity(query_embedding, stored_emb)
+                semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
+                score += semantic_weighted
+
+            if tags:
+                cluster_tags: list[str] = cluster["tags"]
+                overlap = len(set(tags) & set(cluster_tags))
+                if overlap > 0:
+                    tag_overlap_raw = overlap / max(len(tags), 1)
+                    tag_overlap_weighted = tag_overlap_raw * w.get(
+                        "tag_overlap", _DEFAULT_WEIGHTS["tag_overlap"]
+                    )
+                    score += tag_overlap_weighted
+
+            # No "person" term — peer_id is already a hard SQL filter above.
+            temporal_raw = _recency_score(cluster["updated_at"], now, _TEMPORAL_HALF_LIFE_DAYS)
+            temporal_weighted = temporal_raw * w.get("temporal", _DEFAULT_WEIGHTS["temporal"])
+            final_score = score + temporal_weighted if score > 0 else 0.0
+
+            breakdown = {
+                "candidate_type": "cluster",
+                "candidate_id": cluster["id"],
+                "semantic_raw": semantic_raw,
+                "semantic_weighted": semantic_weighted,
+                "tag_overlap_raw": tag_overlap_raw,
+                "tag_overlap_weighted": tag_overlap_weighted,
+                "temporal_raw": temporal_raw,
+                "temporal_weighted": temporal_weighted,
+                "final_score": final_score,
+            }
+            scored.append((final_score, cluster, breakdown))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        results = [(s, c) for s, c, _ in scored if s > 0][:limit]
+        included_ids = {c["id"] for _, c in results}
+
+        if tracer is not None:
+            positively_scored = [(s, b) for s, _, b in scored if s > 0]
+            top = positively_scored[: limit + _TRACE_TOP_K_PADDING]
+            for _, breakdown in top:
+                breakdown["included"] = breakdown["candidate_id"] in included_ids
+            tracer.record(
+                "retrieval_scoring_summary",
+                {
+                    "candidate_type": "cluster",
+                    "total_scored": len(positively_scored),
+                    "included_count": len(included_ids),
+                    "top_candidates": [b for _, b in top],
+                },
+                request_id=request_id,
+            )
+
+        return [c for _, c in results]
+
+    def search_cluster_candidates(
+        self,
+        topic_id: int,
+        peer_id: str,
+        limit: int = 5,
+        weights: dict[str, float] | None = None,
+        tracer: Tracer | None = None,
+        request_id: str | None = None,
+        now: datetime | None = None,
+    ) -> list[dict]:
+        """See StorageProvider.search_cluster_candidates. Scores both raw
+        unclustered topics and existing clusters against topic_id's own
+        stored embedding/tags, so a first-ever pair can form a brand new
+        cluster and not just grow an existing one.
+        """
+        w = weights or _DEFAULT_WEIGHTS
+        now = now or datetime.now(UTC)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+
+        own_row = self._conn.execute(
+            "SELECT embedding, tags FROM topics WHERE id = ?", (topic_id,)
+        ).fetchone()
+        if own_row is None or own_row[0] is None:
+            return []
+        query_embedding = _deserialize_embedding(own_row[0])
+        query_tags: list[str] = json.loads(own_row[1])
+
+        scored: list[tuple[float, dict, dict]] = []
+
+        topic_rows = self._conn.execute(
+            "SELECT id, label, summary, tags, embedding, created_at, closed_at "
+            "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ? AND id != ?",
+            (peer_id, topic_id),
+        ).fetchall()
+        for row in topic_rows:
+            candidate = {
+                "candidate_kind": "topic",
+                "id": row[0],
+                "label": row[1],
+                "summary": row[2],
+                "tags": json.loads(row[3]),
+                "topic_count": 1,
+            }
+            score, breakdown = self._score_cluster_candidate(
+                candidate, row[4], row[6], query_embedding, query_tags, w, now
+            )
+            scored.append((score, candidate, breakdown))
+
+        cluster_rows = self._conn.execute(
+            "SELECT id, label, summary, tags, embedding, updated_at "
+            "FROM topic_clusters WHERE peer_id = ?",
+            (peer_id,),
+        ).fetchall()
+        for row in cluster_rows:
+            cluster_full = self.get_cluster(row[0])
+            candidate = {
+                "candidate_kind": "cluster",
+                "id": row[0],
+                "label": row[1],
+                "summary": row[2],
+                "tags": json.loads(row[3]),
+                "topic_count": cluster_full["topic_count"] if cluster_full else 0,
+            }
+            score, breakdown = self._score_cluster_candidate(
+                candidate, row[4], row[5], query_embedding, query_tags, w, now
+            )
+            scored.append((score, candidate, breakdown))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        results = [(s, c) for s, c, _ in scored if s > 0][:limit]
+        included_ids = {(c["candidate_kind"], c["id"]) for _, c in results}
+
+        if tracer is not None:
+            positively_scored = [(s, b) for s, _, b in scored if s > 0]
+            top = positively_scored[: limit + _TRACE_TOP_K_PADDING]
+            for _, breakdown in top:
+                breakdown["included"] = (breakdown["candidate_kind"], breakdown["candidate_id"]) in included_ids
+            tracer.record(
+                "retrieval_scoring_summary",
+                {
+                    "candidate_type": "cluster_candidate",
+                    "topic_id": topic_id,
+                    "total_scored": len(positively_scored),
+                    "included_count": len(included_ids),
+                    "top_candidates": [b for _, b in top],
+                },
+                request_id=request_id,
+            )
+
+        return [c for _, c in results]
+
+    @staticmethod
+    def _score_cluster_candidate(
+        candidate: dict,
+        embedding_blob: bytes | None,
+        recency_timestamp: str | None,
+        query_embedding: list[float],
+        query_tags: list[str],
+        weights: dict[str, float],
+        now: datetime,
+    ) -> tuple[float, dict]:
+        """Shared scoring formula for one search_cluster_candidates row —
+        semantic + tag_overlap + temporal, same shape as search_topics/
+        search_clusters (no "person" term; the caller already scopes the
+        query to one peer_id in SQL)."""
+        score = 0.0
+        semantic_raw = semantic_weighted = 0.0
+        tag_overlap_raw = tag_overlap_weighted = 0.0
+
+        if embedding_blob:
+            stored_emb = _deserialize_embedding(embedding_blob)
+            semantic_raw = _cosine_similarity(query_embedding, stored_emb)
+            semantic_weighted = semantic_raw * weights.get("semantic", _DEFAULT_WEIGHTS["semantic"])
+            score += semantic_weighted
+
+        if query_tags:
+            overlap = len(set(query_tags) & set(candidate["tags"]))
+            if overlap > 0:
+                tag_overlap_raw = overlap / max(len(query_tags), 1)
+                tag_overlap_weighted = tag_overlap_raw * weights.get(
+                    "tag_overlap", _DEFAULT_WEIGHTS["tag_overlap"]
+                )
+                score += tag_overlap_weighted
+
+        temporal_raw = _recency_score(recency_timestamp, now, _TEMPORAL_HALF_LIFE_DAYS)
+        temporal_weighted = temporal_raw * weights.get("temporal", _DEFAULT_WEIGHTS["temporal"])
+        final_score = score + temporal_weighted if score > 0 else 0.0
+
+        breakdown = {
+            "candidate_type": "cluster_candidate",
+            "candidate_kind": candidate["candidate_kind"],
+            "candidate_id": candidate["id"],
+            "semantic_raw": semantic_raw,
+            "semantic_weighted": semantic_weighted,
+            "tag_overlap_raw": tag_overlap_raw,
+            "tag_overlap_weighted": tag_overlap_weighted,
+            "temporal_raw": temporal_raw,
+            "temporal_weighted": temporal_weighted,
+            "final_score": final_score,
+        }
+        return final_score, breakdown
 
     # ── Memory Items ───────────────────────────────────────
 

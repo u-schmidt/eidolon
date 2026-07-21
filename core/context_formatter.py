@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from core.models import ContextBundle, EnvironmentSnapshot, RelatedTopic
+from core.models import ClusterSummary, ContextBundle, EnvironmentSnapshot, RelatedTopic
 
 
 class ContextFormatter:
@@ -22,8 +22,9 @@ class ContextFormatter:
         "The following is background context recalled for this turn — not something the user just said. "
         "Facts are stable, durable information; recently discussed topics are what came up most recently "
         "regardless of relevance; related topics are past conversation summaries chosen for relevance to "
-        "this message; memory fragments are specific extracted moments. Use only what's relevant to the "
-        "current message."
+        "this message; recurring topics are consolidated narratives built from several related past "
+        "conversations on the same underlying subject; memory fragments are specific extracted moments. "
+        "Use only what's relevant to the current message."
     )
 
     @staticmethod
@@ -67,6 +68,10 @@ class ContextFormatter:
             lines = ContextFormatter._format_topic_lines(bundle.related_topics, now)
             parts.append("[Related topics]\n" + "\n".join(lines))
 
+        if bundle.cluster_summaries:
+            lines = ContextFormatter._format_cluster_lines(bundle.cluster_summaries, now)
+            parts.append("[Recurring topics]\n" + "\n".join(lines))
+
         if bundle.memory_items:
             item_lines = [
                 f"- [{mi.item_type}] ({mi.source_peer} about {mi.subject_peer}): {mi.content}"
@@ -89,6 +94,24 @@ class ContextFormatter:
             age = ContextFormatter._age_suffix(rt.timestamp, now)
             summary = f"{rt.label}: {rt.summary}" if rt.label else rt.summary
             lines.append(f"- {summary}{tag_str}{age}")
+        return lines
+
+    @staticmethod
+    def _format_cluster_lines(clusters: list[ClusterSummary], now: datetime) -> list[str]:
+        """Render each cluster as its consolidated summary plus a short
+        "newest: ..." tail of its most recently closed member topics —
+        the summary carries the narrative, the tail shows what's fresh.
+        """
+        lines = []
+        for c in clusters:
+            newest_bits = [
+                f"{rt.label or rt.summary}{ContextFormatter._age_suffix(rt.timestamp, now)}"
+                for rt in c.recent_topics
+            ]
+            newest = f", newest: {', '.join(newest_bits)}" if newest_bits else ""
+            lines.append(
+                f"- Cluster #{c.cluster_id} {c.label}: {c.summary} — holding {c.topic_count} topics{newest}"
+            )
         return lines
 
     @staticmethod

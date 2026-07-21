@@ -103,8 +103,12 @@ class ConfigLoader:
             "retrieval_memory_items_new": ("retrieval", "memory_items_new"),
             "retrieval_memory_items_continue": ("retrieval", "memory_items_continue"),
             "retrieval_recent_topics": ("retrieval", "recent_topics"),
+            "retrieval_cluster_summaries": ("retrieval", "cluster_summaries"),
+            "retrieval_cluster_recent_topics": ("retrieval", "cluster_recent_topics"),
             "facts_consolidation_interval": ("facts", "consolidation_interval"),
             "facts_target_max": ("facts", "target_max"),
+            "clustering_enabled": ("clustering", "enabled"),
+            "clustering_shortlist_size": ("clustering", "shortlist_size"),
             "debug_enabled": ("debug", "enabled"),
             "debug_trace_db_path": ("debug", "trace_db_path"),
             "language": ("language",),
@@ -160,8 +164,12 @@ class ConfigLoader:
             "retrieval_memory_items_new": ("retrieval", "memory_items_new"),
             "retrieval_memory_items_continue": ("retrieval", "memory_items_continue"),
             "retrieval_recent_topics": ("retrieval", "recent_topics"),
+            "retrieval_cluster_summaries": ("retrieval", "cluster_summaries"),
+            "retrieval_cluster_recent_topics": ("retrieval", "cluster_recent_topics"),
             "facts_consolidation_interval": ("facts", "consolidation_interval"),
             "facts_target_max": ("facts", "target_max"),
+            "clustering_enabled": ("clustering", "enabled"),
+            "clustering_shortlist_size": ("clustering", "shortlist_size"),
             "debug_enabled": ("debug", "enabled"),
             "debug_trace_db_path": ("debug", "trace_db_path"),
             "language": ("language",),
@@ -235,6 +243,8 @@ class ConfigLoader:
                 self._merge_into(config.retrieval, value)
             elif key == "facts" and isinstance(value, dict):
                 self._merge_into(config.facts, value)
+            elif key == "clustering" and isinstance(value, dict):
+                self._merge_into(config.clustering, value)
             elif key == "debug" and isinstance(value, dict):
                 self._merge_into(config.debug, value)
             elif hasattr(config, key):

@@ -68,6 +68,22 @@ class RelatedTopic:
 
 
 @dataclass
+class ClusterSummary:
+    """A consolidated narrative for a recurring topic thread.
+
+    Built by ``ClusterConsolidator`` from two or more related topics
+    that would otherwise compete individually in retrieval — see
+    ``core/consolidation/cluster_consolidator.py``.
+    """
+
+    cluster_id: int
+    label: str
+    summary: str
+    topic_count: int
+    recent_topics: list[RelatedTopic] = field(default_factory=list)
+
+
+@dataclass
 class Fact:
     """A structured, near-constant piece of information about a peer."""
 
@@ -91,7 +107,7 @@ class ContextBundle:
     current_topic_label: str | None = None
     related_topics: list[RelatedTopic] = field(default_factory=list)
     recent_topics: list[RelatedTopic] = field(default_factory=list)
-    cluster_summaries: list[str] = field(default_factory=list)  # V2
+    cluster_summaries: list[ClusterSummary] = field(default_factory=list)
     memory_items: list[MemoryItem] = field(default_factory=list)
 
 

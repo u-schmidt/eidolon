@@ -99,12 +99,24 @@ Examples:
                         help="Memory items to retrieve on a CONTINUE turn")
     parser.add_argument("--recent-topics", type=int, default=None, dest="retrieval_recent_topics",
                         help="Most-recently-discussed topics to inject, regardless of relevance")
+    parser.add_argument("--cluster-summaries", type=int, default=None, dest="retrieval_cluster_summaries",
+                        help="Recurring-topic clusters to inject per turn")
+    parser.add_argument("--cluster-recent-topics", type=int, default=None, dest="retrieval_cluster_recent_topics",
+                        help="Member topics shown in a cluster's 'newest: ...' tail")
 
     # Facts consolidation
     parser.add_argument("--facts-consolidation-interval", type=int, default=None,
                         help="Reconcile the durable facts profile every N user turns")
     parser.add_argument("--facts-target-max", type=int, default=None,
                         help="Soft target size for the durable facts profile")
+
+    # Recurring-topic clustering
+    parser.add_argument("--clustering-enabled", dest="clustering_enabled", action="store_true", default=None,
+                        help="Enable recurring-topic clustering (on by default)")
+    parser.add_argument("--no-clustering", dest="clustering_enabled", action="store_false",
+                        help="Disable recurring-topic clustering")
+    parser.add_argument("--clustering-shortlist-size", type=int, default=None,
+                        help="Candidates shown to the LLM per topic close for cluster matching")
 
     # General
     parser.add_argument("--language", default=None, help="Language code (default: en)")
@@ -160,6 +172,10 @@ def main() -> None:
         print(f"  {role.capitalize()}: {m.provider} / {m.model} ({m.base_url or '(no base_url)'})")
     print(f"  Language: {config.language}")
     print(f"  Timezone: {config.timezone}")
+    print(
+        f"  Clustering: {'ON' if config.clustering.enabled else 'OFF'} "
+        f"(shortlist size {config.clustering.shortlist_size})"
+    )
     if config.debug.enabled:
         print(f"  Debug tracing: ON ({config.debug.trace_db_path})")
 
@@ -192,9 +208,13 @@ def main() -> None:
             "memory_items_new": config.retrieval.memory_items_new,
             "memory_items_continue": config.retrieval.memory_items_continue,
             "recent_topics": config.retrieval.recent_topics,
+            "cluster_summaries": config.retrieval.cluster_summaries,
+            "cluster_recent_topics": config.retrieval.cluster_recent_topics,
         },
         facts_consolidation_interval=config.facts.consolidation_interval,
         facts_target_max=config.facts.target_max,
+        clustering_enabled=config.clustering.enabled,
+        clustering_shortlist_size=config.clustering.shortlist_size,
         tracer=tracer,
     )
 

@@ -37,6 +37,9 @@ class MockEidolon:
         self.request_ids_seen: list[str | None] = []
         self.correct_fact_calls = 0
         self.last_correct_fact_args: tuple | None = None
+        self.inspect_cluster_calls = 0
+        self.last_inspect_cluster_id: int | None = None
+        self.cluster_topics: list[dict] = []
 
     def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
         self.get_active_topic_calls += 1
@@ -131,6 +134,11 @@ class MockEidolon:
     ) -> None:
         self.correct_fact_calls += 1
         self.last_correct_fact_args = (peer_id, category, key, value)
+
+    def inspect_cluster(self, cluster_id: int) -> list[dict]:
+        self.inspect_cluster_calls += 1
+        self.last_inspect_cluster_id = cluster_id
+        return self.cluster_topics
 
 
 class MockStore:
@@ -368,15 +376,18 @@ class TestEidolonMemoryProvider:
 
     def test_get_tool_schemas(self, provider):
         schemas = provider.get_tool_schemas()
-        assert len(schemas) == 2
+        assert len(schemas) == 3
         names = [s["name"] for s in schemas]
         assert "eidolon_search" in names
         assert "eidolon_correct_fact" in names
+        assert "eidolon_inspect_cluster" in names
         search_schema = next(s for s in schemas if s["name"] == "eidolon_search")
         assert "query" in search_schema["parameters"]["properties"]
         correct_schema = next(s for s in schemas if s["name"] == "eidolon_correct_fact")
         assert set(correct_schema["parameters"]["required"]) == {"category", "key"}
         assert "value" in correct_schema["parameters"]["properties"]
+        inspect_schema = next(s for s in schemas if s["name"] == "eidolon_inspect_cluster")
+        assert inspect_schema["parameters"]["required"] == ["cluster_id"]
 
     def test_handle_tool_call_search(self, provider):
         result = provider.handle_tool_call("eidolon_search", {"query": "test"})
@@ -429,6 +440,35 @@ class TestEidolonMemoryProvider:
         from adapters.hermes import EidolonMemoryProvider
         p = EidolonMemoryProvider()
         result = p.handle_tool_call("eidolon_correct_fact", {"category": "location", "key": "city", "value": "Berlin"})
+        assert "error" in json.loads(result)
+
+    def test_handle_inspect_cluster_returns_topics(self, provider):
+        provider._eidolon.cluster_topics = [
+            {"label": "Considering a bike", "summary": "User is thinking about a new bike", "closed_at": "2025-09-21"},
+            {"label": "Bought a bike", "summary": "User bought a bike near Fischmarkt", "closed_at": "2025-10-02"},
+        ]
+        result = provider.handle_tool_call("eidolon_inspect_cluster", {"cluster_id": 17})
+        assert provider._eidolon.inspect_cluster_calls == 1
+        assert provider._eidolon.last_inspect_cluster_id == 17
+        payload = json.loads(result)
+        assert payload["cluster_id"] == 17
+        assert len(payload["topics"]) == 2
+        assert payload["topics"][0]["label"] == "Considering a bike"
+
+    def test_handle_inspect_cluster_missing_id_returns_error(self, provider):
+        result = provider.handle_tool_call("eidolon_inspect_cluster", {})
+        assert provider._eidolon.inspect_cluster_calls == 0
+        assert "error" in json.loads(result)
+
+    def test_handle_inspect_cluster_non_integer_id_returns_error(self, provider):
+        result = provider.handle_tool_call("eidolon_inspect_cluster", {"cluster_id": "not-a-number"})
+        assert provider._eidolon.inspect_cluster_calls == 0
+        assert "error" in json.loads(result)
+
+    def test_handle_inspect_cluster_when_not_initialized(self):
+        from adapters.hermes import EidolonMemoryProvider
+        p = EidolonMemoryProvider()
+        result = p.handle_tool_call("eidolon_inspect_cluster", {"cluster_id": 17})
         assert "error" in json.loads(result)
 
     def test_on_session_switch_resets_topic(self, provider):

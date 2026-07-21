@@ -49,8 +49,12 @@ class TestEidolonConfig:
         assert config.retrieval.memory_items_new == 4
         assert config.retrieval.memory_items_continue == 2
         assert config.retrieval.recent_topics == 2
+        assert config.retrieval.cluster_summaries == 3
+        assert config.retrieval.cluster_recent_topics == 2
         assert config.facts.consolidation_interval == 20
         assert config.facts.target_max == 100
+        assert config.clustering.enabled is True
+        assert config.clustering.shortlist_size == 5
         assert config.language == "en"
         assert config.timezone == "UTC"
         assert config.debug.enabled is False
@@ -326,6 +330,8 @@ models:
         os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_NEW"] = "5"
         os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_CONTINUE"] = "3"
         os.environ["EIDOLON_RETRIEVAL_RECENT_TOPICS"] = "1"
+        os.environ["EIDOLON_RETRIEVAL_CLUSTER_SUMMARIES"] = "6"
+        os.environ["EIDOLON_RETRIEVAL_CLUSTER_RECENT_TOPICS"] = "4"
 
         config = ConfigLoader().load()
 
@@ -334,18 +340,22 @@ models:
         assert config.retrieval.memory_items_new == 5
         assert config.retrieval.memory_items_continue == 3
         assert config.retrieval.recent_topics == 1
+        assert config.retrieval.cluster_summaries == 6
+        assert config.retrieval.cluster_recent_topics == 4
 
         del os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_NEW"]
         del os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_CONTINUE"]
         del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_NEW"]
         del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_CONTINUE"]
         del os.environ["EIDOLON_RETRIEVAL_RECENT_TOPICS"]
+        del os.environ["EIDOLON_RETRIEVAL_CLUSTER_SUMMARIES"]
+        del os.environ["EIDOLON_RETRIEVAL_CLUSTER_RECENT_TOPICS"]
 
     def test_cli_retrieval_limits(self):
         args = Namespace(
             retrieval_related_topics_new=9, retrieval_related_topics_continue=4,
             retrieval_memory_items_new=5, retrieval_memory_items_continue=3,
-            retrieval_recent_topics=1,
+            retrieval_recent_topics=1, retrieval_cluster_summaries=6, retrieval_cluster_recent_topics=4,
             storage_provider=None, storage_path=None,
         )
         config = ConfigLoader(cli_args=args).load()
@@ -354,6 +364,8 @@ models:
         assert config.retrieval.memory_items_new == 5
         assert config.retrieval.memory_items_continue == 3
         assert config.retrieval.recent_topics == 1
+        assert config.retrieval.cluster_summaries == 6
+        assert config.retrieval.cluster_recent_topics == 4
 
     def test_yaml_facts_section(self):
         yaml_content = """
@@ -390,6 +402,42 @@ facts:
         config = ConfigLoader(cli_args=args).load()
         assert config.facts.consolidation_interval == 5
         assert config.facts.target_max == 30
+
+    def test_yaml_clustering_section(self):
+        yaml_content = """
+clustering:
+  enabled: false
+  shortlist_size: 8
+"""
+        tmp = tempfile.mkdtemp()
+        yaml_path = str(Path(tmp) / "config.yaml")
+        with open(yaml_path, "w") as f:
+            f.write(yaml_content)
+
+        config = ConfigLoader(config_path=yaml_path).load()
+        assert config.clustering.enabled is False
+        assert config.clustering.shortlist_size == 8
+
+    def test_env_clustering_vars(self):
+        os.environ["EIDOLON_CLUSTERING_ENABLED"] = "false"
+        os.environ["EIDOLON_CLUSTERING_SHORTLIST_SIZE"] = "7"
+
+        config = ConfigLoader().load()
+
+        assert config.clustering.enabled is False
+        assert config.clustering.shortlist_size == 7
+
+        del os.environ["EIDOLON_CLUSTERING_ENABLED"]
+        del os.environ["EIDOLON_CLUSTERING_SHORTLIST_SIZE"]
+
+    def test_cli_clustering_args(self):
+        args = Namespace(
+            clustering_enabled=False, clustering_shortlist_size=3,
+            storage_provider=None, storage_path=None,
+        )
+        config = ConfigLoader(cli_args=args).load()
+        assert config.clustering.enabled is False
+        assert config.clustering.shortlist_size == 3
 
     def test_env_timezone(self):
         os.environ["EIDOLON_TIMEZONE"] = "Europe/Berlin"

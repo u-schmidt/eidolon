@@ -293,6 +293,16 @@ class TestTopics:
         results = store.search_topics(tags=["fitness"])
         assert len(results) == 1
 
+    def test_search_topics_excludes_clustered_topics(self, store: SqliteStore):
+        """Once a topic joins a cluster, its consolidated summary
+        represents it — it must not also compete individually."""
+        tid = store.create_topic("Bello", summary="", tags=["fitness"], peer_id="user")
+        store.close_topic(tid, "")
+        cid = store.create_cluster("user", "Fitness", "summary")
+        store.assign_topic_to_cluster(tid, cid)
+
+        assert store.search_topics(tags=["fitness"]) == []
+
 
 class TestGetRecentTopics:
     def test_returns_closed_topics_newest_first(self, store: SqliteStore):
@@ -331,6 +341,179 @@ class TestGetRecentTopics:
 
     def test_empty_when_no_closed_topics(self, store: SqliteStore):
         assert store.get_recent_topics("user", limit=10) == []
+
+    def test_excludes_clustered_topics(self, store: SqliteStore):
+        clustered = store.create_topic("Clustered", summary="", peer_id="user")
+        store.close_topic(clustered, "")
+        cid = store.create_cluster("user", "Thread", "summary")
+        store.assign_topic_to_cluster(clustered, cid)
+        unclustered = store.create_topic("Unclustered", summary="", peer_id="user")
+        store.close_topic(unclustered, "")
+
+        results = store.get_recent_topics("user", limit=10)
+        assert [t["id"] for t in results] == [unclustered]
+
+
+class TestClusters:
+    def test_create_and_get_cluster(self, store: SqliteStore):
+        cid = store.create_cluster("user", "Bike purchase", "User wants a new bike", tags=["bike"])
+        assert isinstance(cid, int)
+
+        cluster = store.get_cluster(cid)
+        assert cluster is not None
+        assert cluster["peer_id"] == "user"
+        assert cluster["label"] == "Bike purchase"
+        assert cluster["summary"] == "User wants a new bike"
+        assert cluster["tags"] == ["bike"]
+        assert cluster["topic_count"] == 0
+
+    def test_get_cluster_not_found(self, store: SqliteStore):
+        assert store.get_cluster(999) is None
+
+    def test_update_cluster_rewrites_summary_in_place(self, store: SqliteStore):
+        cid = store.create_cluster("user", "Bike", "old summary")
+        store.update_cluster(cid, summary="new consolidated summary")
+
+        cluster = store.get_cluster(cid)
+        assert cluster["summary"] == "new consolidated summary"
+        assert cluster["label"] == "Bike"  # unchanged when not given
+
+    def test_update_cluster_optional_fields_only_set_when_given(self, store: SqliteStore):
+        cid = store.create_cluster("user", "Bike", "summary", tags=["bike"])
+        store.update_cluster(cid, summary="new summary", label="Bike saga", tags=["bike", "shopping"])
+
+        cluster = store.get_cluster(cid)
+        assert cluster["label"] == "Bike saga"
+        assert cluster["tags"] == ["bike", "shopping"]
+
+    def test_assign_topic_to_cluster_sets_id_and_increments_count(self, store: SqliteStore):
+        tid = store.create_topic("Considering a bike", summary="", peer_id="user")
+        store.close_topic(tid, "thinking about it")
+        cid = store.create_cluster("user", "Bike", "summary")
+
+        store.assign_topic_to_cluster(tid, cid)
+
+        assert store.get_cluster(cid)["topic_count"] == 1
+        assert [m["id"] for m in store.get_topics_by_cluster(cid)] == [tid]
+
+    def test_get_topics_by_cluster_oldest_first(self, store: SqliteStore):
+        cid = store.create_cluster("user", "Bike", "summary")
+        t1 = store.create_topic("First", summary="", peer_id="user")
+        store.close_topic(t1, "first summary")
+        t2 = store.create_topic("Second", summary="", peer_id="user")
+        store.close_topic(t2, "second summary")
+        store.assign_topic_to_cluster(t1, cid)
+        store.assign_topic_to_cluster(t2, cid)
+
+        assert [m["id"] for m in store.get_topics_by_cluster(cid)] == [t1, t2]
+
+    def test_get_recent_topics_in_cluster_newest_first_and_limited(self, store: SqliteStore):
+        cid = store.create_cluster("user", "Bike", "summary")
+        t1 = store.create_topic("First", summary="", peer_id="user")
+        store.close_topic(t1, "first")
+        t2 = store.create_topic("Second", summary="", peer_id="user")
+        store.close_topic(t2, "second")
+        store.assign_topic_to_cluster(t1, cid)
+        store.assign_topic_to_cluster(t2, cid)
+
+        recent = store.get_recent_topics_in_cluster(cid, limit=1)
+        assert [r["id"] for r in recent] == [t2]
+
+    def test_search_clusters_scores_by_semantic_similarity(self, store: SqliteStore):
+        store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
+        results = store.search_clusters(query_embedding=[1.0, 0.0, 0.0], peer_id="user")
+        assert len(results) == 1
+
+    def test_search_clusters_hard_filters_by_peer_id(self, store: SqliteStore):
+        """Unlike search_topics's soft person-weight bonus, peer_id here
+        is a real SQL filter — clusters must never merge across peers."""
+        store.create_cluster("someone_else", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
+        results = store.search_clusters(query_embedding=[1.0, 0.0, 0.0], peer_id="user")
+        assert results == []
+
+    def test_search_clusters_empty_without_peer_id(self, store: SqliteStore):
+        store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
+        assert store.search_clusters(query_embedding=[1.0, 0.0, 0.0]) == []
+
+    def test_search_clusters_records_scoring_summary_event(self, store: SqliteStore):
+        store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
+        tracer = SpyTracer()
+        store.search_clusters(query_embedding=[1.0, 0.0, 0.0], peer_id="user", tracer=tracer, request_id="req1")
+
+        events = tracer.events_of_type("retrieval_scoring_summary")
+        assert len(events) == 1
+        assert events[0]["payload"]["candidate_type"] == "cluster"
+
+
+class TestSearchClusterCandidates:
+    def test_finds_unclustered_topic_with_matching_embedding(self, store: SqliteStore):
+        other = store.create_topic("Other bike topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(other, "other summary")
+        new = store.create_topic("New bike topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(new, "new summary")
+
+        candidates = store.search_cluster_candidates(new, "user")
+        assert len(candidates) == 1
+        assert candidates[0]["candidate_kind"] == "topic"
+        assert candidates[0]["id"] == other
+
+    def test_finds_existing_cluster_with_matching_embedding(self, store: SqliteStore):
+        cid = store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
+        new = store.create_topic("New bike topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(new, "new summary")
+
+        candidates = store.search_cluster_candidates(new, "user")
+        assert len(candidates) == 1
+        assert candidates[0]["candidate_kind"] == "cluster"
+        assert candidates[0]["id"] == cid
+
+    def test_excludes_the_topic_itself(self, store: SqliteStore):
+        new = store.create_topic("Solo topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(new, "summary")
+
+        assert store.search_cluster_candidates(new, "user") == []
+
+    def test_excludes_already_clustered_topics(self, store: SqliteStore):
+        """The already-clustered topic itself shouldn't reappear as a raw
+        'topic' candidate — only its cluster should."""
+        cid = store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
+        already = store.create_topic("Already clustered", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(already, "summary")
+        store.assign_topic_to_cluster(already, cid)
+
+        new = store.create_topic("New topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(new, "summary")
+
+        candidates = store.search_cluster_candidates(new, "user")
+        assert [c["candidate_kind"] for c in candidates] == ["cluster"]
+
+    def test_peer_scoped(self, store: SqliteStore):
+        other_peer_topic = store.create_topic(
+            "Other peer's topic", summary="", peer_id="someone_else", embedding=[1.0, 0.0, 0.0]
+        )
+        store.close_topic(other_peer_topic, "summary")
+        new = store.create_topic("My topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(new, "summary")
+
+        assert store.search_cluster_candidates(new, "user") == []
+
+    def test_empty_when_topic_has_no_embedding(self, store: SqliteStore):
+        new = store.create_topic("No embedding", summary="", peer_id="user")
+        store.close_topic(new, "summary")
+        assert store.search_cluster_candidates(new, "user") == []
+
+    def test_records_scoring_summary_event(self, store: SqliteStore):
+        store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
+        new = store.create_topic("New topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(new, "summary")
+
+        tracer = SpyTracer()
+        store.search_cluster_candidates(new, "user", tracer=tracer, request_id="req1")
+
+        events = tracer.events_of_type("retrieval_scoring_summary")
+        assert len(events) == 1
+        assert events[0]["payload"]["candidate_type"] == "cluster_candidate"
+        assert events[0]["payload"]["topic_id"] == new
 
 
 class TestRecentMessagesByTopic:

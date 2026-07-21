@@ -21,6 +21,9 @@ class MockStorage:
         self.topic_embeddings: dict[int, list[float]] = {}
         self.topic_tags: dict[int, list[str]] = {}
         self._checkpoints: dict[str, int] = {}
+        self.clusters: dict[int, dict] = {}
+        self._next_cluster_id = 1
+        self.cluster_candidates: dict[int, list[dict]] = {}
 
     def get_facts(self, peer_id: str) -> list[Fact]:
         return [f for f in self.facts if f.peer_id == peer_id]
@@ -93,6 +96,51 @@ class MockStorage:
     def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
         return [t for t in self.topics.values() if t["status"] == "closed"][:limit]
 
+    def create_cluster(self, peer_id: str, label: str, summary: str,
+                       tags: list[str] | None = None, embedding: list[float] | None = None) -> int:
+        cid = self._next_cluster_id
+        self._next_cluster_id += 1
+        self.clusters[cid] = {
+            "id": cid, "peer_id": peer_id, "label": label, "summary": summary,
+            "tags": tags or [], "topic_count": 0, "embedding": embedding,
+        }
+        return cid
+
+    def get_cluster(self, cluster_id: int) -> dict | None:
+        return self.clusters.get(cluster_id)
+
+    def update_cluster(self, cluster_id: int, summary: str, label: str | None = None,
+                       tags: list[str] | None = None, embedding: list[float] | None = None) -> None:
+        if cluster_id not in self.clusters:
+            return
+        self.clusters[cluster_id]["summary"] = summary
+        if label is not None:
+            self.clusters[cluster_id]["label"] = label
+        if tags is not None:
+            self.clusters[cluster_id]["tags"] = tags
+        if embedding is not None:
+            self.clusters[cluster_id]["embedding"] = embedding
+
+    def assign_topic_to_cluster(self, topic_id: int, cluster_id: int) -> None:
+        if topic_id in self.topics:
+            self.topics[topic_id]["cluster_id"] = cluster_id
+        if cluster_id in self.clusters:
+            self.clusters[cluster_id]["topic_count"] += 1
+
+    def get_topics_by_cluster(self, cluster_id: int) -> list[dict]:
+        return [t for t in self.topics.values() if t.get("cluster_id") == cluster_id]
+
+    def get_recent_topics_in_cluster(self, cluster_id: int, limit: int) -> list[dict]:
+        return self.get_topics_by_cluster(cluster_id)[:limit]
+
+    def search_clusters(self, query_embedding=None, tags=None, peer_id=None, limit=5, weights=None,
+                        tracer=None, request_id=None, now=None) -> list[dict]:
+        return [c for c in self.clusters.values() if c["peer_id"] == peer_id][:limit]
+
+    def search_cluster_candidates(self, topic_id: int, peer_id: str, limit: int = 5, weights=None,
+                                  tracer=None, request_id=None, now=None) -> list[dict]:
+        return self.cluster_candidates.get(topic_id, [])[:limit]
+
     def store_memory_item(self, item: MemoryItem) -> int:
         self.stored_items.append(item)
         item.id = len(self.stored_items)
@@ -133,11 +181,13 @@ class MockLLM:
         extraction_response: str = "[]",
         summary_response: str = "",
         consolidation_response: str = '{"upserts": [], "deletes": []}',
+        cluster_response: str = '{"match_index": null, "label": "", "summary": ""}',
     ):
         self.detection_response = detection_response
         self.extraction_response = extraction_response
         self.summary_response = summary_response
         self.consolidation_response = consolidation_response
+        self.cluster_response = cluster_response
 
     def complete(self, prompt: str, system_prompt: str | None = None, max_tokens: int | None = None) -> str:
         sp = (system_prompt or "").lower()
@@ -149,6 +199,8 @@ class MockLLM:
             return self.summary_response
         if "durable facts" in sp:
             return self.consolidation_response
+        if "recurring conversation threads" in sp:
+            return self.cluster_response
         return ""
 
 
@@ -381,6 +433,78 @@ class TestEidolon:
 
         assert storage.topics[tid]["status"] == "closed"
         assert storage.topics[tid]["summary"] == "Continued to: Bello Features"
+
+    def test_store_turn_triggers_cluster_consolidation_on_real_summary(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Old Topic", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        storage.cluster_candidates[tid] = [
+            {"candidate_kind": "topic", "id": 555, "label": "Other topic", "summary": "summary", "topic_count": 1}
+        ]
+        llm = MockLLM(
+            extraction_response="[]",
+            summary_response="Summary: Crowded gym frustration\nTags: fitness",
+            cluster_response='{"match_index": 1, "label": "Gym saga", "summary": "consolidated"}',
+        )
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        eidolon.store_turn(
+            user_message="Lass uns über Bello sprechen",
+            ai_response="Gerne!",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            old_topic_id=tid,
+            new_topic_label="Bello Features",
+        )
+
+        assert len(storage.clusters) == 1
+        cluster = next(iter(storage.clusters.values()))
+        assert cluster["label"] == "Gym saga"
+        assert cluster["topic_count"] == 2  # the matched raw topic + this one
+        assert storage.topics[tid]["cluster_id"] == cluster["id"]
+
+    def test_store_turn_skips_cluster_consolidation_on_fallback_summary(self):
+        """No real summary (fallback 'Continued to: ...' path) means
+        nothing worth clustering — must not even reach the consolidator,
+        regardless of what candidates happen to be sitting there."""
+        storage = MockStorage()
+        tid = storage.create_topic("Old Topic", peer_id="user")
+        storage.cluster_candidates[tid] = [
+            {"candidate_kind": "topic", "id": 555, "label": "Other topic", "summary": "summary", "topic_count": 1}
+        ]
+        llm = MockLLM(extraction_response="[]", summary_response="")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        eidolon.store_turn(
+            user_message="msg", ai_response="resp", peer_id="user",
+            environment=EnvironmentSnapshot(), old_topic_id=tid, new_topic_label="New",
+        )
+
+        assert storage.clusters == {}
+
+    def test_store_turn_skips_cluster_consolidation_when_disabled(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Old Topic", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="msg", peer_id="user", topic_id=tid)
+        storage.cluster_candidates[tid] = [
+            {"candidate_kind": "topic", "id": 555, "label": "Other topic", "summary": "summary", "topic_count": 1}
+        ]
+        llm = MockLLM(
+            extraction_response="[]",
+            summary_response="Summary: Real summary\nTags: x",
+            cluster_response='{"match_index": 1, "label": "X", "summary": "Y"}',
+        )
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder, clustering_enabled=False)
+
+        eidolon.store_turn(
+            user_message="msg", ai_response="resp", peer_id="user",
+            environment=EnvironmentSnapshot(), old_topic_id=tid, new_topic_label="New",
+        )
+
+        assert storage.clusters == {}
 
     def test_store_turn_creates_new_topic(self):
         storage = MockStorage()
@@ -787,6 +911,26 @@ class TestCorrectFact:
         eidolon.correct_fact("user", "lifestyle", "smoking", None)
 
         assert storage.get_facts("user") == []
+
+
+class TestInspectCluster:
+    def test_delegates_to_storage_get_topics_by_cluster(self):
+        storage = MockStorage()
+        cid = storage.create_cluster("user", "Bike", "summary")
+        tid = storage.create_topic("Bought a bike", peer_id="user")
+        storage.close_topic(tid, "Bought a bike near Fischmarkt")
+        storage.assign_topic_to_cluster(tid, cid)
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        topics = eidolon.inspect_cluster(cid)
+
+        assert [t["id"] for t in topics] == [tid]
+
+    def test_empty_for_unknown_cluster(self):
+        storage = MockStorage()
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        assert eidolon.inspect_cluster(999) == []
 
     def test_blank_value_deletes(self):
         storage = MockStorage()
