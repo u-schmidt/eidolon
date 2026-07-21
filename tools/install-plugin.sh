@@ -51,6 +51,20 @@ mkdir -p "$PLUGIN_DIR"
 # SimulatedLLM/SimulatedEmbedder aus core/providers/simulated.py, nicht mehr
 # aus tests/mocks.py — kein Laufzeit-Bezug von core/adapters/providers
 # auf tests/ mehr vorhanden.
+#
+# tools/ ist reines Dev-Tooling (CLI, Trace-TUI, dieser Installer selbst) —
+# core/ und adapters/ importieren nichts daraus, und cli.py/trace_tui.py
+# nehmen den DB-Pfad per --storage-path/--db-Argument entgegen statt ihn
+# relativ zum eigenen Verzeichnis anzunehmen. Läuft man aus dem Dev-Checkout
+# gegen die deployte DB, nicht aus dem Plugin-Verzeichnis heraus.
+#
+# AGENTS.md/CLAUDE.md/plan.md sind Coding-Conventions bzw. interne
+# Planungsnotizen für die Arbeit an diesem Projekt — kein Laufzeit-Bezug,
+# gehören nicht in ein deploytes Plugin.
+#
+# eidolon.example.yaml wird unten separat aus $PROJECT_ROOT gelesen (siehe
+# $EXAMPLE_CONFIG), nicht aus dem rsync-Ziel — die Kopie im Plugin-Verzeichnis
+# würde von nichts zur Laufzeit gelesen.
 rsync -a --delete \
     --exclude='.git' \
     --exclude='.venv' \
@@ -58,6 +72,7 @@ rsync -a --delete \
     --exclude='.gitignore' \
     --exclude='data' \
     --exclude='tests' \
+    --exclude='tools' \
     --exclude='.pytest_cache' \
     --exclude='eidolon.egg-info' \
     --exclude='__pycache__' \
@@ -65,6 +80,10 @@ rsync -a --delete \
     --exclude='.DS_Store' \
     --exclude='uv.lock' \
     --exclude='pyproject.toml' \
+    --exclude='AGENTS.md' \
+    --exclude='CLAUDE.md' \
+    --exclude='plan.md' \
+    --exclude='eidolon.example.yaml' \
     "$PROJECT_ROOT/" "$PLUGIN_DIR/"
 echo "   ✅ Erledigt (data/, .git/, .venv/ am Ziel unangetastet)"
 
