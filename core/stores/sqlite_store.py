@@ -3,13 +3,15 @@
 Implements the ``StorageProvider`` protocol using SQLite with:
 - Auto-migration via ``PRAGMA user_version``
 - JSON tags for flexible topic tagging
-- BLOB embedding storage for vector search
-- Cosine-similarity approximation for embedding search
+- BLOB embedding storage (source of truth) + an optional sqlite-vec
+  index (``VecIndex``) for fast peer-partitioned KNN search
+- Cosine-similarity brute-force fallback when the index isn't available
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import struct
 from datetime import UTC, datetime
@@ -18,6 +20,9 @@ from pathlib import Path
 from core.interfaces import Tracer
 from core.models import Fact, MemoryItem
 from core.stores.migrations import migrate
+from core.stores.vec_index import VecIndex
+
+logger = logging.getLogger(__name__)
 
 # Fallback scoring weights when the caller doesn't supply an explicit
 # `weights` override (e.g. from EidolonConfig.retrieval). Shared by both
@@ -36,6 +41,18 @@ _TEMPORAL_HALF_LIFE_DAYS = 30.0
 # cutoff are visible when tuning weights — without persisting every
 # positively-scored candidate (which scales with DB size, not turn count).
 _TRACE_TOP_K_PADDING = 10
+
+# When VecIndex is available, how many nearest-by-embedding candidates to
+# pre-fetch before the existing tag_overlap/temporal re-ranking runs over
+# them — generous enough that re-ranking has real headroom to reorder, not
+# just the single closest semantic match. Irrelevant to the brute-force
+# path, which already considers every candidate.
+_KNN_PREFILTER_MIN = 50
+_KNN_PREFILTER_MULTIPLIER = 10
+
+
+def _knn_prefilter_k(limit: int) -> int:
+    return max(limit * _KNN_PREFILTER_MULTIPLIER, _KNN_PREFILTER_MIN)
 
 
 def _serialize_embedding(vec: list[float]) -> bytes:
@@ -92,22 +109,76 @@ class SqliteStore:
     ----------
     path : str
         Filesystem path to the SQLite database file.
+    use_vec_index : bool
+        Whether to try loading the optional sqlite-vec extension for
+        accelerated KNN search. Defaults to True; every search method
+        falls back to the brute-force in-Python scan automatically if
+        loading fails (not installed, or the host SQLite build lacks
+        extension-loading support) — see ``VecIndex``. Set False to
+        force the brute-force path regardless of what's installed
+        (used by tests that need deterministic behavior independent of
+        the environment).
     """
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, use_vec_index: bool = True) -> None:
         self._path = Path(path).expanduser().resolve()
         self._db: sqlite3.Connection | None = None
+        self._use_vec_index = use_vec_index
+        self._vec_index: VecIndex | None = None
 
     # ── Lifecycle ──────────────────────────────────────────
 
     def connect(self) -> None:
-        """Open the database and run pending migrations."""
+        """Open the database, run pending migrations, and (if enabled)
+        load the optional vector index."""
         # Ensure the parent directory exists
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(self._path), check_same_thread=False)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA foreign_keys=ON")
         migrate(self._db)
+
+        self._vec_index = VecIndex(self._db)
+        if self._use_vec_index:
+            self._vec_index.try_load()
+            if self._vec_index.available:
+                self._backfill_vec_index()
+
+    @property
+    def vec_index(self) -> VecIndex:
+        if self._vec_index is None:
+            raise RuntimeError("SqliteStore not connected — call connect() first")
+        return self._vec_index
+
+    def _backfill_vec_index(self) -> None:
+        """Sync every embedded row into the vector index.
+
+        Runs on every connect() where the index is available — not
+        gated on a one-time migration flag, so installing the
+        sqlite-vec extra after already having data still gets
+        backfilled rather than silently invisible to search forever.
+        VecIndex.upsert() is idempotent, so re-running this against
+        already-synced rows is a correctness no-op; the cost is a
+        one-time pass at process startup, not a per-query cost.
+        """
+        vi = self.vec_index
+        for topic_id, peer_id, blob, cluster_id in self._conn.execute(
+            "SELECT id, peer_id, embedding, cluster_id FROM topics WHERE embedding IS NOT NULL"
+        ).fetchall():
+            if peer_id is None:
+                continue  # can't partition a vector search without a peer_id
+            vi.upsert("vec_topics", topic_id, peer_id, _deserialize_embedding(blob), cluster_id=cluster_id)
+
+        for item_id, peer_id, blob in self._conn.execute(
+            "SELECT mi.id, m.peer_id, mi.embedding FROM memory_items mi "
+            "JOIN messages m ON mi.message_id = m.id WHERE mi.embedding IS NOT NULL"
+        ).fetchall():
+            vi.upsert("vec_memory_items", item_id, peer_id, _deserialize_embedding(blob))
+
+        for cluster_id, peer_id, blob in self._conn.execute(
+            "SELECT id, peer_id, embedding FROM topic_clusters WHERE embedding IS NOT NULL"
+        ).fetchall():
+            vi.upsert("vec_clusters", cluster_id, peer_id, _deserialize_embedding(blob))
 
     def close(self) -> None:
         if self._db is not None:
@@ -206,7 +277,10 @@ class SqliteStore:
             (label, summary, tags_json, embed_blob, peer_id, session_id),
         )
         self._conn.commit()
-        return cur.lastrowid  # type: ignore[return-value]
+        topic_id: int = cur.lastrowid  # type: ignore[assignment]
+        if embedding and peer_id:
+            self.vec_index.upsert("vec_topics", topic_id, peer_id, embedding, cluster_id=None)
+        return topic_id
 
     def get_topic(self, topic_id: int) -> dict | None:
         row = self._conn.execute(
@@ -296,6 +370,14 @@ class SqliteStore:
             (embed_blob, topic_id),
         )
         self._conn.commit()
+        # peer_id/cluster_id aren't parameters here (this method predates
+        # the vector index) — cheap lookup rather than changing the
+        # public signature every other caller already depends on.
+        row = self._conn.execute(
+            "SELECT peer_id, cluster_id FROM topics WHERE id = ?", (topic_id,)
+        ).fetchone()
+        if row and row[0]:
+            self.vec_index.upsert("vec_topics", topic_id, row[0], embedding, cluster_id=row[1])
 
     def update_topic_tags(self, topic_id: int, tags: list[str]) -> None:
         self._conn.execute(
@@ -354,7 +436,28 @@ class SqliteStore:
         # peer's own topics: a real cross-peer context leak, not just a
         # performance concern. `peer_id=None` keeps the old "search
         # everyone" behavior for callers that intentionally omit it.
-        if peer_id:
+        #
+        # When the vector index is available and there's a real query to
+        # search by, it pre-filters to the nearest-by-embedding candidates
+        # (see _knn_prefilter_k) so the scan below runs over that small set
+        # instead of every one of the peer's topics — the accelerated path.
+        # A pre-computed similarity for each candidate comes along with it,
+        # so the expensive BLOB-deserialize-and-cosine step is skipped
+        # entirely for those rows.
+        semantic_lookup: dict[int, float] | None = None
+        if self.vec_index.available and query_embedding and peer_id:
+            knn_hits = self.vec_index.knn("vec_topics", peer_id, query_embedding, k=_knn_prefilter_k(limit))
+            semantic_lookup = dict(knn_hits)
+            if not semantic_lookup:
+                rows = []
+            else:
+                placeholders = ",".join("?" * len(semantic_lookup))
+                rows = self._conn.execute(
+                    f"SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
+                    f"FROM topics WHERE id IN ({placeholders}) AND status='closed' AND cluster_id IS NULL",
+                    tuple(semantic_lookup.keys()),
+                ).fetchall()
+        elif peer_id:
             rows = self._conn.execute(
                 "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
                 "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ?",
@@ -384,8 +487,13 @@ class SqliteStore:
             tag_overlap_raw = tag_overlap_weighted = 0.0
             person_weighted = 0.0
 
-            # Embedding similarity (semantic)
-            if query_embedding and row[4]:
+            # Embedding similarity (semantic) — from the vector index's
+            # pre-computed result when available, otherwise computed here.
+            if semantic_lookup is not None:
+                semantic_raw = semantic_lookup.get(topic["id"], 0.0)
+                semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
+                score += semantic_weighted
+            elif query_embedding and row[4]:
                 stored_emb = _deserialize_embedding(row[4])
                 semantic_raw = _cosine_similarity(query_embedding, stored_emb)
                 semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
@@ -489,7 +597,10 @@ class SqliteStore:
             (peer_id, label, summary, tags_json, embed_blob),
         )
         self._conn.commit()
-        return cur.lastrowid  # type: ignore[return-value]
+        cluster_id: int = cur.lastrowid  # type: ignore[assignment]
+        if embedding:
+            self.vec_index.upsert("vec_clusters", cluster_id, peer_id, embedding)
+        return cluster_id
 
     def get_cluster(self, cluster_id: int) -> dict | None:
         row = self._conn.execute(
@@ -532,6 +643,12 @@ class SqliteStore:
         params.append(cluster_id)
         self._conn.execute(f"UPDATE topic_clusters SET {', '.join(sets)} WHERE id = ?", params)
         self._conn.commit()
+        if embedding is not None:
+            peer_row = self._conn.execute(
+                "SELECT peer_id FROM topic_clusters WHERE id = ?", (cluster_id,)
+            ).fetchone()
+            if peer_row and peer_row[0]:
+                self.vec_index.upsert("vec_clusters", cluster_id, peer_row[0], embedding)
 
     def assign_topic_to_cluster(self, topic_id: int, cluster_id: int) -> None:
         self._conn.execute("UPDATE topics SET cluster_id = ? WHERE id = ?", (cluster_id, topic_id))
@@ -539,6 +656,7 @@ class SqliteStore:
             "UPDATE topic_clusters SET topic_count = topic_count + 1 WHERE id = ?", (cluster_id,)
         )
         self._conn.commit()
+        self.vec_index.set_cluster_id("vec_topics", topic_id, cluster_id)
 
     def get_topics_by_cluster(self, cluster_id: int) -> list[dict]:
         rows = self._conn.execute(
@@ -604,11 +722,27 @@ class SqliteStore:
         if not peer_id:
             return []
 
-        rows = self._conn.execute(
-            "SELECT id, peer_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
-            "FROM topic_clusters WHERE peer_id = ?",
-            (peer_id,),
-        ).fetchall()
+        # Accelerated path (see search_topics) — pre-filter to the
+        # nearest-by-embedding clusters via the vector index.
+        semantic_lookup: dict[int, float] | None = None
+        if self.vec_index.available and query_embedding:
+            knn_hits = self.vec_index.knn("vec_clusters", peer_id, query_embedding, k=_knn_prefilter_k(limit))
+            semantic_lookup = dict(knn_hits)
+            if not semantic_lookup:
+                rows = []
+            else:
+                placeholders = ",".join("?" * len(semantic_lookup))
+                rows = self._conn.execute(
+                    f"SELECT id, peer_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
+                    f"FROM topic_clusters WHERE id IN ({placeholders})",
+                    tuple(semantic_lookup.keys()),
+                ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT id, peer_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
+                "FROM topic_clusters WHERE peer_id = ?",
+                (peer_id,),
+            ).fetchall()
 
         scored: list[tuple[float, dict, dict]] = []
 
@@ -627,7 +761,11 @@ class SqliteStore:
             semantic_raw = semantic_weighted = 0.0
             tag_overlap_raw = tag_overlap_weighted = 0.0
 
-            if query_embedding and row[5]:
+            if semantic_lookup is not None:
+                semantic_raw = semantic_lookup.get(cluster["id"], 0.0)
+                semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
+                score += semantic_weighted
+            elif query_embedding and row[5]:
                 stored_emb = _deserialize_embedding(row[5])
                 semantic_raw = _cosine_similarity(query_embedding, stored_emb)
                 semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
@@ -713,11 +851,32 @@ class SqliteStore:
 
         scored: list[tuple[float, dict, dict]] = []
 
-        topic_rows = self._conn.execute(
-            "SELECT id, label, summary, tags, embedding, created_at, closed_at "
-            "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ? AND id != ?",
-            (peer_id, topic_id),
-        ).fetchall()
+        # Topic-side candidates: still-unclustered topics for this peer,
+        # excluding topic_id itself. Accelerated path (see search_topics)
+        # uses vec_topics' unclustered_only filter — vec0 has no "exclude
+        # this id" option, so topic_id is dropped from the KNN hits after
+        # the fact instead.
+        topic_semantic_lookup: dict[int, float] | None = None
+        if self.vec_index.available:
+            knn_hits = self.vec_index.knn(
+                "vec_topics", peer_id, query_embedding, k=_knn_prefilter_k(limit) + 1, unclustered_only=True
+            )
+            topic_semantic_lookup = {tid: sim for tid, sim in knn_hits if tid != topic_id}
+            if not topic_semantic_lookup:
+                topic_rows = []
+            else:
+                placeholders = ",".join("?" * len(topic_semantic_lookup))
+                topic_rows = self._conn.execute(
+                    f"SELECT id, label, summary, tags, embedding, created_at, closed_at "
+                    f"FROM topics WHERE id IN ({placeholders}) AND status='closed' AND cluster_id IS NULL",
+                    tuple(topic_semantic_lookup.keys()),
+                ).fetchall()
+        else:
+            topic_rows = self._conn.execute(
+                "SELECT id, label, summary, tags, embedding, created_at, closed_at "
+                "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ? AND id != ?",
+                (peer_id, topic_id),
+            ).fetchall()
         for row in topic_rows:
             candidate = {
                 "candidate_kind": "topic",
@@ -727,16 +886,32 @@ class SqliteStore:
                 "tags": json.loads(row[3]),
                 "topic_count": 1,
             }
+            pre_similarity = topic_semantic_lookup.get(row[0]) if topic_semantic_lookup is not None else None
             score, breakdown = self._score_cluster_candidate(
-                candidate, row[4], row[6], query_embedding, query_tags, w, now
+                candidate, row[4], row[6], query_embedding, query_tags, w, now, pre_similarity=pre_similarity
             )
             scored.append((score, candidate, breakdown))
 
-        cluster_rows = self._conn.execute(
-            "SELECT id, label, summary, tags, embedding, updated_at "
-            "FROM topic_clusters WHERE peer_id = ?",
-            (peer_id,),
-        ).fetchall()
+        # Cluster-side candidates: existing clusters for this peer.
+        cluster_semantic_lookup: dict[int, float] | None = None
+        if self.vec_index.available:
+            knn_hits = self.vec_index.knn("vec_clusters", peer_id, query_embedding, k=_knn_prefilter_k(limit))
+            cluster_semantic_lookup = dict(knn_hits)
+            if not cluster_semantic_lookup:
+                cluster_rows = []
+            else:
+                placeholders = ",".join("?" * len(cluster_semantic_lookup))
+                cluster_rows = self._conn.execute(
+                    f"SELECT id, label, summary, tags, embedding, updated_at "
+                    f"FROM topic_clusters WHERE id IN ({placeholders})",
+                    tuple(cluster_semantic_lookup.keys()),
+                ).fetchall()
+        else:
+            cluster_rows = self._conn.execute(
+                "SELECT id, label, summary, tags, embedding, updated_at "
+                "FROM topic_clusters WHERE peer_id = ?",
+                (peer_id,),
+            ).fetchall()
         for row in cluster_rows:
             cluster_full = self.get_cluster(row[0])
             candidate = {
@@ -747,8 +922,9 @@ class SqliteStore:
                 "tags": json.loads(row[3]),
                 "topic_count": cluster_full["topic_count"] if cluster_full else 0,
             }
+            pre_similarity = cluster_semantic_lookup.get(row[0]) if cluster_semantic_lookup is not None else None
             score, breakdown = self._score_cluster_candidate(
-                candidate, row[4], row[5], query_embedding, query_tags, w, now
+                candidate, row[4], row[5], query_embedding, query_tags, w, now, pre_similarity=pre_similarity
             )
             scored.append((score, candidate, breakdown))
 
@@ -784,16 +960,23 @@ class SqliteStore:
         query_tags: list[str],
         weights: dict[str, float],
         now: datetime,
+        pre_similarity: float | None = None,
     ) -> tuple[float, dict]:
         """Shared scoring formula for one search_cluster_candidates row —
         semantic + tag_overlap + temporal, same shape as search_topics/
         search_clusters (no "person" term; the caller already scopes the
-        query to one peer_id in SQL)."""
+        query to one peer_id in SQL). `pre_similarity`, when given (the
+        accelerated path), skips the BLOB-deserialize-and-cosine step —
+        see search_topics."""
         score = 0.0
         semantic_raw = semantic_weighted = 0.0
         tag_overlap_raw = tag_overlap_weighted = 0.0
 
-        if embedding_blob:
+        if pre_similarity is not None:
+            semantic_raw = pre_similarity
+            semantic_weighted = semantic_raw * weights.get("semantic", _DEFAULT_WEIGHTS["semantic"])
+            score += semantic_weighted
+        elif embedding_blob:
             stored_emb = _deserialize_embedding(embedding_blob)
             semantic_raw = _cosine_similarity(query_embedding, stored_emb)
             semantic_weighted = semantic_raw * weights.get("semantic", _DEFAULT_WEIGHTS["semantic"])
@@ -837,7 +1020,16 @@ class SqliteStore:
              item.attribution_type, item.topic_id, item.message_id, embed_blob),
         )
         self._conn.commit()
-        return cur.lastrowid  # type: ignore[return-value]
+        item_id: int = cur.lastrowid  # type: ignore[assignment]
+        if item.embedding and item.message_id:
+            # memory_items carries no peer_id of its own — resolved via
+            # the same messages join search_memory_items uses.
+            msg_row = self._conn.execute(
+                "SELECT peer_id FROM messages WHERE id = ?", (item.message_id,)
+            ).fetchone()
+            if msg_row and msg_row[0]:
+                self.vec_index.upsert("vec_memory_items", item_id, msg_row[0], item.embedding)
+        return item_id
 
     def search_memory_items(
         self,
@@ -883,7 +1075,26 @@ class SqliteStore:
         now = now or datetime.now(UTC)
         if now.tzinfo is None:
             now = now.replace(tzinfo=UTC)
-        if peer_id:
+        # Accelerated path (see search_topics for the full explanation):
+        # pre-filter to the nearest-by-embedding candidates via the vector
+        # index — peer-scoping happened when each item was upserted there
+        # (via the same messages join, at write time), so a plain id-fetch
+        # is enough here, no join needed.
+        semantic_lookup: dict[int, float] | None = None
+        if self.vec_index.available and query_embedding and peer_id:
+            knn_hits = self.vec_index.knn("vec_memory_items", peer_id, query_embedding, k=_knn_prefilter_k(limit))
+            semantic_lookup = dict(knn_hits)
+            if not semantic_lookup:
+                rows = []
+            else:
+                placeholders = ",".join("?" * len(semantic_lookup))
+                rows = self._conn.execute(
+                    f"SELECT id, content, item_type, source_peer, subject_peer, "
+                    f"attribution_type, topic_id, message_id, embedding, created_at "
+                    f"FROM memory_items WHERE id IN ({placeholders})",
+                    tuple(semantic_lookup.keys()),
+                ).fetchall()
+        elif peer_id:
             rows = self._conn.execute(
                 "SELECT mi.id, mi.content, mi.item_type, mi.source_peer, mi.subject_peer, "
                 "mi.attribution_type, mi.topic_id, mi.message_id, mi.embedding, mi.created_at "
@@ -915,8 +1126,13 @@ class SqliteStore:
             score = 0.0
             semantic_raw = semantic_weighted = 0.0
 
-            # Embedding similarity
-            if query_embedding and row[8]:
+            # Embedding similarity — from the vector index's pre-computed
+            # result when available, otherwise computed here.
+            if semantic_lookup is not None:
+                semantic_raw = semantic_lookup.get(row[0], 0.0)
+                semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
+                score += semantic_weighted
+            elif query_embedding and row[8]:
                 stored_emb = _deserialize_embedding(row[8])
                 semantic_raw = _cosine_similarity(query_embedding, stored_emb)
                 semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])

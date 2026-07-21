@@ -23,7 +23,7 @@ _MATCH_EMBEDDING = [1.0, 0.0, 0.0]
 @pytest.fixture
 def store():
     tmp = tempfile.mkdtemp()
-    s = SqliteStore(str(Path(tmp) / "test.db"))
+    s = SqliteStore(str(Path(tmp) / "test.db"), use_vec_index=False)
     s.connect()
     yield s
     s.close()

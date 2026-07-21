@@ -21,7 +21,7 @@ from tests.mocks import MockLLM, SpyTracer
 @pytest.fixture
 def store():
     tmp = tempfile.mkdtemp()
-    s = SqliteStore(str(Path(tmp) / "test.db"))
+    s = SqliteStore(str(Path(tmp) / "test.db"), use_vec_index=False)
     s.connect()
     yield s
     s.close()

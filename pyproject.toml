@@ -22,6 +22,9 @@ sentence-transformers = [
 tui = [
     "textual>=0.60",
 ]
+vec = [
+    "sqlite-vec>=0.1.9",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
