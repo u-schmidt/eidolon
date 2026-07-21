@@ -1,0 +1,174 @@
+"""Tests for RetrievalScorer — the scoring/ranking/trace tail shared by
+SqliteStore's search_* methods, exercised directly without any SQL."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+import pytest
+
+from core.stores.retrieval_scorer import _TRACE_TOP_K_PADDING, RetrievalScorer
+from tests.mocks import SpyTracer
+
+_NOW = datetime(2026, 1, 1, tzinfo=UTC)
+_WEIGHTS = {"semantic": 0.5, "tag_overlap": 0.3, "person": 0.2, "temporal": 0.1}
+# A timestamp at exactly _NOW → recency 1.0, so the temporal term is a
+# predictable 1.0 * temporal_weight.
+_AT_NOW = "2026-01-01 00:00:00"
+
+
+def _scorer(weights: dict | None = None) -> RetrievalScorer:
+    return RetrievalScorer(weights or _WEIGHTS, _NOW)
+
+
+class TestScore:
+    def test_semantic_only_omits_tag_and_person_keys(self):
+        score, breakdown = _scorer().score(
+            candidate_type="memory_item", candidate_id=7, semantic_raw=1.0, recency_timestamp=None,
+        )
+        assert breakdown == {
+            "candidate_type": "memory_item",
+            "candidate_id": 7,
+            "semantic_raw": 1.0,
+            "semantic_weighted": pytest.approx(0.5),
+            "temporal_raw": 0.0,
+            "temporal_weighted": 0.0,
+            "final_score": pytest.approx(0.5),
+        }
+
+    def test_tag_overlap_contributes_and_adds_its_keys(self):
+        score, breakdown = _scorer().score(
+            candidate_type="topic", candidate_id=1, semantic_raw=0.0, recency_timestamp=None,
+            include_tag_overlap=True, query_tags=["a", "b"], candidate_tags=["a", "z"],
+        )
+        # overlap 1 of 2 query tags → 0.5 raw * 0.3 weight
+        assert breakdown["tag_overlap_raw"] == pytest.approx(0.5)
+        assert breakdown["tag_overlap_weighted"] == pytest.approx(0.15)
+        assert score == pytest.approx(0.15)
+
+    def test_tag_keys_present_but_zero_when_no_query_tags(self):
+        _, breakdown = _scorer().score(
+            candidate_type="topic", candidate_id=1, semantic_raw=1.0, recency_timestamp=None,
+            include_tag_overlap=True, query_tags=None, candidate_tags=["a"],
+        )
+        assert breakdown["tag_overlap_raw"] == 0.0
+        assert breakdown["tag_overlap_weighted"] == 0.0
+
+    def test_person_bonus_added_only_on_match_but_key_always_present(self):
+        _, matched = _scorer().score(
+            candidate_type="topic", candidate_id=1, semantic_raw=1.0, recency_timestamp=None,
+            include_person=True, person_match=True,
+        )
+        _, unmatched = _scorer().score(
+            candidate_type="topic", candidate_id=2, semantic_raw=1.0, recency_timestamp=None,
+            include_person=True, person_match=False,
+        )
+        assert matched["person_weighted"] == pytest.approx(0.2)
+        assert unmatched["person_weighted"] == 0.0
+
+    def test_temporal_is_a_reranking_signal_not_a_relevance_source(self):
+        # No semantic/tag/person relevance → final stays 0.0 even though the
+        # row is maximally recent (the `score > 0` gate).
+        score, breakdown = _scorer().score(
+            candidate_type="topic", candidate_id=1, semantic_raw=0.0, recency_timestamp=_AT_NOW,
+        )
+        assert breakdown["temporal_raw"] == pytest.approx(1.0)
+        assert breakdown["temporal_weighted"] == pytest.approx(0.1)
+        assert score == 0.0
+
+    def test_temporal_added_when_there_is_relevance(self):
+        score, _ = _scorer().score(
+            candidate_type="topic", candidate_id=1, semantic_raw=1.0, recency_timestamp=_AT_NOW,
+        )
+        assert score == pytest.approx(0.6)  # 0.5 semantic + 0.1 temporal
+
+    def test_extra_breakdown_inserts_candidate_kind_after_type(self):
+        _, breakdown = _scorer().score(
+            candidate_type="cluster_candidate", candidate_id=1, semantic_raw=1.0, recency_timestamp=None,
+            include_tag_overlap=True, extra_breakdown={"candidate_kind": "topic"},
+        )
+        keys = list(breakdown.keys())
+        assert keys[0] == "candidate_type"
+        assert keys[1] == "candidate_kind"
+        assert breakdown["candidate_kind"] == "topic"
+
+    def test_weights_override_is_respected(self):
+        _, breakdown = _scorer({"semantic": 1.0}).score(
+            candidate_type="topic", candidate_id=1, semantic_raw=0.8, recency_timestamp=None,
+        )
+        assert breakdown["semantic_weighted"] == pytest.approx(0.8)
+
+
+class TestFinalize:
+    def _scored(self, *pairs: tuple[float, int]) -> list[tuple[float, dict, dict]]:
+        """Build (score, result_obj, breakdown) triples from (score, id) pairs."""
+        return [
+            (score, {"id": cid}, {"candidate_type": "topic", "candidate_id": cid, "final_score": score})
+            for score, cid in pairs
+        ]
+
+    def test_sorts_descending_drops_nonpositive_and_slices_to_limit(self):
+        results = _scorer().finalize(
+            scored=self._scored((0.1, 1), (0.9, 2), (0.0, 3), (0.5, 4)),
+            candidate_type="topic", limit=2, tracer=None, request_id=None,
+        )
+        assert [r["id"] for r in results] == [2, 4]  # 0.0 dropped, sorted desc, top 2
+
+    def test_no_tracer_still_returns_ranked_results(self):
+        results = _scorer().finalize(
+            scored=self._scored((0.3, 1)), candidate_type="topic", limit=5, tracer=None, request_id=None,
+        )
+        assert [r["id"] for r in results] == [1]
+
+    def test_emits_one_event_with_included_flags(self):
+        tracer = SpyTracer()
+        _scorer().finalize(
+            scored=self._scored((0.9, 1), (0.1, 2)), candidate_type="topic", limit=1,
+            tracer=tracer, request_id="req1",
+        )
+        events = tracer.events_of_type("retrieval_scoring_summary")
+        assert len(events) == 1
+        payload = events[0]["payload"]
+        assert events[0]["request_id"] == "req1"
+        assert payload["candidate_type"] == "topic"
+        assert payload["total_scored"] == 2
+        assert payload["included_count"] == 1
+        flags = {c["candidate_id"]: c["included"] for c in payload["top_candidates"]}
+        assert flags == {1: True, 2: False}
+
+    def test_top_candidates_capped_at_limit_plus_padding(self):
+        tracer = SpyTracer()
+        many = self._scored(*[(1.0 - i * 0.001, i) for i in range(_TRACE_TOP_K_PADDING + 20)])
+        _scorer().finalize(
+            scored=many, candidate_type="topic", limit=1, tracer=tracer, request_id=None,
+        )
+        payload = tracer.events_of_type("retrieval_scoring_summary")[0]["payload"]
+        assert len(payload["top_candidates"]) == 1 + _TRACE_TOP_K_PADDING
+
+    def test_extra_payload_merged_into_event(self):
+        tracer = SpyTracer()
+        _scorer().finalize(
+            scored=self._scored((0.5, 1)), candidate_type="cluster_candidate", limit=5,
+            tracer=tracer, request_id=None, extra_payload={"topic_id": 42},
+        )
+        payload = tracer.events_of_type("retrieval_scoring_summary")[0]["payload"]
+        assert payload["topic_id"] == 42
+
+    def test_included_keying_uses_candidate_kind_when_present(self):
+        # Two candidates share id 5 but differ by kind — both can't be
+        # conflated; only the cluster one makes the limit-1 cut here.
+        scored = [
+            (0.9, {"kind": "cluster", "id": 5},
+             {"candidate_type": "cluster_candidate", "candidate_kind": "cluster", "candidate_id": 5,
+              "final_score": 0.9}),
+            (0.1, {"kind": "topic", "id": 5},
+             {"candidate_type": "cluster_candidate", "candidate_kind": "topic", "candidate_id": 5,
+              "final_score": 0.1}),
+        ]
+        tracer = SpyTracer()
+        _scorer().finalize(
+            scored=scored, candidate_type="cluster_candidate", limit=1, tracer=tracer, request_id=None,
+        )
+        payload = tracer.events_of_type("retrieval_scoring_summary")[0]["payload"]
+        flags = {c["candidate_kind"]: c["included"] for c in payload["top_candidates"]}
+        assert flags == {"cluster": True, "topic": False}

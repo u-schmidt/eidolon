@@ -14,33 +14,16 @@ import json
 import logging
 import sqlite3
 import struct
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from core.interfaces import Tracer
 from core.models import Fact, MemoryItem
 from core.stores.migrations import migrate
+from core.stores.retrieval_scorer import RetrievalScorer, _cosine_similarity
 from core.stores.vec_index import VecIndex
 
 logger = logging.getLogger(__name__)
-
-# Fallback scoring weights when the caller doesn't supply an explicit
-# `weights` override (e.g. from EidolonConfig.retrieval). Shared by both
-# search_topics and search_memory_items, matching AssociativeRetriever's
-# own defaults so a configured value means the same thing everywhere.
-_DEFAULT_WEIGHTS = {"semantic": 0.4, "tag_overlap": 0.3, "person": 0.2, "temporal": 0.1}
-
-# Recency half-life: a candidate's temporal score halves for every this-many
-# days of age (see `_recency_score`). The *shape* of the decay is fixed here;
-# how much it matters is the tunable "temporal" weight above. 30 days is a
-# sensible default until real chat data suggests otherwise.
-_TEMPORAL_HALF_LIFE_DAYS = 30.0
-
-# How many extra scored candidates beyond `limit` to persist in a
-# retrieval_scoring_summary trace event, so near-misses just below the
-# cutoff are visible when tuning weights — without persisting every
-# positively-scored candidate (which scales with DB size, not turn count).
-_TRACE_TOP_K_PADDING = 10
 
 # When VecIndex is available, how many nearest-by-embedding candidates to
 # pre-fetch before the existing tag_overlap/temporal re-ranking runs over
@@ -64,42 +47,6 @@ def _deserialize_embedding(blob: bytes) -> list[float]:
     """Unpack a binary BLOB back into a float list."""
     count = len(blob) // 8
     return list(struct.unpack(f"<{count}d", blob))
-
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Compute cosine similarity between two vectors."""
-    # strict=False keeps the historical behavior of truncating to the
-    # shorter vector rather than raising on a length mismatch.
-    dot = sum(x * y for x, y in zip(a, b, strict=False))
-    na = sum(x * x for x in a) ** 0.5
-    nb = sum(x * x for x in b) ** 0.5
-    if na == 0 or nb == 0:
-        return 0.0
-    return dot / (na * nb)
-
-
-def _recency_score(timestamp: str | None, now: datetime, half_life_days: float) -> float:
-    """Exponential recency decay in (0, 1]: ~1.0 for "just now", halving
-    every ``half_life_days`` of age.
-
-    Timestamps are the raw SQLite strings (e.g. "2026-07-20 16:57:00"),
-    stored in UTC. An unknown/unparseable timestamp scores 0.0 (no recency
-    signal), and a future timestamp (host clock skew) is clamped to 1.0.
-    """
-    if not timestamp:
-        return 0.0
-    try:
-        ts = datetime.fromisoformat(timestamp)
-    except ValueError:
-        return 0.0
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=UTC)
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=UTC)
-    age_days = (now - ts).total_seconds() / 86400.0
-    if age_days <= 0:
-        return 1.0
-    return 0.5 ** (age_days / half_life_days)
 
 
 class SqliteStore:
@@ -388,6 +335,24 @@ class SqliteStore:
         )
         self._conn.commit()
 
+    def _semantic_similarity(
+        self,
+        semantic_lookup: dict[int, float] | None,
+        candidate_id: int,
+        query_embedding: list[float] | None,
+        embedding_blob: bytes | None,
+    ) -> float:
+        """Resolve one candidate's raw semantic similarity: the vector
+        index's pre-computed value on the accelerated path, otherwise a
+        cosine over the deserialized BLOB, otherwise 0.0 (no embedding to
+        compare). Shared by all four search methods so the scorer never has
+        to know how a row's embedding was stored or fetched."""
+        if semantic_lookup is not None:
+            return semantic_lookup.get(candidate_id, 0.0)
+        if query_embedding and embedding_blob:
+            return _cosine_similarity(query_embedding, _deserialize_embedding(embedding_blob))
+        return 0.0
+
     def search_topics(
         self,
         query_embedding: list[float] | None = None,
@@ -409,7 +374,7 @@ class SqliteStore:
         intentionally want that).
 
         `weights` overrides the semantic/tag_overlap/person/temporal scoring
-        weights when provided (see `_DEFAULT_WEIGHTS`). `person` still
+        weights when provided (see `RetrievalScorer`). `person` still
         contributes as before — with `peer_id` now a hard filter it's
         satisfied by every surviving candidate, so it no longer
         differentiates ranking, but its score contribution is unchanged for
@@ -422,16 +387,14 @@ class SqliteStore:
         falling back to `created_at`.
 
         When `tracer` is given, one `retrieval_scoring_summary` event is
-        recorded for the whole call, carrying the top `limit + _TRACE_TOP_K_PADDING`
-        positively-scored candidates (with breakdown) plus total/included counts —
-        not one event per candidate, which doesn't scale with DB size.
+        recorded for the whole call (see `RetrievalScorer.finalize`), carrying
+        the top positively-scored candidates (with breakdown) plus
+        total/included counts — not one event per candidate, which doesn't
+        scale with DB size.
 
         Returns topic dicts ordered by relevance (highest first).
         """
-        w = weights or _DEFAULT_WEIGHTS
-        now = now or datetime.now(UTC)
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=UTC)
+        scorer = RetrievalScorer(weights, now)
         # Hard-filtered in SQL when given — not just a soft scoring bonus.
         # Without this, a different peer's highly-relevant-by-content topic
         # could outscore and surface ahead of (or alongside) the querying
@@ -472,7 +435,6 @@ class SqliteStore:
             ).fetchall()
 
         scored: list[tuple[float, dict, dict]] = []
-
         for row in rows:
             topic = {
                 "id": row[0],
@@ -484,83 +446,22 @@ class SqliteStore:
                 "created_at": row[7],
                 "closed_at": row[8],
             }
-            score = 0.0
-            semantic_raw = semantic_weighted = 0.0
-            tag_overlap_raw = tag_overlap_weighted = 0.0
-            person_weighted = 0.0
-
-            # Embedding similarity (semantic) — from the vector index's
-            # pre-computed result when available, otherwise computed here.
-            if semantic_lookup is not None:
-                semantic_raw = semantic_lookup.get(topic["id"], 0.0)
-                semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
-                score += semantic_weighted
-            elif query_embedding and row[4]:
-                stored_emb = _deserialize_embedding(row[4])
-                semantic_raw = _cosine_similarity(query_embedding, stored_emb)
-                semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
-                score += semantic_weighted
-
-            # Tag overlap
-            if tags:
-                topic_tags: list[str] = topic["tags"]
-                overlap = len(set(tags) & set(topic_tags))
-                if overlap > 0:
-                    tag_overlap_raw = overlap / max(len(tags), 1)
-                    tag_overlap_weighted = tag_overlap_raw * w.get(
-                        "tag_overlap", _DEFAULT_WEIGHTS["tag_overlap"]
-                    )
-                    score += tag_overlap_weighted
-
-            # Peer filter
-            if peer_id and topic["peer_id"] == peer_id:
-                person_weighted = w.get("person", _DEFAULT_WEIGHTS["person"])
-                score += person_weighted
-
-            # Temporal recency — a re-ranking signal, not a relevance source:
-            # only added to candidates that already have relevance (score > 0),
-            # so a merely-recent-but-irrelevant topic is never pulled in.
-            temporal_raw = _recency_score(
-                topic["closed_at"] or topic["created_at"], now, _TEMPORAL_HALF_LIFE_DAYS
+            score, breakdown = scorer.score(
+                candidate_type="topic",
+                candidate_id=topic["id"],
+                semantic_raw=self._semantic_similarity(semantic_lookup, topic["id"], query_embedding, row[4]),
+                recency_timestamp=topic["closed_at"] or topic["created_at"],
+                include_tag_overlap=True,
+                query_tags=tags,
+                candidate_tags=topic["tags"],
+                include_person=True,
+                person_match=bool(peer_id) and topic["peer_id"] == peer_id,
             )
-            temporal_weighted = temporal_raw * w.get("temporal", _DEFAULT_WEIGHTS["temporal"])
-            final_score = score + temporal_weighted if score > 0 else 0.0
+            scored.append((score, topic, breakdown))
 
-            breakdown = {
-                "candidate_type": "topic",
-                "candidate_id": topic["id"],
-                "semantic_raw": semantic_raw,
-                "semantic_weighted": semantic_weighted,
-                "tag_overlap_raw": tag_overlap_raw,
-                "tag_overlap_weighted": tag_overlap_weighted,
-                "person_weighted": person_weighted,
-                "temporal_raw": temporal_raw,
-                "temporal_weighted": temporal_weighted,
-                "final_score": final_score,
-            }
-            scored.append((final_score, topic, breakdown))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        results = [(s, t) for s, t, _ in scored if s > 0][:limit]
-        included_ids = {t["id"] for _, t in results}
-
-        if tracer is not None:
-            positively_scored = [(s, b) for s, _, b in scored if s > 0]
-            top = positively_scored[: limit + _TRACE_TOP_K_PADDING]
-            for _, breakdown in top:
-                breakdown["included"] = breakdown["candidate_id"] in included_ids
-            tracer.record(
-                "retrieval_scoring_summary",
-                {
-                    "candidate_type": "topic",
-                    "total_scored": len(positively_scored),
-                    "included_count": len(included_ids),
-                    "top_candidates": [b for _, b in top],
-                },
-                request_id=request_id,
-            )
-
-        return [t for _, t in results]
+        return scorer.finalize(
+            scored=scored, candidate_type="topic", limit=limit, tracer=tracer, request_id=request_id,
+        )
 
     # ── Topic Clusters ─────────────────────────────────────
 
@@ -716,13 +617,9 @@ class SqliteStore:
         peer_id in SQL instead of scoring it as a soft "person" bonus —
         clusters must never merge across peers.
         """
-        w = weights or _DEFAULT_WEIGHTS
-        now = now or datetime.now(UTC)
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=UTC)
-
         if not peer_id:
             return []
+        scorer = RetrievalScorer(weights, now)
 
         # Accelerated path (see search_topics) — pre-filter to the
         # nearest-by-embedding clusters via the vector index.
@@ -747,7 +644,6 @@ class SqliteStore:
             ).fetchall()
 
         scored: list[tuple[float, dict, dict]] = []
-
         for row in rows:
             cluster = {
                 "id": row[0],
@@ -759,69 +655,21 @@ class SqliteStore:
                 "created_at": row[7],
                 "updated_at": row[8],
             }
-            score = 0.0
-            semantic_raw = semantic_weighted = 0.0
-            tag_overlap_raw = tag_overlap_weighted = 0.0
-
-            if semantic_lookup is not None:
-                semantic_raw = semantic_lookup.get(cluster["id"], 0.0)
-                semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
-                score += semantic_weighted
-            elif query_embedding and row[5]:
-                stored_emb = _deserialize_embedding(row[5])
-                semantic_raw = _cosine_similarity(query_embedding, stored_emb)
-                semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
-                score += semantic_weighted
-
-            if tags:
-                cluster_tags: list[str] = cluster["tags"]
-                overlap = len(set(tags) & set(cluster_tags))
-                if overlap > 0:
-                    tag_overlap_raw = overlap / max(len(tags), 1)
-                    tag_overlap_weighted = tag_overlap_raw * w.get(
-                        "tag_overlap", _DEFAULT_WEIGHTS["tag_overlap"]
-                    )
-                    score += tag_overlap_weighted
-
             # No "person" term — peer_id is already a hard SQL filter above.
-            temporal_raw = _recency_score(cluster["updated_at"], now, _TEMPORAL_HALF_LIFE_DAYS)
-            temporal_weighted = temporal_raw * w.get("temporal", _DEFAULT_WEIGHTS["temporal"])
-            final_score = score + temporal_weighted if score > 0 else 0.0
-
-            breakdown = {
-                "candidate_type": "cluster",
-                "candidate_id": cluster["id"],
-                "semantic_raw": semantic_raw,
-                "semantic_weighted": semantic_weighted,
-                "tag_overlap_raw": tag_overlap_raw,
-                "tag_overlap_weighted": tag_overlap_weighted,
-                "temporal_raw": temporal_raw,
-                "temporal_weighted": temporal_weighted,
-                "final_score": final_score,
-            }
-            scored.append((final_score, cluster, breakdown))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        results = [(s, c) for s, c, _ in scored if s > 0][:limit]
-        included_ids = {c["id"] for _, c in results}
-
-        if tracer is not None:
-            positively_scored = [(s, b) for s, _, b in scored if s > 0]
-            top = positively_scored[: limit + _TRACE_TOP_K_PADDING]
-            for _, breakdown in top:
-                breakdown["included"] = breakdown["candidate_id"] in included_ids
-            tracer.record(
-                "retrieval_scoring_summary",
-                {
-                    "candidate_type": "cluster",
-                    "total_scored": len(positively_scored),
-                    "included_count": len(included_ids),
-                    "top_candidates": [b for _, b in top],
-                },
-                request_id=request_id,
+            score, breakdown = scorer.score(
+                candidate_type="cluster",
+                candidate_id=cluster["id"],
+                semantic_raw=self._semantic_similarity(semantic_lookup, cluster["id"], query_embedding, row[5]),
+                recency_timestamp=cluster["updated_at"],
+                include_tag_overlap=True,
+                query_tags=tags,
+                candidate_tags=cluster["tags"],
             )
+            scored.append((score, cluster, breakdown))
 
-        return [c for _, c in results]
+        return scorer.finalize(
+            scored=scored, candidate_type="cluster", limit=limit, tracer=tracer, request_id=request_id,
+        )
 
     def search_cluster_candidates(
         self,
@@ -838,10 +686,7 @@ class SqliteStore:
         stored embedding/tags, so a first-ever pair can form a brand new
         cluster and not just grow an existing one.
         """
-        w = weights or _DEFAULT_WEIGHTS
-        now = now or datetime.now(UTC)
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=UTC)
+        scorer = RetrievalScorer(weights, now)
 
         own_row = self._conn.execute(
             "SELECT embedding, tags FROM topics WHERE id = ?", (topic_id,)
@@ -888,9 +733,15 @@ class SqliteStore:
                 "tags": json.loads(row[3]),
                 "topic_count": 1,
             }
-            pre_similarity = topic_semantic_lookup.get(row[0]) if topic_semantic_lookup is not None else None
-            score, breakdown = self._score_cluster_candidate(
-                candidate, row[4], row[6], query_embedding, query_tags, w, now, pre_similarity=pre_similarity
+            score, breakdown = scorer.score(
+                candidate_type="cluster_candidate",
+                candidate_id=candidate["id"],
+                semantic_raw=self._semantic_similarity(topic_semantic_lookup, row[0], query_embedding, row[4]),
+                recency_timestamp=row[6],
+                include_tag_overlap=True,
+                query_tags=query_tags,
+                candidate_tags=candidate["tags"],
+                extra_breakdown={"candidate_kind": "topic"},
             )
             scored.append((score, candidate, breakdown))
 
@@ -924,92 +775,22 @@ class SqliteStore:
                 "tags": json.loads(row[3]),
                 "topic_count": cluster_full["topic_count"] if cluster_full else 0,
             }
-            pre_similarity = cluster_semantic_lookup.get(row[0]) if cluster_semantic_lookup is not None else None
-            score, breakdown = self._score_cluster_candidate(
-                candidate, row[4], row[5], query_embedding, query_tags, w, now, pre_similarity=pre_similarity
+            score, breakdown = scorer.score(
+                candidate_type="cluster_candidate",
+                candidate_id=candidate["id"],
+                semantic_raw=self._semantic_similarity(cluster_semantic_lookup, row[0], query_embedding, row[4]),
+                recency_timestamp=row[5],
+                include_tag_overlap=True,
+                query_tags=query_tags,
+                candidate_tags=candidate["tags"],
+                extra_breakdown={"candidate_kind": "cluster"},
             )
             scored.append((score, candidate, breakdown))
 
-        scored.sort(key=lambda x: x[0], reverse=True)
-        results = [(s, c) for s, c, _ in scored if s > 0][:limit]
-        included_ids = {(c["candidate_kind"], c["id"]) for _, c in results}
-
-        if tracer is not None:
-            positively_scored = [(s, b) for s, _, b in scored if s > 0]
-            top = positively_scored[: limit + _TRACE_TOP_K_PADDING]
-            for _, breakdown in top:
-                breakdown["included"] = (breakdown["candidate_kind"], breakdown["candidate_id"]) in included_ids
-            tracer.record(
-                "retrieval_scoring_summary",
-                {
-                    "candidate_type": "cluster_candidate",
-                    "topic_id": topic_id,
-                    "total_scored": len(positively_scored),
-                    "included_count": len(included_ids),
-                    "top_candidates": [b for _, b in top],
-                },
-                request_id=request_id,
-            )
-
-        return [c for _, c in results]
-
-    @staticmethod
-    def _score_cluster_candidate(
-        candidate: dict,
-        embedding_blob: bytes | None,
-        recency_timestamp: str | None,
-        query_embedding: list[float],
-        query_tags: list[str],
-        weights: dict[str, float],
-        now: datetime,
-        pre_similarity: float | None = None,
-    ) -> tuple[float, dict]:
-        """Shared scoring formula for one search_cluster_candidates row —
-        semantic + tag_overlap + temporal, same shape as search_topics/
-        search_clusters (no "person" term; the caller already scopes the
-        query to one peer_id in SQL). `pre_similarity`, when given (the
-        accelerated path), skips the BLOB-deserialize-and-cosine step —
-        see search_topics."""
-        score = 0.0
-        semantic_raw = semantic_weighted = 0.0
-        tag_overlap_raw = tag_overlap_weighted = 0.0
-
-        if pre_similarity is not None:
-            semantic_raw = pre_similarity
-            semantic_weighted = semantic_raw * weights.get("semantic", _DEFAULT_WEIGHTS["semantic"])
-            score += semantic_weighted
-        elif embedding_blob:
-            stored_emb = _deserialize_embedding(embedding_blob)
-            semantic_raw = _cosine_similarity(query_embedding, stored_emb)
-            semantic_weighted = semantic_raw * weights.get("semantic", _DEFAULT_WEIGHTS["semantic"])
-            score += semantic_weighted
-
-        if query_tags:
-            overlap = len(set(query_tags) & set(candidate["tags"]))
-            if overlap > 0:
-                tag_overlap_raw = overlap / max(len(query_tags), 1)
-                tag_overlap_weighted = tag_overlap_raw * weights.get(
-                    "tag_overlap", _DEFAULT_WEIGHTS["tag_overlap"]
-                )
-                score += tag_overlap_weighted
-
-        temporal_raw = _recency_score(recency_timestamp, now, _TEMPORAL_HALF_LIFE_DAYS)
-        temporal_weighted = temporal_raw * weights.get("temporal", _DEFAULT_WEIGHTS["temporal"])
-        final_score = score + temporal_weighted if score > 0 else 0.0
-
-        breakdown = {
-            "candidate_type": "cluster_candidate",
-            "candidate_kind": candidate["candidate_kind"],
-            "candidate_id": candidate["id"],
-            "semantic_raw": semantic_raw,
-            "semantic_weighted": semantic_weighted,
-            "tag_overlap_raw": tag_overlap_raw,
-            "tag_overlap_weighted": tag_overlap_weighted,
-            "temporal_raw": temporal_raw,
-            "temporal_weighted": temporal_weighted,
-            "final_score": final_score,
-        }
-        return final_score, breakdown
+        return scorer.finalize(
+            scored=scored, candidate_type="cluster_candidate", limit=limit,
+            tracer=tracer, request_id=request_id, extra_payload={"topic_id": topic_id},
+        )
 
     # ── Memory Items ───────────────────────────────────────
 
@@ -1063,7 +844,7 @@ class SqliteStore:
         ranking signal.
 
         `weights` overrides the semantic/temporal scoring weights when
-        provided (see `_DEFAULT_WEIGHTS`). `tag_overlap` doesn't apply
+        provided (see `RetrievalScorer`). `tag_overlap` doesn't apply
         (memory items carry no tags). The `temporal` term is a recency
         *re-ranking* signal, added only to candidates that already have
         semantic relevance (see `search_topics`); an item's recency uses
@@ -1073,10 +854,7 @@ class SqliteStore:
         When `tracer` is given, one `retrieval_scoring_summary` event is
         recorded for the whole call — see `search_topics` for the shape.
         """
-        w = weights or _DEFAULT_WEIGHTS
-        now = now or datetime.now(UTC)
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=UTC)
+        scorer = RetrievalScorer(weights, now)
         # Accelerated path (see search_topics for the full explanation):
         # pre-filter to the nearest-by-embedding candidates via the vector
         # index — peer-scoping happened when each item was upserted there
@@ -1112,7 +890,6 @@ class SqliteStore:
             ).fetchall()
 
         scored: list[tuple[float, MemoryItem, dict]] = []
-
         for row in rows:
             item = MemoryItem(
                 id=row[0],
@@ -1125,62 +902,20 @@ class SqliteStore:
                 message_id=row[7],
                 timestamp=row[9],
             )
-            score = 0.0
-            semantic_raw = semantic_weighted = 0.0
-
-            # Embedding similarity — from the vector index's pre-computed
-            # result when available, otherwise computed here.
-            if semantic_lookup is not None:
-                semantic_raw = semantic_lookup.get(row[0], 0.0)
-                semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
-                score += semantic_weighted
-            elif query_embedding and row[8]:
-                stored_emb = _deserialize_embedding(row[8])
-                semantic_raw = _cosine_similarity(query_embedding, stored_emb)
-                semantic_weighted = semantic_raw * w.get("semantic", _DEFAULT_WEIGHTS["semantic"])
-                score += semantic_weighted
-
-            # NOTE: no tag_overlap — items carry no tags. No person term —
-            # peer_id is already a hard SQL filter above (see search_clusters).
-            # Temporal recency re-ranks relevant items only (see search_topics).
-            # row[9] is the raw created_at string (item.timestamp is typed
-            # datetime but actually carries this same string at runtime).
-            temporal_raw = _recency_score(row[9], now, _TEMPORAL_HALF_LIFE_DAYS)
-            temporal_weighted = temporal_raw * w.get("temporal", _DEFAULT_WEIGHTS["temporal"])
-            final_score = score + temporal_weighted if score > 0 else 0.0
-
-            breakdown = {
-                "candidate_type": "memory_item",
-                "candidate_id": item.id,
-                "semantic_raw": semantic_raw,
-                "semantic_weighted": semantic_weighted,
-                "temporal_raw": temporal_raw,
-                "temporal_weighted": temporal_weighted,
-                "final_score": final_score,
-            }
-            scored.append((final_score, item, breakdown))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        results = [(s, i) for s, i, _ in scored if s > 0][:limit]
-        included_ids = {i.id for _, i in results}
-
-        if tracer is not None:
-            positively_scored = [(s, b) for s, _, b in scored if s > 0]
-            top = positively_scored[: limit + _TRACE_TOP_K_PADDING]
-            for _, breakdown in top:
-                breakdown["included"] = breakdown["candidate_id"] in included_ids
-            tracer.record(
-                "retrieval_scoring_summary",
-                {
-                    "candidate_type": "memory_item",
-                    "total_scored": len(positively_scored),
-                    "included_count": len(included_ids),
-                    "top_candidates": [b for _, b in top],
-                },
-                request_id=request_id,
+            # No tag_overlap (items carry no tags) and no person term (peer_id
+            # is a hard SQL filter above). row[9] is the raw created_at string
+            # (item.timestamp is typed datetime but carries this string at runtime).
+            score, breakdown = scorer.score(
+                candidate_type="memory_item",
+                candidate_id=row[0],
+                semantic_raw=self._semantic_similarity(semantic_lookup, row[0], query_embedding, row[8]),
+                recency_timestamp=row[9],
             )
+            scored.append((score, item, breakdown))
 
-        return [item for _, item in results]
+        return scorer.finalize(
+            scored=scored, candidate_type="memory_item", limit=limit, tracer=tracer, request_id=request_id,
+        )
 
     def get_memory_items_by_turn(self, turn_id: int) -> list[MemoryItem]:
         """Return all memory items extracted from a given turn, oldest first.

@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 
 from core.models import Fact, MemoryItem
-from core.stores.sqlite_store import SqliteStore, _recency_score
+from core.stores.retrieval_scorer import _recency_score
+from core.stores.sqlite_store import SqliteStore
 from tests.mocks import SpyTracer
 
 
@@ -791,6 +792,96 @@ class TestSchema:
         detail = " ".join(str(row[3]) for row in plan)
         assert "idx_topics_peer_status" in detail
         assert "SCAN" not in detail or "USING INDEX" in detail
+
+
+class TestScoreBreakdownCharacterization:
+    """Locks the exact per-entity retrieval_scoring_summary breakdown shape
+    against full-dict equality — the guarantee the RetrievalScorer extraction
+    must preserve. The other search tests only spot-check keys by subscript,
+    which wouldn't catch a key silently appearing or disappearing. `now` is
+    pinned to the past and temporal *weight* is 0, so the blend is fully
+    deterministic: every row's created_at is later than `_NOW`, so its raw
+    recency clamps to 1.0, but with temporal weight 0 that contributes 0.0
+    to the final score."""
+
+    _NOW = datetime(2026, 1, 1, tzinfo=UTC)
+    _WEIGHTS = {"semantic": 0.5, "tag_overlap": 0.3, "person": 0.2, "temporal": 0.0}
+
+    def test_topic_breakdown_shape(self, store: SqliteStore):
+        tid = store.create_topic("Bello", summary="", peer_id="user", tags=["fitness"],
+                                 embedding=[1.0, 0.0, 0.0])
+        store.close_topic(tid, "")
+
+        tracer = SpyTracer()
+        store.search_topics(
+            query_embedding=[1.0, 0.0, 0.0], tags=["fitness"], peer_id="user",
+            weights=self._WEIGHTS, tracer=tracer, now=self._NOW,
+        )
+
+        candidate = tracer.events_of_type("retrieval_scoring_summary")[0]["payload"]["top_candidates"][0]
+        assert candidate == {
+            "candidate_type": "topic",
+            "candidate_id": tid,
+            "semantic_raw": pytest.approx(1.0),
+            "semantic_weighted": pytest.approx(0.5),
+            "tag_overlap_raw": pytest.approx(1.0),
+            "tag_overlap_weighted": pytest.approx(0.3),
+            "person_weighted": pytest.approx(0.2),
+            "temporal_raw": pytest.approx(1.0),
+            "temporal_weighted": pytest.approx(0.0),
+            "final_score": pytest.approx(1.0),
+            "included": True,
+        }
+
+    def test_memory_item_breakdown_shape_omits_tag_and_person(self, store: SqliteStore):
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        item_id = store.store_memory_item(MemoryItem(
+            content="About Bello", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            message_id=msg_id, embedding=[1.0, 0.0, 0.0],
+        ))
+
+        tracer = SpyTracer()
+        store.search_memory_items(
+            query_embedding=[1.0, 0.0, 0.0], peer_id="user",
+            weights=self._WEIGHTS, tracer=tracer, now=self._NOW,
+        )
+
+        candidate = tracer.events_of_type("retrieval_scoring_summary")[0]["payload"]["top_candidates"][0]
+        assert candidate == {
+            "candidate_type": "memory_item",
+            "candidate_id": item_id,
+            "semantic_raw": pytest.approx(1.0),
+            "semantic_weighted": pytest.approx(0.5),
+            "temporal_raw": pytest.approx(1.0),
+            "temporal_weighted": pytest.approx(0.0),
+            "final_score": pytest.approx(0.5),
+            "included": True,
+        }
+
+    def test_cluster_candidate_breakdown_shape_includes_candidate_kind(self, store: SqliteStore):
+        cid = store.create_cluster("user", "Bike", "summary", tags=["fitness"], embedding=[1.0, 0.0, 0.0])
+        new = store.create_topic("New topic", summary="", peer_id="user", tags=["fitness"],
+                                 embedding=[1.0, 0.0, 0.0])
+        store.close_topic(new, "summary")
+
+        tracer = SpyTracer()
+        store.search_cluster_candidates(new, "user", weights=self._WEIGHTS, tracer=tracer, now=self._NOW)
+
+        candidate = tracer.events_of_type("retrieval_scoring_summary")[0]["payload"]["top_candidates"][0]
+        assert candidate == {
+            "candidate_type": "cluster_candidate",
+            "candidate_kind": "cluster",
+            "candidate_id": cid,
+            "semantic_raw": pytest.approx(1.0),
+            "semantic_weighted": pytest.approx(0.5),
+            "tag_overlap_raw": pytest.approx(1.0),
+            "tag_overlap_weighted": pytest.approx(0.3),
+            "temporal_raw": pytest.approx(1.0),
+            "temporal_weighted": pytest.approx(0.0),
+            "final_score": pytest.approx(0.8),
+            "included": True,
+        }
 
 
 class TestRecencyScore:
