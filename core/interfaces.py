@@ -16,8 +16,11 @@ from core.models import Fact, MemoryItem
 class StorageProvider(Protocol):
     """Abstract storage backend.
 
-    V1: SQLite via ``core/stores/sqlite_store.py``.
-    Future: pgvector, MongoDB, or custom backends.
+    Implementations: SQLite (``core/stores/sqlite_store.py``, the
+    zero-config default for the CLI and tests) and Postgres + pgvector
+    (``core/stores/postgres_store.py``, recommended for production —
+    see its module docstring for why). Future: MongoDB or other custom
+    backends.
     """
 
     # ── Lifecycle ──────────────────────────────────────────

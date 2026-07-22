@@ -25,9 +25,25 @@ consolidation. 400+ tests.
   fallback to the original scan if the extension isn't available.
   Roughly 56x faster at 60k items in benchmarking, with identical
   retrieval-quality scores before and after on the eval harness.
-  [pgvector](https://github.com/pgvector/pgvector) remains the
-  documented escalation path for deployments that outgrow an embedded
-  SQLite file — the `StorageProvider` abstraction doesn't foreclose it.
+- ✅ **Postgres/pgvector storage backend** — `PostgresStore`
+  (`core/stores/postgres_store.py`) implements `StorageProvider`
+  alongside `SqliteStore`, config-selectable via `storage.provider:
+  postgres`. Originally scoped as a scale escalation
+  ([pgvector](https://github.com/pgvector/pgvector) "for deployments
+  that outgrow an embedded SQLite file"), it shipped for reliability
+  instead: SQLite's per-process advisory file locking doesn't hold up
+  over Docker Desktop's virtiofs bind mount (the same class of problem
+  as NFS), which cost a production deployment a WAL-mode corruption and
+  several stuck-write-lock incidents inside a few days. Postgres's
+  single-writer-process-plus-wire-protocol model doesn't hit that
+  failure class. Native `VECTOR`/HNSW replaces the BLOB+optional-
+  sqlite-vec-shadow-table duality entirely — one search path, not two.
+  Includes a data-migration tool
+  (`tools/migrate_sqlite_to_postgres.py`) and a storage-provider
+  contract test suite (`tests/core/test_storage_provider_contract.py`,
+  parametrized over both backends via a real `testcontainers`-managed
+  Postgres) so the two backends can't silently drift apart. `SqliteStore`
+  stays the zero-config default for the CLI and tests.
 - ✅ **Recurring-topic clustering** — `ClusterConsolidator` merges
   related closed topics (e.g. several separate mentions of "buying a
   new bike" over days or weeks) into a single, continuously-rewritten

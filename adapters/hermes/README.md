@@ -89,7 +89,9 @@ Each model role (`llm`, `embedder`, and any future role) is a **self-contained**
 | `models.embedder.provider` | string | `openai_compatible` \| `ollama` \| `lm_studio` \| `openai` \| `sentence_transformers` \| `simulated` |
 | `models.embedder.base_url` | URL | Base URL of the embedder endpoint |
 | `models.embedder.model` | string | Model name for embeddings |
-| `storage.path` | string | Path to the SQLite database file |
+| `storage.provider` | string | `sqlite` (default, zero setup) \| `postgres` (recommended for production — see below) |
+| `storage.path` | string | Path to the SQLite database file (`provider: sqlite` only) |
+| `storage.host`/`port`/`dbname`/`user`/`password` | string/int | Postgres connection (`provider: postgres` only); `password` also settable via `EIDOLON_STORAGE_PASSWORD` |
 | `retrieval.semantic` | float | Embedding similarity weight (0-1) |
 | `retrieval.tag_overlap` | float | Tag overlap weight (0-1) |
 | `retrieval.person` | float | Same peer weight (0-1) |
@@ -103,6 +105,29 @@ Each model role (`llm`, `embedder`, and any future role) is a **self-contained**
 | `facts.categories` | list of strings | Closed category list offered to the LLM — soft-enforced, see the main [README's Facts Consolidation section](../../README.md#facts-consolidation) |
 | `language` | string | Language code for stop word filtering (`en`, `de`) |
 | `timezone` | string | IANA zone name (e.g. `Europe/Berlin`) for displaying the injected `[Environment]` time (default `UTC`); stored timestamps stay UTC internally |
+
+### Postgres storage — deployed-environment dependency
+
+`install-plugin.sh` only rsyncs Eidolon's own code — it does **not** install
+Python packages into the Hermes container's environment. `provider: sqlite`
+needs nothing extra (stdlib `sqlite3`), but `provider: postgres` needs
+`psycopg`/`pgvector` importable from wherever the plugin actually runs,
+which is a separate Python environment from your dev checkout's `.venv`.
+Confirmed missing by default in a Docker-based Hermes deployment; installed
+into the container's own venv with:
+
+```bash
+docker exec <container> uv pip install --python <hermes-venv>/bin/python3 "psycopg[binary]>=3.1" "pgvector>=0.3"
+```
+
+(substitute `pip install` directly if `uv` isn't available in the
+container). **This does not survive a container recreation** — only an
+in-place restart of the gateway process. Recreating the container (e.g.
+after changing `docker-compose.yml`, such as adding
+`EIDOLON_STORAGE_PASSWORD`) wipes the ephemeral install and it needs
+redoing. There's no permanent fix for this yet — baking the dependency
+into a custom image layer is the natural next step if this becomes
+routine.
 
 ## How It Works
 

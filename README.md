@@ -15,8 +15,10 @@ eidolon/
 │   ├── extraction/           #   Fragmentary Extractor (essence, facts, surprises, feelings)
 │   ├── retrieval/            #   Associative Retriever (semantic + tag + person + time)
 │   ├── consolidation/        #   Fact Consolidator (durable-facts profile) + Cluster Consolidator (recurring-topic threads)
-│   ├── stores/               #   SQLite store with auto-migration
-│   │   └── vec_index.py      #     Optional sqlite-vec KNN index (needs `vec` extra), auto-fallback to brute-force scan
+│   ├── stores/               #   SQLite store (default) + Postgres/pgvector store (needs `postgres` extra)
+│   │   ├── vec_index.py      #     SQLite-only: optional sqlite-vec KNN index, auto-fallback to brute-force scan
+│   │   ├── postgres_store.py #     PostgresStore — native pgvector VECTOR/HNSW, no fallback needed
+│   │   └── postgres_schema.sql  #  Consolidated schema (VECTOR/JSONB/TIMESTAMPTZ vs SQLite's BLOB/TEXT/naive)
 │   ├── trace/                #   Debug tracer (NullTracer / SqliteTracer), off by default
 │   ├── providers/            #   Provider implementations (one class per service)
 │   │   ├── openai_compatible.py  # Any OpenAI-API endpoint: complete() + embed()
@@ -40,8 +42,10 @@ eidolon/
 │   │   ├── scripts/          #     Golden eval scripts (YAML)
 │   │   └── reports/          #     Retained run reports (markdown + JSON), not deleted after each run
 │   ├── install-plugin.sh     #   Deploys the Hermes adapter into a live Hermes install
-│   └── reset-db.sh           #   Wipes the local dev memory DB
+│   ├── migrate_sqlite_to_postgres.py  # One-time data migration between storage backends
+│   └── reset-db.sh           #   Wipes the local dev memory DB (SQLite only)
 ├── tests/                    # Test suite
+│   ├── conftest.py           #   store/store_backend fixtures — parametrizes contract tests over sqlite/postgres
 │   ├── core/                 #   Core tests (incl. core/trace/, core/stores/)
 │   ├── adapters/hermes/      #   Adapter tests
 │   └── tools/                #   Trace viewer + TUI tests
@@ -199,6 +203,20 @@ See [`eidolon.example.yaml`](eidolon.example.yaml) for all available options.
 
 Each model role (`llm`, `embedder`, and any future role like `judge`) is a **self-contained** endpoint — provider, `base_url`, and `model` together, no shared registry, no cross-references by name. A role that's actually used but not fully specified (missing `base_url`, for instance) fails immediately with a clear error at startup rather than silently falling back to a guessed endpoint — this used to silently misroute requests to whatever happened to be listening on a default port.
 
+**Storage.** `sqlite` (default) needs zero setup and is what the CLI/tests use. `postgres` — recommended for a real deployment — needs `pip install eidolon[postgres]` and a reachable Postgres with the `vector` extension available; discrete `host`/`port`/`dbname`/`user`/`password` fields, same "self-contained, explicit fields" philosophy as models (`password` also settable via `EIDOLON_STORAGE_PASSWORD`, kept out of the YAML file). pgvector's `VECTOR(n)` column width is fixed from `models.embedder.dimension` the first time the schema is created — changing the embedder's dimension later needs a real migration, not just a config edit. Moving existing data between backends: [`tools/migrate_sqlite_to_postgres.py`](tools/migrate_sqlite_to_postgres.py).
+
+```yaml
+storage:
+  provider: postgres    # or: sqlite
+  host: 127.0.0.1
+  port: 5432
+  dbname: eidolon
+  user: eidolon
+  password: ...          # or EIDOLON_STORAGE_PASSWORD
+```
+
+Why a second storage backend at all: SQLite's concurrency model has every client process take OS-level advisory file locks directly on the `.db` file, which doesn't reliably work over network/bridged filesystems (Docker Desktop's virtiofs bind mounts on macOS, NFS, SMB) — Postgres's single-writer-process-plus-wire-protocol model doesn't hit that failure class at all. See [`core/stores/postgres_store.py`](core/stores/postgres_store.py)'s module docstring for the full story.
+
 **Providers.** `openai_compatible` targets any endpoint speaking the OpenAI HTTP API — hosted (Groq, Together, DeepInfra), self-hosted (vLLM, LiteLLM, a private gateway), or local (Ollama 0.5+, LM Studio). Set `api_key` for authenticated endpoints (sent as a Bearer token; also settable via `EIDOLON_LLM_API_KEY`/`EIDOLON_EMBEDDER_API_KEY`). `ollama`, `lm_studio`, `openai`, and `openrouter` are thin presets of it with sensible defaults baked in — `openai` targets OpenAI's own hosted API (LLM + embedder), `openrouter` targets OpenRouter (LLM only; it has no embeddings endpoint). `sentence_transformers` provides local PyTorch embeddings; `simulated` is a deterministic, network-free fake for tests and CLI dry-runs.
 
 ```yaml
@@ -294,6 +312,8 @@ uv run pytest tests/core/ -v
 uv run pytest tests/adapters/ -v
 ```
 
+The storage-provider contract suite ([`tests/core/test_storage_provider_contract.py`](tests/core/test_storage_provider_contract.py)) runs against both SQLite and a real Postgres — `tests/conftest.py` spins up an ephemeral `pgvector/pgvector:pg15` container via `testcontainers` (session-scoped, truncated between tests) — so the full suite needs Docker running. `dev` extra installs `testcontainers[postgres]`/`psycopg`/`pgvector` for this; no separate setup needed beyond having Docker available.
+
 ### Linting & Type Checking
 
 ```bash
@@ -310,7 +330,7 @@ Both are configured in `pyproject.toml` and installed via the `dev` extra
 | Phase | Status | What |
 |---|---|---|
 | **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, batch facts consolidation, 419+ tests |
-| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage acceleration ✅, topic detection & summarization review, fact consolidation hardening — see [`ROADMAP.md`](ROADMAP.md); 554+ tests |
+| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage acceleration ✅, Postgres/pgvector storage backend ✅, topic detection & summarization review, fact consolidation hardening — see [`ROADMAP.md`](ROADMAP.md); 710+ tests |
 | **Phase 3** | ⏳ TBD | Topic-Only Mode, production deployment, performance optimization |
 
 ## Roadmap
