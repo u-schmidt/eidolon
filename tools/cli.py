@@ -71,7 +71,7 @@ Examples:
 
     # LLM
     parser.add_argument("--llm-provider", default=None,
-                        choices=["simulated", "openai_compatible", "lm_studio", "ollama"],
+                        choices=["simulated", "openai_compatible", "lm_studio", "ollama", "openai", "openrouter"],
                         help="LLM provider name")
     parser.add_argument("--llm-base-url", default=None, help="LLM endpoint URL")
     parser.add_argument("--llm-model", default=None, help="LLM model name")
@@ -80,7 +80,8 @@ Examples:
 
     # Embedder
     parser.add_argument("--embedder-provider", default=None,
-                        choices=["simulated", "openai_compatible", "lm_studio", "ollama", "sentence_transformers"],
+                        choices=["simulated", "openai_compatible", "lm_studio", "ollama", "openai",
+                                 "sentence_transformers"],
                         help="Embedder provider name")
     parser.add_argument("--embedder-base-url", default=None, help="Embedder endpoint URL")
     parser.add_argument("--embedder-model", default=None, help="Embedder model name")

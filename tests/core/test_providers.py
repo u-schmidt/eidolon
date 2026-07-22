@@ -12,7 +12,9 @@ import pytest
 
 from core.providers.lm_studio import LMStudio
 from core.providers.ollama import Ollama
+from core.providers.openai import OpenAI
 from core.providers.openai_compatible import OpenAICompatible
+from core.providers.openrouter import OpenRouter
 
 
 class TestLLMWrapperPattern:
@@ -158,6 +160,22 @@ class TestPresetDefaults:
         assert provider._base_url == "http://10.0.0.5:11434"
         assert provider._llm_model == "mistral"
         assert provider._api_key == "sk-test"
+
+    def test_openai_defaults(self):
+        provider = OpenAI()
+        assert isinstance(provider, OpenAICompatible)
+        assert provider._base_url == "https://api.openai.com"
+        assert provider._llm_model == "gpt-4o-mini"
+        assert provider._embedder_model == "text-embedding-3-small"
+        assert provider._timeout == 60
+
+    def test_openrouter_defaults(self):
+        provider = OpenRouter()
+        assert isinstance(provider, OpenAICompatible)
+        assert provider._base_url == "https://openrouter.ai/api"
+        assert provider._llm_model == "openai/gpt-4o-mini"
+        assert provider._embedder_model == ""
+        assert provider._timeout == 60
 
 
 class TestSentenceTransformersEmbedder:

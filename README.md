@@ -22,6 +22,8 @@ eidolon/
 │   │   ├── openai_compatible.py  # Any OpenAI-API endpoint: complete() + embed()
 │   │   ├── ollama.py         #     Preset of openai_compatible (local Ollama defaults)
 │   │   ├── lm_studio.py      #     Preset of openai_compatible (local LM Studio defaults)
+│   │   ├── openai.py         #     Preset of openai_compatible (OpenAI's hosted API)
+│   │   ├── openrouter.py     #     Preset of openai_compatible (OpenRouter, LLM only)
 │   │   ├── sentence_transformers.py  # Local PyTorch embeddings (fallback)
 │   │   └── simulated.py      #     Deterministic fake provider for tests/CLI dry-runs
 │   └── context_formatter.py  #   Renders a ContextBundle into the prompt-injection text
@@ -197,15 +199,13 @@ See [`eidolon.example.yaml`](eidolon.example.yaml) for all available options.
 
 Each model role (`llm`, `embedder`, and any future role like `judge`) is a **self-contained** endpoint — provider, `base_url`, and `model` together, no shared registry, no cross-references by name. A role that's actually used but not fully specified (missing `base_url`, for instance) fails immediately with a clear error at startup rather than silently falling back to a guessed endpoint — this used to silently misroute requests to whatever happened to be listening on a default port.
 
-**Providers.** `openai_compatible` targets any endpoint speaking the OpenAI HTTP API — hosted (OpenAI, Groq, Together, OpenRouter, DeepInfra), self-hosted (vLLM, LiteLLM, a private gateway), or local (Ollama 0.5+, LM Studio). Set `api_key` for authenticated endpoints (sent as a Bearer token; also settable via `EIDOLON_LLM_API_KEY`/`EIDOLON_EMBEDDER_API_KEY`). `ollama` and `lm_studio` are thin presets of it with local defaults. `sentence_transformers` provides local PyTorch embeddings; `simulated` is a deterministic, network-free fake for tests and CLI dry-runs.
+**Providers.** `openai_compatible` targets any endpoint speaking the OpenAI HTTP API — hosted (Groq, Together, DeepInfra), self-hosted (vLLM, LiteLLM, a private gateway), or local (Ollama 0.5+, LM Studio). Set `api_key` for authenticated endpoints (sent as a Bearer token; also settable via `EIDOLON_LLM_API_KEY`/`EIDOLON_EMBEDDER_API_KEY`). `ollama`, `lm_studio`, `openai`, and `openrouter` are thin presets of it with sensible defaults baked in — `openai` targets OpenAI's own hosted API (LLM + embedder), `openrouter` targets OpenRouter (LLM only; it has no embeddings endpoint). `sentence_transformers` provides local PyTorch embeddings; `simulated` is a deterministic, network-free fake for tests and CLI dry-runs.
 
 ```yaml
 models:
   llm:
-    provider: openai_compatible   # or: ollama | lm_studio | simulated
-    base_url: https://api.openai.com
-    model: gpt-4o-mini
-    api_key: sk-...               # only for authenticated endpoints
+    provider: openai               # or: openai_compatible | ollama | lm_studio | openrouter | simulated
+    api_key: sk-...                # only for authenticated endpoints
 
   embedder:
     provider: lm_studio           # a local preset of openai_compatible

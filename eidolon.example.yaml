@@ -27,15 +27,18 @@ storage:
 # a future trace-relevance-check model) the same way — no code changes
 # needed, just a new block here.
 # Provider options for llm/embedder:
-#   openai_compatible  — any OpenAI-API endpoint: OpenAI, Groq, Together,
-#                        OpenRouter, DeepInfra, vLLM, LiteLLM, a private
-#                        gateway (set api_key for authenticated ones).
+#   openai_compatible  — any other OpenAI-API endpoint: Groq, Together,
+#                        DeepInfra, vLLM, LiteLLM, a private gateway
+#                        (set api_key for authenticated ones).
 #   ollama | lm_studio — presets of openai_compatible with local defaults.
+#   openai              — preset for OpenAI's own hosted API (llm + embedder).
+#   openrouter          — preset for OpenRouter's hosted API (llm only —
+#                        OpenRouter has no embeddings endpoint).
 #   sentence_transformers — local PyTorch embeddings (embedder only).
 #   simulated          — deterministic fake, no network (llm + embedder).
 models:
   llm:
-    provider: ollama            # openai_compatible | ollama | lm_studio | simulated
+    provider: ollama            # openai_compatible | ollama | lm_studio | openai | openrouter | simulated
     base_url: http://192.168.1.100:11434
     model: deepseek-v4-flash:cloud
     max_tokens: 4096             # Response cap for all LLM calls (detection,
@@ -48,19 +51,31 @@ models:
     timeout: 60
 
   embedder:
-    provider: lm_studio         # openai_compatible | ollama | lm_studio | sentence_transformers | simulated
+    provider: lm_studio         # openai_compatible | ollama | lm_studio | openai | sentence_transformers | simulated
     base_url: http://192.168.1.100:1234
     model: text-embedding-bge-m3
     dimension: 1024              # Vector dimension (bge-m3 = 1024, nomic-embed-text = 768)
     timeout: 30
 
-  # Example: a hosted OpenAI-compatible endpoint (OpenAI, Groq, OpenRouter, ...).
-  # Set api_key for authenticated endpoints — it's sent as a Bearer token.
+  # Example: OpenAI's own hosted API — base_url/model default to OpenAI's,
+  # so only api_key is required. Set api_key for any authenticated preset
+  # or openai_compatible endpoint — it's sent as a Bearer token.
+  #   llm:
+  #     provider: openai
+  #     api_key: sk-...            # or via EIDOLON_LLM_API_KEY
+  #
+  # Example: OpenRouter (llm only — pick a different provider for embedder):
+  #   llm:
+  #     provider: openrouter
+  #     model: anthropic/claude-3.5-haiku
+  #     api_key: sk-or-...
+  #
+  # Example: any other hosted OpenAI-compatible endpoint (Groq, Together, ...):
   #   llm:
   #     provider: openai_compatible
-  #     base_url: https://api.openai.com
-  #     model: gpt-4o-mini
-  #     api_key: sk-...            # or via EIDOLON_LLM_API_KEY
+  #     base_url: https://api.groq.com/openai
+  #     model: llama-3.3-70b-versatile
+  #     api_key: gsk_...
 
 # Quick CLI overrides without touching this file — the two most-used
 # roles have dedicated flags/env vars:

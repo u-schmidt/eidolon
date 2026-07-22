@@ -119,12 +119,13 @@ class ProviderFactory:
     def _openai_compatible_class(provider: str) -> type[OpenAICompatible] | None:
         """Map an OpenAI-compatible provider name to its class, or None.
 
-        ``ollama``/``lm_studio`` are thin presets of ``OpenAICompatible``
-        (different default base_url/model/timeout); ``openai_compatible`` is
-        the generic name for any hosted or self-hosted OpenAI-API endpoint
-        (OpenAI, Groq, OpenRouter, vLLM, a private gateway). All three take
-        the same constructor arguments, so one mapped branch builds any of
-        them — and every one now receives ``api_key``."""
+        ``ollama``/``lm_studio``/``openai``/``openrouter`` are thin presets
+        of ``OpenAICompatible`` (different default base_url/model/timeout);
+        ``openai_compatible`` is the generic name for any other hosted or
+        self-hosted OpenAI-API endpoint (Groq, Together, vLLM, a private
+        gateway). All five take the same constructor arguments, so one
+        mapped branch builds any of them — and every one now receives
+        ``api_key``."""
         if provider == "openai_compatible":
             from core.providers.openai_compatible import OpenAICompatible
             return OpenAICompatible
@@ -134,4 +135,10 @@ class ProviderFactory:
         if provider == "lm_studio":
             from core.providers.lm_studio import LMStudio
             return LMStudio
+        if provider == "openai":
+            from core.providers.openai import OpenAI
+            return OpenAI
+        if provider == "openrouter":
+            from core.providers.openrouter import OpenRouter
+            return OpenRouter
         return None

@@ -19,71 +19,76 @@ plugins/eidolon/              ← Hermes plugin root (flat, no memory/ subdir!)
 
 ## Installation
 
-### 1. Copy the project into the Hermes plugin directory
+### Recommended: `install-plugin.sh`
+
+From the Eidolon project root:
 
 ```bash
-cp -r /path/to/eidolon /path/to/hermes/profiles/<profile>/plugins/eidolon
+HERMES_HOME=/path/to/hermes PROFILE=<profile> ./tools/install-plugin.sh
 ```
 
-**Important:** The plugin root must be `plugins/eidolon/` (flat), **not** `plugins/memory/eidolon/`. Hermes discovers user plugins at `$HERMES_HOME/plugins/<name>/` — there is no `memory/` subdirectory for user plugins.
+This rsyncs the project into `$HERMES_HOME/profiles/<profile>/plugins/eidolon` — excluding dev-only files, and never touching the plugin's own `data/` directory (a plain `cp -r` here can clobber a live `eidolon_memory.db`) — scaffolds `eidolon.yaml` from `eidolon.example.yaml` if one doesn't exist yet, and checks whether `memory.provider: eidolon` is set in the profile's `config.yaml`. Safe to re-run any time to redeploy code changes.
 
-### 2. Create the configuration file
+After it finishes: edit `eidolon.yaml` (see [Configuration](#configuration) below), make sure `memory.provider: eidolon` is set in the profile's `config.yaml`, then restart the gateway (Dashboard → Restart, or `s6-svc`).
 
-Copy `eidolon.example.yaml` to the profile root and adjust the values:
+### Manual installation
 
-```bash
-cp eidolon.example.yaml /path/to/hermes/profiles/<profile>/eidolon.yaml
-```
+If you'd rather not use the script, or want to understand what it does:
 
-Edit `eidolon.yaml` to configure your providers:
+1. **Copy the project** into the Hermes plugin directory. The plugin root must be `plugins/eidolon/` (flat), **not** `plugins/memory/eidolon/`. Hermes discovers user plugins at `$HERMES_HOME/plugins/<name>/` — there is no `memory/` subdirectory for user plugins.
 
-```yaml
-providers:
-  ollama:
-    base_url: http://192.168.1.100:11434
-    timeout: 60
-  lm_studio:
-    base_url: http://192.168.1.100:1234
-    timeout: 30
+   ```bash
+   cp -r /path/to/eidolon /path/to/hermes/profiles/<profile>/plugins/eidolon
+   ```
 
-llm:
-  provider: ollama
-  model: deepseek-v4-flash:cloud
+2. **Create the configuration file** — copy `eidolon.example.yaml` to the profile root and adjust the values:
 
-embedder:
-  provider: lm_studio
-  model: text-embedding-bge-m3
-```
+   ```bash
+   cp eidolon.example.yaml /path/to/hermes/profiles/<profile>/eidolon.yaml
+   ```
 
-### 3. Enable the plugin in Hermes config
+   Edit `eidolon.yaml` to configure your models (see [Configuration](#configuration) below for the full shape):
 
-In the profile's `config.yaml`, set:
+   ```yaml
+   models:
+     llm:
+       provider: ollama                # openai_compatible | ollama | lm_studio | openai | openrouter | simulated
+       base_url: http://192.168.1.100:11434
+       model: deepseek-v4-flash:cloud
 
-```yaml
-memory:
-  provider: eidolon
-```
+     embedder:
+       provider: lm_studio             # a local preset of openai_compatible
+       base_url: http://192.168.1.100:1234
+       model: text-embedding-bge-m3
+   ```
 
-### 4. Restart the gateway
+3. **Enable the plugin** in the profile's `config.yaml`:
 
-Restart the profile's gateway (via Dashboard or `s6-svc`).
+   ```yaml
+   memory:
+     provider: eidolon
+   ```
+
+4. **Restart the gateway** (via Dashboard or `s6-svc`).
 
 ## Configuration
 
 Eidolon loads its configuration from `eidolon.yaml` in the profile root directory
-(`$HERMES_HOME/eidolon.yaml`). See `eidolon.example.yaml` for all available options.
+(`$HERMES_HOME/profiles/<profile>/eidolon.yaml`). See `eidolon.example.yaml` for all available options.
 
 ### Key settings
 
+Each model role (`llm`, `embedder`, and any future role) is a **self-contained** endpoint — provider, `base_url`, and `model` together, no shared registry. A role that's actually used but not fully specified fails immediately with a clear error at startup instead of silently guessing an endpoint.
+
 | Section | Key | Description |
 |---|---|---|
-| `providers` | — | Map of named provider services (ollama, lm_studio, etc.) |
-| `providers.<name>.base_url` | URL | Base URL of the provider service |
-| `providers.<name>.timeout` | int | Request timeout in seconds |
-| `llm.provider` | string | Which provider to use for LLM calls (must match a key in `providers`) |
-| `llm.model` | string | Model name for chat completions |
-| `embedder.provider` | string | Which provider to use for embeddings (must match a key in `providers`) |
-| `embedder.model` | string | Model name for embeddings |
+| `models.llm.provider` | string | `openai_compatible` \| `ollama` \| `lm_studio` \| `openai` \| `openrouter` \| `simulated` |
+| `models.llm.base_url` | URL | Base URL of the LLM endpoint |
+| `models.llm.model` | string | Model name for chat completions |
+| `models.llm.api_key` | string | Bearer token for authenticated endpoints (optional) |
+| `models.embedder.provider` | string | `openai_compatible` \| `ollama` \| `lm_studio` \| `openai` \| `sentence_transformers` \| `simulated` |
+| `models.embedder.base_url` | URL | Base URL of the embedder endpoint |
+| `models.embedder.model` | string | Model name for embeddings |
 | `storage.path` | string | Path to the SQLite database file |
 | `retrieval.semantic` | float | Embedding similarity weight (0-1) |
 | `retrieval.tag_overlap` | float | Tag overlap weight (0-1) |
@@ -159,10 +164,12 @@ uv run pytest tests/ -v
 # With simulated providers (no external dependencies):
 python tools/cli.py
 
-# With real providers:
+# With real providers — provider, base_url, AND model are all required;
+# an incomplete role fails fast with a clear error instead of guessing
+# an endpoint (see Configuration above):
 python tools/cli.py \
-  --llm-provider ollama --llm-model deepseek-v4-flash:cloud \
-  --embedder-provider lm_studio --embedder-model text-embedding-bge-m3
+  --llm-provider ollama --llm-base-url http://localhost:11434 --llm-model deepseek-v4-flash:cloud \
+  --embedder-provider lm_studio --embedder-base-url http://localhost:1234 --embedder-model text-embedding-bge-m3
 
 # With a YAML config file:
 python tools/cli.py --config ~/.eidolon/config.yaml

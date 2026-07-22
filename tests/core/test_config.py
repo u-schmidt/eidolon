@@ -539,6 +539,35 @@ class TestProviderFactory:
         assert isinstance(factory.create_llm(), OpenAICompatible)
         assert isinstance(factory.create_embedder(), OpenAICompatible)
 
+    def test_create_openai_preset_llm_and_embedder(self):
+        from core.providers.openai import OpenAI
+        config = EidolonConfig(
+            models={
+                "llm": ModelConfig(provider="openai", base_url="https://api.openai.com", model="gpt-4o-mini",
+                                    api_key="sk-secret"),
+                "embedder": ModelConfig(provider="openai", base_url="https://api.openai.com",
+                                         model="text-embedding-3-small"),
+            },
+        )
+        factory = ProviderFactory(config)
+        llm = factory.create_llm()
+        assert isinstance(llm, OpenAI)
+        assert llm._api_key == "sk-secret"
+        assert isinstance(factory.create_embedder(), OpenAI)
+
+    def test_create_openrouter_llm(self):
+        from core.providers.openrouter import OpenRouter
+        config = EidolonConfig(
+            models={
+                "llm": ModelConfig(provider="openrouter", base_url="https://openrouter.ai/api",
+                                    model="openai/gpt-4o-mini", api_key="sk-or-secret"),
+            },
+        )
+        factory = ProviderFactory(config)
+        llm = factory.create_llm()
+        assert isinstance(llm, OpenRouter)
+        assert llm._api_key == "sk-or-secret"
+
     def test_api_key_is_passed_through_for_ollama(self):
         """Regression: the ollama branch previously dropped api_key, so
         provider: ollama against an authenticated cloud silently sent no key."""
