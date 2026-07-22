@@ -56,20 +56,26 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-def _recency_score(timestamp: str | None, now: datetime, half_life_days: float) -> float:
+def _recency_score(timestamp: str | datetime | None, now: datetime, half_life_days: float) -> float:
     """Exponential recency decay in (0, 1]: ~1.0 for "just now", halving
     every ``half_life_days`` of age.
 
-    Timestamps are the raw SQLite strings (e.g. "2026-07-20 16:57:00"),
-    stored in UTC. An unknown/unparseable timestamp scores 0.0 (no recency
-    signal), and a future timestamp (host clock skew) is clamped to 1.0.
+    Accepts either a raw SQLite ``CURRENT_TIMESTAMP`` string (e.g.
+    "2026-07-20 16:57:00", stored in UTC — SqliteStore's shape) or a real
+    ``datetime`` (Postgres/psycopg returns actual ``datetime`` objects for
+    ``TIMESTAMPTZ`` columns, not strings — PostgresStore's shape). An
+    unknown/unparseable timestamp scores 0.0 (no recency signal), and a
+    future timestamp (host clock skew) is clamped to 1.0.
     """
     if not timestamp:
         return 0.0
-    try:
-        ts = datetime.fromisoformat(timestamp)
-    except ValueError:
-        return 0.0
+    if isinstance(timestamp, datetime):
+        ts = timestamp
+    else:
+        try:
+            ts = datetime.fromisoformat(timestamp)
+        except ValueError:
+            return 0.0
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=UTC)
     if now.tzinfo is None:
@@ -102,7 +108,7 @@ class RetrievalScorer:
         candidate_type: str,
         candidate_id: int,
         semantic_raw: float,
-        recency_timestamp: str | None,
+        recency_timestamp: str | datetime | None,
         include_tag_overlap: bool = False,
         query_tags: list[str] | None = None,
         candidate_tags: list[str] | None = None,
