@@ -161,16 +161,27 @@ class EidolonMemoryProvider(MemoryProvider):
         loader = ConfigLoader(config_path=str(config_path))
         config: EidolonConfig = loader.load()
 
-        # Create providers via factory
+        # Create providers via factory. Tracer first — a failure building
+        # storage/llm/embedder can then still be recorded before it's
+        # re-raised, instead of vanishing before anything capable of
+        # recording it exists (this is exactly what happened with a real
+        # "database is locked" storage failure: it never reached trace.db).
+        # SafeTracer never raises itself (see core/trace/safe_tracer.py),
+        # so this reordering can't introduce a new failure mode even if
+        # trace.db itself is unavailable.
         factory = ProviderFactory(config)
-        store = factory.create_storage()
-        llm = factory.create_llm()
-        embedder = factory.create_embedder()
         tracer = factory.create_tracer()
+        self._tracer = tracer
+        try:
+            store = factory.create_storage()
+            llm = factory.create_llm()
+            embedder = factory.create_embedder()
+        except Exception as exc:
+            tracer.record("error", {"step": "initialize", "exception": repr(exc)}, session_id=session_id)
+            raise
 
         # Store references for shutdown
         self._store = store
-        self._tracer = tracer
         self._timezone = config.timezone
 
         # Eidolon core

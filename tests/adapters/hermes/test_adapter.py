@@ -763,6 +763,39 @@ class TestEidolonMemoryProvider:
         assert p._tracer is sentinel_tracer
         assert MockEidolonClass.call_args.kwargs["tracer"] is sentinel_tracer
 
+    def test_initialize_records_error_and_reraises_when_storage_fails(self, tmp_path):
+        """A storage/llm/embedder construction failure (e.g. 'database is
+        locked') must not vanish silently — it's recorded to the tracer
+        (built first for exactly this reason) before the same exception
+        still propagates unchanged, so Hermes' own error handling is
+        unaffected."""
+        from adapters.hermes import EidolonMemoryProvider
+
+        config_path = tmp_path / "eidolon.yaml"
+        config_path.write_text("db_path: ':memory:'\n")
+
+        mock_config = MagicMock()
+        sentinel_tracer = MagicMock()
+        boom = RuntimeError("database is locked")
+
+        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.ProviderFactory") as MockProviderFactory:
+            MockConfigLoader.return_value.load.return_value = mock_config
+            factory = MockProviderFactory.return_value
+            factory.create_tracer.return_value = sentinel_tracer
+            factory.create_storage.side_effect = boom
+
+            p = EidolonMemoryProvider()
+            with pytest.raises(RuntimeError, match="database is locked"):
+                p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
+
+        sentinel_tracer.record.assert_called_once_with(
+            "error", {"step": "initialize", "exception": repr(boom)}, session_id="sess_1",
+        )
+        # The tracer itself must still be reachable for shutdown() even
+        # though initialize() didn't complete.
+        assert p._tracer is sentinel_tracer
+
 
 class TestEidolonTopicHook:
     """Tests for the EidolonTopicHook (Topic-Only Mode)."""
