@@ -95,7 +95,15 @@ class SqliteStore:
         # Ensure the parent directory exists
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(self._path), check_same_thread=False)
-        self._db.execute("PRAGMA journal_mode=WAL")
+        # Not WAL: WAL needs reliable shared-memory (mmap) coordination
+        # between connections, which network/bridged filesystems (NFS,
+        # SMB, and — as seen in production — Docker Desktop's virtiofs
+        # bind mounts) don't guarantee. There, WAL produces exactly the
+        # intermittent "database disk image is malformed" errors this
+        # caused; the plain rollback journal has no such dependency.
+        # This deployment is effectively single-writer, so WAL's main
+        # benefit (readers never block a writer) isn't worth that risk.
+        self._db.execute("PRAGMA journal_mode=DELETE")
         self._db.execute("PRAGMA foreign_keys=ON")
         migrate(self._db)
 

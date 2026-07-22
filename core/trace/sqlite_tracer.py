@@ -30,7 +30,10 @@ class SqliteTracer:
     def connect(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(self._path), check_same_thread=False)
-        self._db.execute("PRAGMA journal_mode=WAL")
+        # See the matching comment in core/stores/sqlite_store.py — WAL's
+        # shared-memory requirement is unsafe over network/bridged
+        # filesystems (e.g. Docker Desktop's virtiofs bind mounts).
+        self._db.execute("PRAGMA journal_mode=DELETE")
         migrate(self._db)
 
     def close(self) -> None:
