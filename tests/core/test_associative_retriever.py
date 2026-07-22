@@ -36,7 +36,9 @@ class MockStorage:
         self.last_peer_id = peer_id
         return self.facts
 
-    def set_fact(self, peer_id: str, category: str, key: str, value: str, source: str) -> None:
+    def set_fact(
+        self, peer_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
+    ) -> None:
         pass
 
     def create_topic(self, *args, **kwargs) -> int:

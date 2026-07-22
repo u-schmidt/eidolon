@@ -31,16 +31,28 @@ logger = logging.getLogger(__name__)
 # string "user".
 _PROFILE_SUBJECT = "user"
 
+# Mirrors FactsConfig.categories' default in core/config.py — duplicated
+# rather than imported so this module stays usable without a config
+# object (matches target_max's own plain-default precedent below).
+_DEFAULT_CATEGORIES = [
+    "identity", "relationship", "work", "health", "routine",
+    "technology", "preference", "possession", "instruction",
+]
 
-def _consolidation_system_prompt(target_max: int) -> str:
+_VALID_IMPORTANCE = {"low", "medium", "high"}
+
+
+def _consolidation_system_prompt(target_max: int, categories: list[str]) -> str:
+    category_list = ", ".join(categories)
     return f"""You maintain a small, curated profile of durable facts about a person — the
 kind of information a close friend would remember for years, not everyday
 conversation details.
 
+Categories you must choose from: {category_list}.
+
 Good profile facts (short, stable, atomic):
 - identity: name = Alex
-- location: city = Hamburg
-- relationships: partner = Sam
+- relationship: partner = Sam
 - health: condition = seasonal allergies
 - work: employer = Acme Corp
 
@@ -49,25 +61,51 @@ memory, not this profile:
 - "spent two days debugging a sys.modules cache bug" (episodic, not durable)
 - "worked on an Electronic Flight Bag project at a previous company" (narrative detail)
 
-You will be shown the current profile and new material revealed since the
-last review. Decide what changes:
+Some categories naturally hold many separate facts (relationship,
+technology, preference, possession) — give each distinct fact its own key.
+Others are usually singular (identity, health, work, routine) — reuse the
+existing key when correcting or updating the same field. Never append a
+new, distinct fact onto an existing key's value — that turns a fact into a
+story. For example:
+- Bad: preference: fashion = "prefers vintage, minimalist, canvas clothing; owns a
+  black canvas-coated nylon tracksuit; owns a canvas hose from Northline; bought a
+  Vertex suit impulsively; likes brand Northline" (five distinct facts
+  crammed into one key)
+- Good: preference: fashion_style = "prefers vintage, minimalist, canvas clothing,
+  dark colors"; possession: garment_tracksuit = "black canvas-coated nylon
+  tracksuit"; possession: garment_hose = "canvas hose from Northline"; ...
+  (each fact gets its own key)
+
+You will be shown the current profile — each entry tagged with who
+contributed it and how important it is — and new material revealed since
+the last review. Decide what changes:
 - If new material confirms or corrects an existing fact, reuse that fact's
   exact category and key — this updates it in place instead of creating a
-  duplicate (e.g. if location changes, update the existing "location" key,
-  don't add a new "current_city" key).
+  duplicate (e.g. if a job title changes, update the existing "work: role"
+  key, don't add a new key for it).
+- Entries marked [user] were explicitly confirmed by the person, not just
+  inferred — only change them on a clear, direct contradiction, not merely
+  a refinement or a related new detail.
 - Only add a new fact if it is genuinely durable and not already covered.
 - Only delete a fact if it has been explicitly contradicted or is no longer true.
+- Assign each fact an importance: "high" (core identity, standing
+  instructions on how to treat this person, anything that would be
+  actively wrong to forget), "medium" (most stable facts), or "low"
+  (minor, nice-to-have detail).
 - Try to keep the total profile near {target_max} facts — if you're well
-  over, consolidate overlapping entries or drop the least important ones.
+  over, consolidate overlapping entries or drop the least important
+  ("low", then "medium") ones first.
 - Do not repeat facts that are unchanged — only output what changed.
 
 Respond with JSON only:
-{{"upserts": [{{"category": "...", "key": "...", "value": "..."}}], "deletes": [{{"category": "...", "key": "..."}}]}}
+{{"upserts": [{{"category": "...", "key": "...", "value": "...", "importance": "low|medium|high"}}], "deletes": [{{"category": "...", "key": "..."}}]}}
 If nothing should change, respond with {{"upserts": [], "deletes": []}}"""
 
 
 def _build_consolidation_prompt(current_facts: list[Fact], new_items: list[MemoryItem]) -> str:
-    facts_block = "\n".join(f"- {f.category}: {f.key} = {f.value}" for f in current_facts) or "(none yet)"
+    facts_block = "\n".join(
+        f"- {f.category}: {f.key} = {f.value} [{f.source}, importance={f.importance}]" for f in current_facts
+    ) or "(none yet)"
     items_block = "\n".join(f"- {item.content}" for item in new_items)
     return f"Current profile:\n{facts_block}\n\nNew information revealed since last review:\n{items_block}"
 
@@ -117,6 +155,10 @@ class FactConsolidator:
     target_max : int
         Soft guidance communicated to the LLM for the target profile
         size — not enforced in code, only steered via the prompt.
+    categories : list[str] | None
+        Closed category list offered to the LLM — not hard-enforced (a
+        fact under an unlisted category is still stored, just logged).
+        Defaults to the same list as ``FactsConfig.categories``.
     tracer : Tracer | None
         Debug tracer recording the prompt/response/duration of each
         consolidation pass and otherwise-silent failures. Defaults to a
@@ -128,11 +170,13 @@ class FactConsolidator:
         storage: StorageProvider,
         llm: LLMProvider,
         target_max: int = 100,
+        categories: list[str] | None = None,
         tracer: Tracer | None = None,
     ) -> None:
         self._storage = storage
         self._llm = llm
         self._target_max = target_max
+        self._categories = categories if categories is not None else list(_DEFAULT_CATEGORIES)
         self._tracer = tracer or NullTracer()
 
     def consolidate(
@@ -175,7 +219,7 @@ class FactConsolidator:
             prompt = _build_consolidation_prompt(current_facts, new_items)
             response = self._llm.complete(
                 prompt=prompt,
-                system_prompt=_consolidation_system_prompt(self._target_max),
+                system_prompt=_consolidation_system_prompt(self._target_max, self._categories),
             )
             upserts, deletes = _parse_consolidation_response(response)
 
@@ -183,8 +227,18 @@ class FactConsolidator:
                 category = str(entry.get("category", "")).strip().lower()
                 key = str(entry.get("key", "")).strip().lower()
                 value = str(entry.get("value", "")).strip()
+                importance = str(entry.get("importance", "medium")).strip().lower()
+                if importance not in _VALID_IMPORTANCE:
+                    importance = "medium"
                 if category and key and value:
-                    self._storage.set_fact(peer_id, category, key, value, source="ai")
+                    if category not in self._categories:
+                        # Not enforced — a dropped fact is worse than an
+                        # off-list category. Logged so drift is visible.
+                        logger.debug(
+                            "Eidolon fact_consolidation: category %r not in configured list %s",
+                            category, self._categories,
+                        )
+                    self._storage.set_fact(peer_id, category, key, value, source="ai", importance=importance)
 
             for entry in deletes:
                 category = str(entry.get("category", "")).strip().lower()

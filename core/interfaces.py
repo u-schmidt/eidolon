@@ -43,6 +43,7 @@ class StorageProvider(Protocol):
         key: str,
         value: str,
         source: str,
+        importance: str = "medium",
     ) -> None:
         """Store or update a single fact."""
         ...

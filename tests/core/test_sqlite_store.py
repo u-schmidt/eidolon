@@ -64,6 +64,27 @@ class TestFacts:
         store.delete_fact("user", "basic", "name")  # must not raise
         assert store.get_facts("user") == []
 
+    def test_set_fact_defaults_importance_to_medium(self, store: SqliteStore):
+        store.set_fact("user", "basic", "name", "Alex", "user")
+        assert store.get_facts("user")[0].importance == "medium"
+
+    def test_set_fact_stores_and_overwrites_importance(self, store: SqliteStore):
+        store.set_fact("user", "work", "employer", "Acme", "ai", importance="high")
+        assert store.get_facts("user")[0].importance == "high"
+
+        store.set_fact("user", "work", "employer", "Acme Corp", "ai", importance="low")
+        facts = store.get_facts("user")
+        assert len(facts) == 1
+        assert facts[0].importance == "low"
+
+    def test_get_facts_orders_by_importance_then_category_key(self, store: SqliteStore):
+        store.set_fact("user", "z", "low_fact", "v", "ai", importance="low")
+        store.set_fact("user", "a", "high_fact", "v", "ai", importance="high")
+        store.set_fact("user", "m", "medium_fact", "v", "ai", importance="medium")
+
+        facts = store.get_facts("user")
+        assert [f.importance for f in facts] == ["high", "medium", "low"]
+
 
 class TestFactsConsolidation:
     def test_count_user_turns_only_counts_user_role(self, store: SqliteStore):

@@ -92,6 +92,7 @@ class Fact:
     key: str
     value: str
     source: str  # who contributed this fact
+    importance: str = "medium"  # "low" | "medium" | "high"
     created_at: datetime | None = None
 
 

@@ -110,6 +110,18 @@ retrieval:
 facts:
   consolidation_interval: 20  # Reconcile every N user turns
   target_max: 100             # Soft guidance to the LLM, not hard-enforced
+  # Closed category list offered to the LLM during consolidation — not
+  # hard-enforced (an off-list category is still stored, just logged).
+  categories:
+    - identity       # name, age, gender, origin, language — usually singular
+    - relationship   # named people + relation — one key per person
+    - work           # job, employer, role
+    - health         # conditions, fitness goals
+    - routine        # recurring habits/schedule (gym, work hours)
+    - technology     # tools/software used — one key per tool
+    - preference     # likes/dislikes, interests, style — one key per item
+    - possession     # owned items — one key per item
+    - instruction    # standing directive on how to treat this person
 
 # ── Debug Tracing ──────────────────────────────────────────
 # Off by default — zero behavior/performance impact when disabled.

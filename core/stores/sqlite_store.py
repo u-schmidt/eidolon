@@ -166,18 +166,25 @@ class SqliteStore:
 
     def get_facts(self, peer_id: str) -> list[Fact]:
         rows = self._conn.execute(
-            "SELECT peer_id, category, key, value, source, created_at "
-            "FROM facts WHERE peer_id = ? ORDER BY category, key",
+            "SELECT peer_id, category, key, value, source, importance, created_at "
+            "FROM facts WHERE peer_id = ? "
+            "ORDER BY CASE importance WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, category, key",
             (peer_id,),
         ).fetchall()
-        return [Fact(peer_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4], created_at=r[5]) for r in rows]
+        return [
+            Fact(peer_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4], importance=r[5], created_at=r[6])
+            for r in rows
+        ]
 
-    def set_fact(self, peer_id: str, category: str, key: str, value: str, source: str) -> None:
+    def set_fact(
+        self, peer_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
+    ) -> None:
         self._conn.execute(
-            "INSERT INTO facts (peer_id, category, key, value, source) "
-            "VALUES (?, ?, ?, ?, ?) "
-            "ON CONFLICT(peer_id, category, key) DO UPDATE SET value=excluded.value, source=excluded.source",
-            (peer_id, category, key, value, source),
+            "INSERT INTO facts (peer_id, category, key, value, source, importance) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(peer_id, category, key) DO UPDATE SET "
+            "value=excluded.value, source=excluded.source, importance=excluded.importance",
+            (peer_id, category, key, value, source, importance),
         )
         self._conn.commit()
 

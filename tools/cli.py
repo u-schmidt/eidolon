@@ -255,6 +255,7 @@ def main() -> None:
         },
         facts_consolidation_interval=config.facts.consolidation_interval,
         facts_target_max=config.facts.target_max,
+        facts_categories=config.facts.categories,
         clustering_enabled=config.clustering.enabled,
         clustering_shortlist_size=config.clustering.shortlist_size,
         tracer=tracer,

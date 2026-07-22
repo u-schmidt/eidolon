@@ -53,6 +53,10 @@ class TestEidolonConfig:
         assert config.retrieval.cluster_recent_topics == 2
         assert config.facts.consolidation_interval == 20
         assert config.facts.target_max == 100
+        assert config.facts.categories == [
+            "identity", "relationship", "work", "health", "routine",
+            "technology", "preference", "possession", "instruction",
+        ]
         assert config.clustering.enabled is True
         assert config.clustering.shortlist_size == 5
         assert config.language == "en"
@@ -381,6 +385,21 @@ facts:
         config = ConfigLoader(config_path=yaml_path).load()
         assert config.facts.consolidation_interval == 15
         assert config.facts.target_max == 75
+
+    def test_yaml_facts_categories_override(self):
+        yaml_content = """
+facts:
+  categories:
+    - identity
+    - possession
+"""
+        tmp = tempfile.mkdtemp()
+        yaml_path = str(Path(tmp) / "config.yaml")
+        with open(yaml_path, "w") as f:
+            f.write(yaml_content)
+
+        config = ConfigLoader(config_path=yaml_path).load()
+        assert config.facts.categories == ["identity", "possession"]
 
     def test_env_facts_vars(self):
         os.environ["EIDOLON_FACTS_CONSOLIDATION_INTERVAL"] = "10"

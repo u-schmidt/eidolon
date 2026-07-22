@@ -100,6 +100,7 @@ Each model role (`llm`, `embedder`, and any future role) is a **self-contained**
 | `retrieval.memory_items_continue` | int | Memory items injected on a CONTINUE turn (default 2) |
 | `facts.consolidation_interval` | int | Reconcile the durable-facts profile every N user turns (default 20) |
 | `facts.target_max` | int | Soft guidance to the LLM for the target profile size (default 100), not hard-enforced |
+| `facts.categories` | list of strings | Closed category list offered to the LLM — soft-enforced, see the main [README's Facts Consolidation section](../../README.md#facts-consolidation) |
 | `language` | string | Language code for stop word filtering (`en`, `de`) |
 | `timezone` | string | IANA zone name (e.g. `Europe/Berlin`) for displaying the injected `[Environment]` time (default `UTC`); stored timestamps stay UTC internally |
 

@@ -106,6 +106,48 @@ class TestConsolidateApplies:
 
         assert store.get_facts("user") == []
 
+    def test_applies_importance_from_upsert(self, store: SqliteStore):
+        store.store_memory_item(_fact_item("employer is Acme"))
+        llm = MockLLM(
+            '{"upserts": [{"category": "work", "key": "employer", "value": "Acme", '
+            '"importance": "high"}], "deletes": []}'
+        )
+
+        FactConsolidator(store, llm).consolidate("user")
+
+        assert store.get_facts("user")[0].importance == "high"
+
+    def test_importance_defaults_to_medium_when_omitted(self, store: SqliteStore):
+        store.store_memory_item(_fact_item("likes cats"))
+        llm = MockLLM('{"upserts": [{"category": "preferences", "key": "pets", "value": "likes cats"}], "deletes": []}')
+
+        FactConsolidator(store, llm).consolidate("user")
+
+        assert store.get_facts("user")[0].importance == "medium"
+
+    def test_importance_falls_back_to_medium_when_invalid(self, store: SqliteStore):
+        store.store_memory_item(_fact_item("likes cats"))
+        llm = MockLLM(
+            '{"upserts": [{"category": "preferences", "key": "pets", "value": "likes cats", '
+            '"importance": "urgent"}], "deletes": []}'
+        )
+
+        FactConsolidator(store, llm).consolidate("user")
+
+        assert store.get_facts("user")[0].importance == "medium"
+
+    def test_stores_fact_under_an_off_list_category(self, store: SqliteStore):
+        """Category enforcement is soft — an off-list category is still
+        stored, never silently dropped (see FactConsolidator.consolidate)."""
+        store.store_memory_item(_fact_item("likes cats"))
+        llm = MockLLM('{"upserts": [{"category": "made_up_category", "key": "pets", "value": "likes cats"}], "deletes": []}')
+
+        FactConsolidator(store, llm, categories=["identity"]).consolidate("user")
+
+        facts = store.get_facts("user")
+        assert len(facts) == 1
+        assert facts[0].category == "made_up_category"
+
 
 class TestConsolidateCheckpoint:
     def test_checkpoint_advances_on_success(self, store: SqliteStore):
@@ -215,3 +257,20 @@ class TestConsolidatePrompt:
         FactConsolidator(store, llm, target_max=42).consolidate("user")
 
         assert "42" in llm.last_system
+
+    def test_system_prompt_lists_configured_categories(self, store: SqliteStore):
+        store.store_memory_item(_fact_item("likes cats"))
+        llm = MockLLM('{"upserts": [], "deletes": []}')
+
+        FactConsolidator(store, llm, categories=["identity", "possession"]).consolidate("user")
+
+        assert "identity, possession" in llm.last_system
+
+    def test_prompt_annotates_facts_with_source_and_importance(self, store: SqliteStore):
+        store.set_fact("user", "work", "employer", "Acme", "user", importance="high")
+        store.store_memory_item(_fact_item("likes cats"))
+
+        llm = MockLLM('{"upserts": [], "deletes": []}')
+        FactConsolidator(store, llm).consolidate("user")
+
+        assert "work: employer = Acme [user, importance=high]" in llm.last_prompt

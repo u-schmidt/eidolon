@@ -88,6 +88,9 @@ class Eidolon:
     facts_target_max : int
         Soft guidance passed to ``FactConsolidator`` for the target
         profile size — not enforced in code, only steered via its prompt.
+    facts_categories : list[str] | None
+        Closed category list passed to ``FactConsolidator``. ``None``
+        uses its own default list.
     clustering_enabled : bool
         Whether a closed topic is evaluated for recurring-thread
         clustering (see ``store_turn``'s step 1b and
@@ -111,6 +114,7 @@ class Eidolon:
         retrieval_limits: dict[str, int] | None = None,
         facts_consolidation_interval: int = 20,
         facts_target_max: int = 100,
+        facts_categories: list[str] | None = None,
         clustering_enabled: bool = True,
         clustering_shortlist_size: int = 5,
         tracer: Tracer | None = None,
@@ -124,7 +128,7 @@ class Eidolon:
         self._extractor = FragmentaryExtractor(llm, language, tracer=self._tracer)
         self._summarizer = TopicSummarizer(storage, llm, embedder, tracer=self._tracer)
         self._fact_consolidator = FactConsolidator(
-            storage, llm, target_max=facts_target_max, tracer=self._tracer
+            storage, llm, target_max=facts_target_max, categories=facts_categories, tracer=self._tracer
         )
         self._cluster_consolidator = ClusterConsolidator(
             storage, llm, embedder, shortlist_size=clustering_shortlist_size, tracer=self._tracer

@@ -105,13 +105,13 @@ Whenever there's anything to inject, `ContextFormatter` prepends a short `[Memor
 
 The facts profile is intentionally small (~50-100 entries) and curated, not a growing log — every `item_type="fact"` memory item is still stored and embedded as usual (searchable via associative retrieval, same as any other memory item), but converting a fact-shaped statement into a permanent profile row happens in a periodic **batch reconciliation pass** instead of immediately on every turn.
 
-Every `facts.consolidation_interval` user turns (default 20, see [Configuration](#configuration)), `FactConsolidator` ([`core/consolidation/fact_consolidator.py`](core/consolidation/fact_consolidator.py)) sends the LLM the *entire current profile* plus everything fact-shaped learned since the last pass, and asks for a diff — only what changed:
+Every `facts.consolidation_interval` user turns (default 20, see [Configuration](#configuration)), `FactConsolidator` ([`core/consolidation/fact_consolidator.py`](core/consolidation/fact_consolidator.py)) sends the LLM the *entire current profile* — each entry tagged with who contributed it (`source`: `ai`-inferred vs. explicitly `user`-confirmed) and its `importance` — plus everything fact-shaped learned since the last pass, and asks for a diff — only what changed:
 
 ```json
-{"upserts": [{"category": "location", "key": "city", "value": "Berlin"}], "deletes": [{"category": "lifestyle", "key": "smoking"}]}
+{"upserts": [{"category": "work", "key": "employer", "value": "Acme Corp", "importance": "high"}], "deletes": [{"category": "routine", "key": "old_gym"}]}
 ```
 
-Seeing the full existing profile each time lets the LLM reuse an existing `(category, key)` when the same concept is being confirmed or corrected — moving to Berlin updates the existing `location` entry in place instead of adding a duplicate — while omitted entries are left untouched. A checkpoint (the highest `memory_items.id` already incorporated) ensures a failed pass gets retried at the next trigger rather than silently dropping those facts.
+Seeing the full existing profile each time lets the LLM reuse an existing `(category, key)` when the same concept is being confirmed or corrected — updating a job title updates the existing `work: employer` entry in place instead of adding a duplicate — while omitted entries are left untouched. `category` is drawn from a closed, configurable list (`facts.categories`, see [Configuration](#configuration)) — soft-enforced, so an off-list category is logged rather than dropped. The prompt explicitly steers multi-valued categories (`relationship`, `technology`, `preference`, `possession`) toward one key per distinct fact instead of accumulating clauses into a single key. `importance` (`low`/`medium`/`high`, set by the LLM per fact) determines injection order — highest first — and gives the "trim toward `target_max`" instruction a concrete signal instead of an unguided guess. A checkpoint (the highest `memory_items.id` already incorporated) ensures a failed pass gets retried at the next trigger rather than silently dropping those facts.
 
 Trigger it manually any time — useful for testing without waiting N turns:
 

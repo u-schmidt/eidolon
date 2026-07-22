@@ -104,6 +104,12 @@ MIGRATIONS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS idx_topics_cluster ON topics(cluster_id);
     CREATE INDEX IF NOT EXISTS idx_topic_clusters_peer ON topic_clusters(peer_id);
     """,
+    7: """
+    -- Lets the consolidator (and injection ordering) rank facts instead
+    -- of treating the whole profile as equally important — see
+    -- core/consolidation/fact_consolidator.py.
+    ALTER TABLE facts ADD COLUMN importance TEXT NOT NULL DEFAULT 'medium';
+    """,
 }
 
 

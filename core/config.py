@@ -120,6 +120,13 @@ class FactsConfig:
 
     consolidation_interval: int = 20  # reconcile every N user turns
     target_max: int = 100  # soft guidance to the LLM, not hard-enforced
+    # Closed category list offered to the LLM during consolidation — not
+    # hard-enforced (a fact under an unlisted category is still stored,
+    # just logged), but keeps categories from drifting across passes.
+    categories: list[str] = field(default_factory=lambda: [
+        "identity", "relationship", "work", "health", "routine",
+        "technology", "preference", "possession", "instruction",
+    ])
 
 
 @dataclass

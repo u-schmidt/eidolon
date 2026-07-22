@@ -31,11 +31,15 @@ class MockStorage:
     def get_facts(self, peer_id: str) -> list[Fact]:
         return [f for f in self.facts if f.peer_id == peer_id]
 
-    def set_fact(self, peer_id: str, category: str, key: str, value: str, source: str) -> None:
+    def set_fact(
+        self, peer_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
+    ) -> None:
         self.facts = [
             f for f in self.facts if not (f.peer_id == peer_id and f.category == category and f.key == key)
         ]
-        self.facts.append(Fact(peer_id=peer_id, category=category, key=key, value=value, source=source))
+        self.facts.append(
+            Fact(peer_id=peer_id, category=category, key=key, value=value, source=source, importance=importance)
+        )
 
     def delete_fact(self, peer_id: str, category: str, key: str) -> None:
         self.facts = [
