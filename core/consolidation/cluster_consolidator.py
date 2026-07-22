@@ -12,10 +12,13 @@ lose its older pieces to context.
 from __future__ import annotations
 
 import json
+import logging
 import time
 
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
 from core.trace.null_tracer import NullTracer
+
+logger = logging.getLogger(__name__)
 
 _CLUSTER_SYSTEM_PROMPT = """You track recurring conversation threads over time — the same underlying
 subject (e.g. "buying a bike") that resurfaces across separate, closed conversation topics on
@@ -204,6 +207,7 @@ class ClusterConsolidator:
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
+            logger.warning("Eidolon cluster_consolidation failed (topic_id=%s): %s", topic_id, exc)
 
     def _embed_summary(
         self,
@@ -232,4 +236,5 @@ class ClusterConsolidator:
                 {"step": "cluster_summary_embedding", "exception": repr(exc)},
                 request_id=request_id, session_id=session_id,
             )
+            logger.warning("Eidolon cluster_summary_embedding failed: %s", exc)
             return None

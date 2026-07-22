@@ -170,12 +170,13 @@ class TestTopicDetector:
         detector = TopicDetector(llm)
         detector.detect("hello")
 
-    def test_detect_llm_call_failure_defaults_to_continue_and_records_error(self):
+    def test_detect_llm_call_failure_defaults_to_continue_and_records_error(self, caplog):
         llm = MockLLM(should_raise=True)
         tracer = SpyTracer()
         detector = TopicDetector(llm, tracer=tracer)
 
-        result = detector.detect("hello", request_id="req1", session_id="sess1")
+        with caplog.at_level("WARNING"):
+            result = detector.detect("hello", request_id="req1", session_id="sess1")
 
         assert result == TopicChange(type="CONTINUE")
         error_events = tracer.events_of_type("error")
@@ -184,6 +185,7 @@ class TestTopicDetector:
         assert "LLM backend unavailable" in error_events[0]["payload"]["exception"]
         assert error_events[0]["request_id"] == "req1"
         assert error_events[0]["session_id"] == "sess1"
+        assert "topic_detection failed" in caplog.text
         # The normal topic_detection event still fires, with an empty response.
         detection_events = tracer.events_of_type("topic_detection")
         assert len(detection_events) == 1

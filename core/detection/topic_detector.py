@@ -6,11 +6,14 @@ Uses a mini-LLM call (~50 tokens) per message for real-time detection.
 
 from __future__ import annotations
 
+import logging
 import time
 
 from core.interfaces import LLMProvider, Tracer
 from core.models import TopicChange
 from core.trace.null_tracer import NullTracer
+
+logger = logging.getLogger(__name__)
 
 # System prompt for the topic detection mini-LLM call.
 # Designed to be small (~50 tokens) and produce structured output.
@@ -172,6 +175,7 @@ class TopicDetector:
                 {"step": "topic_detection", "exception": repr(exc)},
                 request_id=request_id, session_id=session_id,
             )
+            logger.warning("Eidolon topic_detection failed: %s", exc)
         duration_ms = (time.perf_counter() - started) * 1000
         # An empty response (from a failed call above) naturally falls
         # through to CONTINUE — the same designed fallback as any other

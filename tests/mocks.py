@@ -38,11 +38,16 @@ class MockEmbedder:
     Useful for testing without a real embedding model.
     """
 
-    def __init__(self, vector: list[float] | None = None, dimension: int = 4) -> None:
+    def __init__(
+        self, vector: list[float] | None = None, dimension: int = 4, should_fail: bool = False,
+    ) -> None:
         self.vector = vector or [0.1, 0.2, 0.3, 0.4][:dimension]
         self.last_text: str | None = None
+        self.should_fail = should_fail
 
     def embed(self, text: str) -> list[float]:
+        if self.should_fail:
+            raise RuntimeError("embedding backend unavailable")
         self.last_text = text
         return self.vector
 

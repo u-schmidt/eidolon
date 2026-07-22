@@ -9,10 +9,13 @@ summary so semantic search stops matching the original one-line guess.
 
 from __future__ import annotations
 
+import logging
 import time
 
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
 from core.trace.null_tracer import NullTracer
+
+logger = logging.getLogger(__name__)
 
 _SUMMARY_SYSTEM_PROMPT = (
     "You are a conversation summarizer. "
@@ -168,6 +171,7 @@ class TopicSummarizer:
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
+            logger.warning("Eidolon topic_summarization failed (topic_id=%s): %s", topic_id, exc)
             return False  # Summarization failure is non-critical; caller falls back
 
     def _embed_summary(
@@ -197,3 +201,4 @@ class TopicSummarizer:
                 {"step": "topic_summary_embedding", "exception": repr(exc)},
                 request_id=request_id, session_id=session_id,
             )
+            logger.warning("Eidolon topic_summary_embedding failed (topic_id=%s): %s", topic_id, exc)

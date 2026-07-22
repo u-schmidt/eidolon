@@ -15,11 +15,14 @@ Every extracted item carries perspective attribution (source + subject).
 from __future__ import annotations
 
 import json
+import logging
 import time
 
 from core.interfaces import LLMProvider, Tracer
 from core.models import EnvironmentSnapshot, MemoryItem
 from core.trace.null_tracer import NullTracer
+
+logger = logging.getLogger(__name__)
 
 # System prompt for fragmentary extraction.
 # Always in English — the LLM's working language.
@@ -259,6 +262,7 @@ class FragmentaryExtractor:
                 {"step": "extraction", "exception": repr(exc), "response": response},
                 request_id=request_id, session_id=session_id,
             )
+            logger.warning("Eidolon extraction failed: %s", exc)
         duration_ms = (time.perf_counter() - started) * 1000
 
         items = []

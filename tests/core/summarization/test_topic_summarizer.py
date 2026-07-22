@@ -150,7 +150,7 @@ class TestSummarize:
         assert event["payload"]["summary"] == "Crowded gym frustration"
         assert event["payload"]["tags"] == ["fitness", "gym"]
 
-    def test_records_error_on_failure(self):
+    def test_records_error_on_failure(self, caplog):
         class FailingStorage(MockStorage):
             def get_messages_by_topic(self, topic_id):
                 raise RuntimeError("db unavailable")
@@ -161,7 +161,24 @@ class TestSummarize:
         embedder = MockEmbedder()
         tracer = SpyTracer()
 
-        _summarizer(storage, llm, embedder, tracer=tracer).summarize(tid)  # must not raise
+        with caplog.at_level("WARNING"):
+            _summarizer(storage, llm, embedder, tracer=tracer).summarize(tid)  # must not raise
 
         error_events = tracer.events_of_type("error")
         assert any(e["payload"]["step"] == "topic_summarization" for e in error_events)
+        assert "topic_summarization failed" in caplog.text
+
+    def test_records_error_on_embedding_failure(self, caplog):
+        storage = MockStorage()
+        tid = storage.create_topic("Bello Features", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        llm = MockLLM(summary_response="Summary: x\nTags: y")
+        embedder = MockEmbedder(should_fail=True)
+        tracer = SpyTracer()
+
+        with caplog.at_level("WARNING"):
+            _summarizer(storage, llm, embedder, tracer=tracer).summarize(tid)  # must not raise
+
+        error_events = tracer.events_of_type("error")
+        assert any(e["payload"]["step"] == "topic_summary_embedding" for e in error_events)
+        assert "topic_summary_embedding failed" in caplog.text

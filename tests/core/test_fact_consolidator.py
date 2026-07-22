@@ -154,15 +154,17 @@ class TestConsolidateTracing:
         assert event["payload"]["total_facts_after"] == 1
         assert event["payload"]["upserts"] == [{"category": "preferences", "key": "pets", "value": "likes cats"}]
 
-    def test_records_error_event_on_malformed_response(self, store: SqliteStore):
+    def test_records_error_event_on_malformed_response(self, store: SqliteStore, caplog):
         store.store_memory_item(_fact_item("likes cats"))
         tracer = SpyTracer()
 
-        FactConsolidator(store, MockLLM("not valid json"), tracer=tracer).consolidate("user")
+        with caplog.at_level("WARNING"):
+            FactConsolidator(store, MockLLM("not valid json"), tracer=tracer).consolidate("user")
 
         error_events = tracer.events_of_type("error")
         assert any(e["payload"]["step"] == "fact_consolidation" for e in error_events)
         assert tracer.events_of_type("fact_consolidation") == []
+        assert "fact_consolidation failed" in caplog.text
 
 
 class TestConsolidatePeerIdVsSubjectPeer:

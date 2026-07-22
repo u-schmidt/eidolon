@@ -763,12 +763,13 @@ class TestEidolonMemoryProvider:
         assert p._tracer is sentinel_tracer
         assert MockEidolonClass.call_args.kwargs["tracer"] is sentinel_tracer
 
-    def test_initialize_records_error_and_reraises_when_storage_fails(self, tmp_path):
+    def test_initialize_records_error_and_reraises_when_storage_fails(self, tmp_path, caplog):
         """A storage/llm/embedder construction failure (e.g. 'database is
         locked') must not vanish silently — it's recorded to the tracer
-        (built first for exactly this reason) before the same exception
-        still propagates unchanged, so Hermes' own error handling is
-        unaffected."""
+        (built first for exactly this reason) AND logged via the standard
+        logging module (visible even when debug.enabled is off, unlike the
+        tracer path), before the same exception still propagates unchanged
+        so Hermes' own error handling is unaffected."""
         from adapters.hermes import EidolonMemoryProvider
 
         config_path = tmp_path / "eidolon.yaml"
@@ -786,8 +787,10 @@ class TestEidolonMemoryProvider:
             factory.create_storage.side_effect = boom
 
             p = EidolonMemoryProvider()
-            with pytest.raises(RuntimeError, match="database is locked"):
+            with caplog.at_level("ERROR"), pytest.raises(RuntimeError, match="database is locked"):
                 p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
+
+        assert "Eidolon initialize failed" in caplog.text
 
         sentinel_tracer.record.assert_called_once_with(
             "error", {"step": "initialize", "exception": repr(boom)}, session_id="sess_1",

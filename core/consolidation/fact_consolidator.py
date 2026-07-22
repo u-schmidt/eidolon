@@ -12,11 +12,14 @@ than converting every notable turn detail into a permanent row.
 from __future__ import annotations
 
 import json
+import logging
 import time
 
 from core.interfaces import LLMProvider, StorageProvider, Tracer
 from core.models import Fact, MemoryItem
 from core.trace.null_tracer import NullTracer
+
+logger = logging.getLogger(__name__)
 
 # FragmentaryExtractor's literal subject_peer label for the human (see
 # core/extraction/fragmentary_extractor.py) — a different value space from
@@ -214,5 +217,6 @@ class FactConsolidator:
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
+            logger.warning("Eidolon fact_consolidation failed (peer_id=%s): %s", peer_id, exc)
             # Checkpoint intentionally not advanced — these items are
             # retried at the next consolidation trigger.

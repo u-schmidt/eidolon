@@ -121,18 +121,37 @@ class TestConsolidateTopicFailure:
 
         assert store.search_clusters(query_embedding=_MATCH_EMBEDDING, peer_id="user") == []
 
-    def test_malformed_response_records_error_event(self, store: SqliteStore):
+    def test_malformed_response_records_error_event(self, store: SqliteStore, caplog):
         _closed_topic(store, "Other topic")
         new_topic = _closed_topic(store, "New topic")
         tracer = SpyTracer()
 
-        ClusterConsolidator(
-            store, MockLLM("not valid json"), MockEmbedder(), tracer=tracer
-        ).consolidate_topic(new_topic, "user")
+        with caplog.at_level("WARNING"):
+            ClusterConsolidator(
+                store, MockLLM("not valid json"), MockEmbedder(), tracer=tracer
+            ).consolidate_topic(new_topic, "user")
 
         error_events = tracer.events_of_type("error")
         assert any(e["payload"]["step"] == "cluster_consolidation" for e in error_events)
         assert tracer.events_of_type("cluster_consolidation") == []
+        assert "cluster_consolidation failed" in caplog.text
+
+    def test_embedding_failure_records_error_event(self, store: SqliteStore, caplog):
+        cid = store.create_cluster("user", "Bike", "old summary", embedding=_MATCH_EMBEDDING)
+        new_topic = _closed_topic(store, "New bike development")
+        llm = MockLLM('{"match_index": 1, "label": "Bike saga", "summary": "consolidated bike story"}')
+        tracer = SpyTracer()
+
+        with caplog.at_level("WARNING"):
+            ClusterConsolidator(
+                store, llm, MockEmbedder(should_fail=True), tracer=tracer
+            ).consolidate_topic(new_topic, "user")
+
+        # The cluster merge itself still succeeds — only the re-embedding failed.
+        assert store.get_cluster(cid)["summary"] == "consolidated bike story"
+        error_events = tracer.events_of_type("error")
+        assert any(e["payload"]["step"] == "cluster_summary_embedding" for e in error_events)
+        assert "cluster_summary_embedding failed" in caplog.text
 
 
 class TestConsolidateTopicTracing:

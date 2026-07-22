@@ -779,29 +779,33 @@ class TestEidolonTracing:
         assert len(item_events) == 1
         assert item_events[0]["payload"]["text"] == "User likes hiking"
 
-    def test_store_turn_records_error_on_topic_embedding_failure(self):
+    def test_store_turn_records_error_on_topic_embedding_failure(self, caplog):
         """An embedding failure must not vanish silently — it should show
         up as an `error` trace event even though store_turn still succeeds
-        (embedding failure is non-critical, per the existing except/pass)."""
+        (embedding failure is non-critical, per the existing except/pass),
+        AND as a logger.warning — visible even when debug tracing is off,
+        unlike the trace event."""
         storage = MockStorage()
         llm = MockLLM(extraction_response="[]")
         embedder = MockEmbedder(should_fail=True)
         tracer = SpyTracer()
         eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
 
-        new_topic_id = eidolon.store_turn(
-            user_message="Hi",
-            ai_response="Hello",
-            peer_id="user",
-            environment=EnvironmentSnapshot(),
-            new_topic_label="Bello Features",
-        )
+        with caplog.at_level("WARNING"):
+            new_topic_id = eidolon.store_turn(
+                user_message="Hi",
+                ai_response="Hello",
+                peer_id="user",
+                environment=EnvironmentSnapshot(),
+                new_topic_label="Bello Features",
+            )
 
         assert new_topic_id is not None  # store_turn still succeeds
         error_events = tracer.events_of_type("error")
         assert any(e["payload"]["step"] == "topic_label_embedding" for e in error_events)
+        assert "topic_label_embedding failed" in caplog.text
 
-    def test_store_turn_records_error_on_memory_item_embedding_failure(self):
+    def test_store_turn_records_error_on_memory_item_embedding_failure(self, caplog):
         storage = MockStorage()
         llm = MockLLM(
             extraction_response='[{"content": "User likes hiking", "item_type": "essence", '
@@ -811,15 +815,17 @@ class TestEidolonTracing:
         tracer = SpyTracer()
         eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
 
-        eidolon.store_turn(
-            user_message="I love hiking",
-            ai_response="Nice!",
-            peer_id="user",
-            environment=EnvironmentSnapshot(),
-        )
+        with caplog.at_level("WARNING"):
+            eidolon.store_turn(
+                user_message="I love hiking",
+                ai_response="Nice!",
+                peer_id="user",
+                environment=EnvironmentSnapshot(),
+            )
 
         error_events = tracer.events_of_type("error")
         assert any(e["payload"]["step"] == "memory_item_embedding" for e in error_events)
+        assert "memory_item_embedding failed" in caplog.text
 
     def test_store_turn_triggers_consolidation_on_interval_multiple(self):
         storage = MockStorage()

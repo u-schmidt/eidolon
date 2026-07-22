@@ -29,6 +29,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 
@@ -41,6 +42,8 @@ from core.models import ContextBundle, EnvironmentSnapshot, MemoryItem, TopicCha
 from core.retrieval.associative_retriever import AssociativeRetriever
 from core.summarization.topic_summarizer import TopicSummarizer
 from core.trace.null_tracer import NullTracer
+
+logger = logging.getLogger(__name__)
 
 
 def _new_request_id() -> str:
@@ -426,7 +429,10 @@ class Eidolon:
                     {"step": "topic_label_embedding", "exception": repr(exc)},
                     request_id=request_id, session_id=session_id,
                 )
-                pass  # Embedding failure is non-critical
+                logger.warning("Eidolon topic_label_embedding failed: %s", exc)
+                # Embedding failure is non-critical for a single occurrence,
+                # but a persistent one silently degrades retrieval quality —
+                # see the warning above.
 
         # 5. Extract memory fragments
         items = self._extractor.extract(
@@ -466,7 +472,10 @@ class Eidolon:
                         {"step": "memory_item_embedding", "exception": repr(exc)},
                         request_id=request_id, session_id=session_id,
                     )
-                    pass  # Embedding failure is non-critical
+                    logger.warning("Eidolon memory_item_embedding failed: %s", exc)
+                    # Embedding failure is non-critical for a single
+                    # occurrence, but a persistent one silently degrades
+                    # retrieval quality — see the warning above.
             self._storage.store_memory_item(item)
             # Collect fact-type items — no longer converted to facts
             # immediately (see step 7); kept here only for the

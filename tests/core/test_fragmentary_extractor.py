@@ -299,12 +299,13 @@ class TestFragmentaryExtractor:
         assert len(extraction_events) == 1
         assert extraction_events[0]["payload"]["items"] == []
 
-    def test_extract_malformed_response_returns_empty_and_records_error(self):
+    def test_extract_malformed_response_returns_empty_and_records_error(self, caplog):
         llm = MockLLM(response="not json at all")
         tracer = SpyTracer()
         extractor = FragmentaryExtractor(llm, tracer=tracer)
 
-        items = extractor.extract(user_message="Hello", ai_response="Hi!")
+        with caplog.at_level("WARNING"):
+            items = extractor.extract(user_message="Hello", ai_response="Hi!")
 
         assert items == []
         error_events = tracer.events_of_type("error")
@@ -312,6 +313,7 @@ class TestFragmentaryExtractor:
         assert error_events[0]["payload"]["step"] == "extraction"
         assert "malformed extraction response" in error_events[0]["payload"]["exception"]
         assert error_events[0]["payload"]["response"] == "not json at all"
+        assert "extraction failed" in caplog.text
         extraction_events = tracer.events_of_type("extraction")
         assert len(extraction_events) == 1
         assert extraction_events[0]["payload"]["items"] == []

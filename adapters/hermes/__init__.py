@@ -168,7 +168,10 @@ class EidolonMemoryProvider(MemoryProvider):
         # "database is locked" storage failure: it never reached trace.db).
         # SafeTracer never raises itself (see core/trace/safe_tracer.py),
         # so this reordering can't introduce a new failure mode even if
-        # trace.db itself is unavailable.
+        # trace.db itself is unavailable. The trace.db event is only ever
+        # written when debug.enabled, though — logger.exception() is the
+        # channel that's visible regardless of that flag (see also the
+        # non-fatal failures logged the same way elsewhere in this file).
         factory = ProviderFactory(config)
         tracer = factory.create_tracer()
         self._tracer = tracer
@@ -178,6 +181,7 @@ class EidolonMemoryProvider(MemoryProvider):
             embedder = factory.create_embedder()
         except Exception as exc:
             tracer.record("error", {"step": "initialize", "exception": repr(exc)}, session_id=session_id)
+            logger.exception("Eidolon initialize failed")
             raise
 
         # Store references for shutdown
