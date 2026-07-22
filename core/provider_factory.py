@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from core.config import EidolonConfig, ModelConfig
+from core.config import ConfigError, EidolonConfig, ModelConfig
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
 from core.stores.sqlite_store import SqliteStore
 from core.trace.null_tracer import NullTracer
@@ -21,6 +21,7 @@ from core.trace.sqlite_tracer import SqliteTracer
 
 if TYPE_CHECKING:
     from core.providers.openai_compatible import OpenAICompatible
+    from core.stores.postgres_store import PostgresStore
 
 
 class ProviderFactory:
@@ -45,10 +46,35 @@ class ProviderFactory:
         provider = self._config.storage.provider
         if provider == "sqlite":
             return self._create_sqlite()
+        if provider == "postgres":
+            return self._create_postgres()
         raise ValueError(f"Unknown storage provider: {provider}")
 
     def _create_sqlite(self) -> SqliteStore:
         store = SqliteStore(self._config.storage.path)
+        store.connect()
+        return store
+
+    def _create_postgres(self) -> PostgresStore:
+        from core.stores.postgres_store import PostgresStore
+
+        cfg = self._config.storage
+        if not cfg.password:
+            raise ConfigError(
+                "storage.password is required for provider='postgres' — set it in "
+                "eidolon.yaml, EIDOLON_STORAGE_PASSWORD, or --storage-password."
+            )
+        # PostgresStore needs the embedder's dimension up front to size its
+        # VECTOR(n) columns at schema-creation time — pgvector's vector
+        # width is fixed per column, unlike SQLite's dimension-agnostic
+        # BLOB storage. A narrow, unavoidable coupling to the embedder
+        # config, not a general pattern other providers need.
+        embedder_cfg = self._config.require_model("embedder")
+        store = PostgresStore(
+            host=cfg.host, port=cfg.port, dbname=cfg.dbname,
+            user=cfg.user, password=cfg.password,
+            embedding_dim=embedder_cfg.dimension,
+        )
         store.connect()
         return store
 

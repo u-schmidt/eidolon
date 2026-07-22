@@ -12,9 +12,22 @@
 # ── Storage ────────────────────────────────────────────────
 # Where and how Eidolon stores its data.
 storage:
-  provider: sqlite          # Only sqlite for V1
-  path: ~/.eidolon/memory.db  # OS default: ~/.eidolon/memory.db (macOS/Linux)
+  provider: sqlite          # sqlite | postgres
+  path: ~/.eidolon/memory.db  # used when provider: sqlite
+                              # OS default: ~/.eidolon/memory.db (macOS/Linux)
                               #            %APPDATA%/eidolon/memory.db (Windows)
+
+  # Postgres + pgvector — recommended for production/Hermes deployments;
+  # requires `pip install eidolon[postgres]`. Needs a running Postgres
+  # with the pgvector extension available (CREATE EXTENSION vector).
+  # `models.embedder.dimension` (below) fixes the pgvector column width
+  # at first connect — changing the embedder's dimension later needs a
+  # real ALTER COLUMN TYPE migration, not just a config change.
+  # host: 127.0.0.1
+  # port: 5432
+  # dbname: eidolon
+  # user: eidolon
+  # password: ...            # or EIDOLON_STORAGE_PASSWORD — required for provider: postgres
 
 # ── Models ─────────────────────────────────────────────────
 # Each entry is a complete, self-contained model endpoint — provider,

@@ -66,8 +66,13 @@ Examples:
     parser.add_argument("--config", default=None, help="Path to YAML config file")
 
     # Storage
-    parser.add_argument("--storage-provider", default=None, choices=["sqlite"], help="Storage provider")
-    parser.add_argument("--storage-path", default=None, help="Database path")
+    parser.add_argument("--storage-provider", default=None, choices=["sqlite", "postgres"], help="Storage provider")
+    parser.add_argument("--storage-path", default=None, help="Database path (sqlite only)")
+    parser.add_argument("--storage-host", default=None, help="Postgres host (postgres only)")
+    parser.add_argument("--storage-port", type=int, default=None, help="Postgres port (postgres only)")
+    parser.add_argument("--storage-dbname", default=None, help="Postgres database name (postgres only)")
+    parser.add_argument("--storage-user", default=None, help="Postgres user (postgres only)")
+    parser.add_argument("--storage-password", default=None, help="Postgres password (postgres only)")
 
     # LLM
     parser.add_argument("--llm-provider", default=None,
@@ -209,7 +214,10 @@ def main() -> None:
 
     # Print configuration summary
     print(f"  Config: {args.config or '(defaults + env + CLI)'}")
-    print(f"  Storage: {config.storage.provider} ({config.storage.path})")
+    if config.storage.provider == "postgres":
+        print(f"  Storage: postgres ({config.storage.host}:{config.storage.port}/{config.storage.dbname})")
+    else:
+        print(f"  Storage: {config.storage.provider} ({config.storage.path})")
     for role, m in config.models.items():
         print(f"  {role.capitalize()}: {m.provider} / {m.model} ({m.base_url or '(no base_url)'})")
     print(f"  Language: {config.language}")

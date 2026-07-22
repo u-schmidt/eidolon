@@ -521,6 +521,44 @@ class TestProviderFactory:
         assert store is not None
         store.close()
 
+    def test_create_postgres_storage_requires_password(self):
+        config = EidolonConfig(
+            storage=StorageConfig(provider="postgres", host="127.0.0.1", password=""),
+        )
+        factory = ProviderFactory(config)
+        with pytest.raises(ConfigError, match="password"):
+            factory.create_storage()
+
+    def test_create_postgres_storage(self, postgres_container):
+        config = EidolonConfig(
+            storage=StorageConfig(
+                provider="postgres",
+                host=postgres_container.get_container_host_ip(),
+                port=int(postgres_container.get_exposed_port(5432)),
+                dbname=postgres_container.dbname,
+                user=postgres_container.username,
+                password=postgres_container.password,
+            ),
+            models={
+                "embedder": ModelConfig(provider="simulated", base_url="local", model="simulated", dimension=3),
+            },
+        )
+        factory = ProviderFactory(config)
+        store = factory.create_storage()
+        try:
+            from core.stores.postgres_store import PostgresStore
+            assert isinstance(store, PostgresStore)
+            tid = store.create_topic("Test", peer_id="user")
+            assert store.get_topic(tid)["label"] == "Test"
+        finally:
+            with store._conn.cursor() as cur:
+                cur.execute(
+                    "TRUNCATE topics, memory_items, messages, facts, "
+                    "topic_clusters, fact_consolidation_state RESTART IDENTITY CASCADE"
+                )
+            store._conn.commit()
+            store.close()
+
     def test_create_simulated_llm(self):
         config = EidolonConfig()
         factory = ProviderFactory(config)

@@ -51,10 +51,22 @@ class ConfigError(Exception):
 
 @dataclass
 class StorageConfig:
-    """Storage backend configuration."""
+    """Storage backend configuration.
+
+    `path` is used by `provider: sqlite`; `host`/`port`/`dbname`/`user`/
+    `password` by `provider: postgres` — see core/stores/postgres_store.py.
+    Discrete fields rather than a single DSN string, matching this
+    project's "self-contained, explicit fields, no opaque connection
+    blob" philosophy (see ModelConfig below).
+    """
 
     provider: str = "sqlite"
     path: str = field(default_factory=default_db_path)
+    host: str = "127.0.0.1"
+    port: int = 5432
+    dbname: str = "eidolon"
+    user: str = "eidolon"
+    password: str = ""
 
 
 @dataclass
@@ -195,6 +207,13 @@ class EidolonConfig:
             "storage": {
                 "provider": self.storage.provider,
                 "path": self.storage.path,
+                "host": self.storage.host,
+                "port": self.storage.port,
+                "dbname": self.storage.dbname,
+                "user": self.storage.user,
+                # password intentionally excluded — this dict is for
+                # logging/debugging, matching how ModelConfig's api_key
+                # is excluded below.
             },
             "models": {
                 role: {

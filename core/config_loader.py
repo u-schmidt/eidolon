@@ -94,6 +94,11 @@ class ConfigLoader:
         _map: dict[str, tuple[str, ...]] = {
             "storage_provider": ("storage", "provider"),
             "storage_path": ("storage", "path"),
+            "storage_host": ("storage", "host"),
+            "storage_port": ("storage", "port"),
+            "storage_dbname": ("storage", "dbname"),
+            "storage_user": ("storage", "user"),
+            "storage_password": ("storage", "password"),
             "retrieval_semantic": ("retrieval", "semantic"),
             "retrieval_tag_overlap": ("retrieval", "tag_overlap"),
             "retrieval_person": ("retrieval", "person"),
@@ -155,6 +160,11 @@ class ConfigLoader:
         cli_map: dict[str, tuple[str, ...]] = {
             "storage_provider": ("storage", "provider"),
             "storage_path": ("storage", "path"),
+            "storage_host": ("storage", "host"),
+            "storage_port": ("storage", "port"),
+            "storage_dbname": ("storage", "dbname"),
+            "storage_user": ("storage", "user"),
+            "storage_password": ("storage", "password"),
             "retrieval_semantic": ("retrieval", "semantic"),
             "retrieval_tag_overlap": ("retrieval", "tag_overlap"),
             "retrieval_person": ("retrieval", "person"),
