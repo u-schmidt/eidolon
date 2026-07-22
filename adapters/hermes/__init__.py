@@ -363,12 +363,15 @@ class EidolonMemoryProvider(MemoryProvider):
             old_topic_id = session.active_topic_id
             new_topic_label = topic_change.label if is_new else None
 
-            # Store the turn — returns new topic ID if created
+            # Store the turn — returns new topic ID if created.
+            # turn_id=session.turn_number: see SessionState.turn_number for
+            # why this is cached state rather than a value computed here.
             new_topic_id = self._eidolon.store_turn(
                 user_message=user_content,
                 ai_response=assistant_content,
                 peer_id=self._peer_id,
                 environment=EnvironmentSnapshot(situation="conversation"),
+                turn_id=session.turn_number,
                 old_topic_id=old_topic_id,
                 new_topic_label=new_topic_label,
                 session_id=resolved_session_id,
@@ -568,6 +571,35 @@ class EidolonMemoryProvider(MemoryProvider):
 
     # ── Session Lifecycle Hooks ─────────────────────────
 
+    def on_turn_start(self, turn_number: int, message: str, **kwargs: Any) -> None:
+        """Cache Hermes' per-agent turn counter for the current session.
+
+        Hermes calls this via ``agent._memory_manager.on_turn_start(
+        agent._user_turn_count, user_message)`` with no session_id at all
+        (confirmed against the live Hermes source: neither a positional
+        arg nor a kwarg carries it) — so unlike prefetch()/sync_turn(),
+        which both receive session_id explicitly, this has to be
+        attributed to whichever session is "current." That's exactly the
+        same fallback ``_current_session_id`` already exists for (see its
+        docstring re: prefetch_all() not forwarding session_id either),
+        reused here rather than adding a second mechanism.
+
+        Wrapped defensively because Hermes' own error handling for this
+        hook (``MemoryManager.on_turn_start``) only logs a failure at
+        ``logger.debug`` — easy to miss — unlike ``on_session_end``, which
+        logs at ``warning`` with a traceback. See SessionState.turn_number
+        for why the value is cached instead of used here directly, and for
+        the known blind spot if Hermes ever runs two sessions' turns
+        concurrently through one provider instance.
+        """
+        if not self._initialized:
+            return
+        try:
+            session = self._get_or_create_session("")
+            session.turn_number = turn_number
+        except Exception as e:
+            logger.warning("Eidolon on_turn_start failed: %s", e)
+
     def on_session_end(self, messages: list[dict[str, Any]]) -> None:
         """Called when a session ends.
 
@@ -599,6 +631,11 @@ class EidolonMemoryProvider(MemoryProvider):
         (it was computed for a turn that no longer exists) but leave
         active_topic_id alone — knowing whether the rewind crossed a topic
         boundary would need transcript inspection this method doesn't do.
+
+        The fresh ``SessionState()`` on reset also zeroes ``turn_number``
+        back to 0 — deliberately, since Hermes' own counter behind it
+        (``agent._user_turn_count``) does NOT reset here; see
+        SessionState.turn_number for why that matters.
         """
         if not new_session_id:
             return

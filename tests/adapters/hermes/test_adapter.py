@@ -25,6 +25,7 @@ class MockEidolon:
         self.last_retrieve_context_active_topic_id: int | None = None
         self.last_old_topic_id: int | None = None
         self.last_new_topic_label: str | None = None
+        self.last_turn_id: int | None = None
         self.active_topic_to_resume: int | None = None
         self.active_topics_by_session: dict[str | None, int] = {}
         self.get_active_topic_calls = 0
@@ -104,6 +105,7 @@ class MockEidolon:
         ai_response: str,
         peer_id: str,
         environment: EnvironmentSnapshot,
+        turn_id: int | None = None,
         old_topic_id: int | None = None,
         new_topic_label: str | None = None,
         *,
@@ -115,6 +117,7 @@ class MockEidolon:
         self.last_ai_response = ai_response
         self.last_peer_id = peer_id
         self.last_environment = environment
+        self.last_turn_id = turn_id
         self.last_old_topic_id = old_topic_id
         self.last_new_topic_label = new_topic_label
         self.last_session_id = session_id
@@ -498,6 +501,53 @@ class TestEidolonMemoryProvider:
         provider.on_session_switch("sess_2", reset=True)
         provider.prefetch("hello", session_id="")
         assert provider._sessions["sess_2"].pending_query == "hello"
+
+    def test_on_session_switch_resets_turn_number(self, provider):
+        provider._sessions["sess_1"] = SessionState(turn_number=48)
+        provider.on_session_switch("sess_1", reset=True)
+        assert provider._sessions["sess_1"].turn_number == 0
+
+    def test_on_session_switch_carries_turn_number_forward_on_resume(self, provider):
+        provider._sessions["sess_1"] = SessionState(turn_number=5)
+        provider.on_session_switch("sess_2", parent_session_id="sess_1", reset=False)
+        assert provider._sessions["sess_2"].turn_number == 5
+
+    def test_on_turn_start_caches_turn_number_on_current_session(self, provider):
+        # Mirrors how Hermes actually calls this: no session_id at all, so
+        # the adapter has to fall back to whichever session prefetch()/
+        # sync_turn() most recently resolved as current.
+        provider.prefetch("hello", session_id="sess_1")
+        provider.on_turn_start(3, "hello")
+        assert provider._sessions["sess_1"].turn_number == 3
+
+    def test_on_turn_start_no_op_when_not_initialized(self):
+        from adapters.hermes import EidolonMemoryProvider
+        p = EidolonMemoryProvider()
+        p.on_turn_start(3, "hello")  # must not raise
+        assert p._sessions == {}
+
+    def test_on_turn_start_failure_is_caught_and_logged(self, provider, caplog):
+        # _get_or_create_session raising must not propagate — Hermes' own
+        # error handling for this hook only logs at debug (easy to miss),
+        # so the adapter's own try/except + warning is what actually
+        # surfaces a bug here.
+        provider._get_or_create_session = MagicMock(side_effect=RuntimeError("boom"))
+        with caplog.at_level("WARNING"):
+            provider.on_turn_start(3, "hello")  # must not raise
+        assert "on_turn_start failed" in caplog.text
+
+    def test_sync_turn_passes_cached_turn_number_as_turn_id(self, provider):
+        provider._sessions["sess_1"] = SessionState(turn_number=7)
+        provider.sync_turn(
+            user_content="hi", assistant_content="hello", session_id="sess_1",
+        )
+        assert provider._eidolon.last_turn_id == 7
+
+    def test_sync_turn_defaults_turn_id_to_zero_for_a_fresh_session(self, provider):
+        provider.sync_turn(
+            user_content="hi", assistant_content="hello", session_id="sess_1",
+        )
+        assert provider._eidolon.last_turn_id == 0
 
     def test_shutdown_cleans_up(self, provider):
         provider.shutdown()
