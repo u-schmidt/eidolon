@@ -66,6 +66,7 @@ ignore = [
 "tools/trace_tui.py" = ["E402"]
 "tools/run_eval.py" = ["E402"]
 "tools/analyze_reports.py" = ["E402"]
+"tools/migrate_sqlite_to_postgres.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.12"
