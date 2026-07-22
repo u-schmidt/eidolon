@@ -170,6 +170,13 @@ python tools/cli.py --config ~/.eidolon/config.yaml
 
 # With debug tracing enabled:
 python tools/cli.py --debug --trace-db /tmp/trace.db
+
+# Maintenance: gracefully close topics left 'active' too long (a crashed
+# session, an adapter that stopped calling store_turn) — lists candidates,
+# closes them via the same summarize-then-close path as a normal topic
+# transition, then exits without entering the REPL. --dry-run lists only.
+python tools/cli.py --close-stale-topics --stale-older-than-hours 12 --dry-run
+python tools/cli.py --close-stale-topics --stale-older-than-hours 12 --stale-peer-id user
 ```
 
 ### Hermes Adapter

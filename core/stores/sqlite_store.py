@@ -14,7 +14,7 @@ import json
 import logging
 import sqlite3
 import struct
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from core.interfaces import Tracer
@@ -36,6 +36,20 @@ _KNN_PREFILTER_MULTIPLIER = 10
 
 def _knn_prefilter_k(limit: int) -> int:
     return max(limit * _KNN_PREFILTER_MULTIPLIER, _KNN_PREFILTER_MIN)
+
+
+def _parse_sqlite_timestamp(raw: str | None) -> datetime | None:
+    """Parse a raw SQLite ``CURRENT_TIMESTAMP`` string (e.g.
+    "2026-07-20 16:57:00", stored in UTC) into a tz-aware datetime.
+    None for a missing/unparseable value — the caller treats that as
+    "no known activity", not "definitely stale"."""
+    if not raw:
+        return None
+    try:
+        ts = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
 
 
 def _serialize_embedding(vec: list[float]) -> bytes:
@@ -282,6 +296,48 @@ class SqliteStore:
             (peer_id, session_id),
         ).fetchone()
         return row[0] if row else None
+
+    def get_stale_active_topics(self, cutoff: datetime, peer_id: str | None = None) -> list[dict]:
+        """Return 'active' topics whose last message predates `cutoff`,
+        oldest first — candidates for graceful cleanup (see
+        `Eidolon.close_stale_topics`) when a topic was never properly
+        closed (a crashed session, an adapter that stopped calling
+        `store_turn`).
+
+        A topic's own `created_at` stands in for "last activity" when it
+        has no messages yet (e.g. a topic row created but never actually
+        used). `peer_id=None` scans every peer's active topics.
+        """
+        query = (
+            "SELECT t.id, t.label, t.summary, t.tags, t.status, t.peer_id, t.created_at, t.closed_at, "
+            "COALESCE(MAX(m.created_at), t.created_at) AS last_activity "
+            "FROM topics t LEFT JOIN messages m ON m.topic_id = t.id "
+            "WHERE t.status = 'active'"
+        )
+        params: list[str] = []
+        if peer_id is not None:
+            query += " AND t.peer_id = ?"
+            params.append(peer_id)
+        query += " GROUP BY t.id ORDER BY last_activity ASC"
+        rows = self._conn.execute(query, params).fetchall()
+
+        stale = []
+        for row in rows:
+            last_activity = _parse_sqlite_timestamp(row[8])
+            if last_activity is not None and last_activity >= cutoff:
+                continue
+            stale.append({
+                "id": row[0],
+                "label": row[1],
+                "summary": row[2],
+                "tags": json.loads(row[3]),
+                "status": row[4],
+                "peer_id": row[5],
+                "created_at": row[6],
+                "closed_at": row[7],
+                "last_activity": row[8],
+            })
+        return stale
 
     def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
         """Return `peer_id`'s most recently closed topics, newest first.

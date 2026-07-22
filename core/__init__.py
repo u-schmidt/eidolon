@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from datetime import datetime
 
 from core.consolidation.cluster_consolidator import ClusterConsolidator
 from core.consolidation.fact_consolidator import FactConsolidator
@@ -527,6 +528,53 @@ class Eidolon:
         self._fact_consolidator.consolidate(
             peer_id, request_id=request_id or _new_request_id(), session_id=session_id
         )
+
+    def close_stale_topics(
+        self,
+        cutoff: datetime,
+        peer_id: str | None = None,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> list[int]:
+        """Gracefully close every 'active' topic with no activity since
+        `cutoff`.
+
+        For topics that never went through a normal transition — a
+        crashed session, an adapter that stopped calling `store_turn` —
+        and so were left 'active' indefinitely (see
+        `StorageProvider.get_active_topic`, which by design never closes
+        orphans on its own). Exposed publicly for a CLI cleanup command;
+        not run automatically, since "stale" depends on a caller-chosen
+        cutoff there's no safe default for.
+
+        Each topic goes through the same summarize-then-close path as a
+        normal transition (`TopicSummarizer`, falling back to a
+        placeholder summary if it can't produce one, then cluster
+        consolidation) — nothing about being stale skips that.
+
+        Returns the ids of the topics closed, oldest first.
+        """
+        request_id = request_id or _new_request_id()
+        closed_ids: list[int] = []
+        for topic in self._storage.get_stale_active_topics(cutoff, peer_id=peer_id):
+            topic_id = topic["id"]
+            summarized = self._summarizer.summarize(topic_id, request_id=request_id, session_id=session_id)
+            if summarized:
+                if self._clustering_enabled:
+                    self._cluster_consolidator.consolidate_topic(
+                        topic_id, topic["peer_id"], request_id=request_id, session_id=session_id
+                    )
+            else:
+                self._storage.close_topic(topic_id, "Closed: idle timeout")
+            closed_ids.append(topic_id)
+
+        self._tracer.record(
+            "stale_topic_cleanup",
+            {"cutoff": cutoff.isoformat(), "peer_id": peer_id, "closed_topic_ids": closed_ids},
+            request_id=request_id, session_id=session_id,
+        )
+        return closed_ids
 
     def correct_fact(
         self,

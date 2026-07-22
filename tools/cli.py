@@ -17,6 +17,10 @@ Usage:
 
     # With environment variables:
     EIDOLON_LLM_PROVIDER=ollama EIDOLON_LLM_MODEL=deepseek-v4 python tools/cli.py
+
+    # Cleanup: gracefully close topics left 'active' too long (e.g. a
+    # crashed session), then exit without entering the REPL:
+    python tools/cli.py --close-stale-topics --stale-older-than-hours 12 --dry-run
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ from __future__ import annotations
 import argparse
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Ensure the project root is on sys.path for direct execution
@@ -36,6 +40,7 @@ from core import Eidolon
 from core.config import ConfigError
 from core.config_loader import ConfigLoader
 from core.context_formatter import ContextFormatter
+from core.interfaces import StorageProvider, Tracer
 from core.models import EnvironmentSnapshot
 from core.provider_factory import ProviderFactory
 from core.stores.sqlite_store import SqliteStore
@@ -130,6 +135,16 @@ Examples:
     parser.add_argument("--trace-db", dest="debug_trace_db_path", default=None,
                         help="Trace database path (only used when --debug is set)")
 
+    # Maintenance: stale-topic cleanup (runs once and exits, no REPL)
+    parser.add_argument("--close-stale-topics", action="store_true",
+                        help="Gracefully close 'active' topics idle past --stale-older-than-hours, then exit")
+    parser.add_argument("--stale-older-than-hours", type=float, default=24.0,
+                        help="Idle threshold in hours for --close-stale-topics (default: 24)")
+    parser.add_argument("--stale-peer-id", default=None,
+                        help="Restrict --close-stale-topics to one peer (default: every peer)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="With --close-stale-topics, list candidates without closing them")
+
     return parser
 
 
@@ -155,6 +170,32 @@ def print_help() -> None:
     print("    /help         Show this help")
     print("    /quit         Exit")
     print()
+
+
+def _run_stale_topic_cleanup(
+    eidolon: Eidolon, store: StorageProvider, tracer: Tracer, args: argparse.Namespace
+) -> None:
+    """One-shot maintenance mode for --close-stale-topics: list 'active'
+    topics idle past the cutoff and, unless --dry-run, close them
+    gracefully. Runs once and returns — never enters the REPL."""
+    cutoff = datetime.now(UTC) - timedelta(hours=args.stale_older_than_hours)
+    candidates = store.get_stale_active_topics(cutoff, peer_id=args.stale_peer_id)
+
+    if not candidates:
+        print(f"  No stale open topics (idle > {args.stale_older_than_hours}h).")
+    else:
+        print(f"  {len(candidates)} stale open topic(s) (idle > {args.stale_older_than_hours}h):")
+        for t in candidates:
+            print(f"    #{t['id']} {t['label']!r} (peer={t['peer_id']}, last activity: {t['last_activity']})")
+
+        if args.dry_run:
+            print("  Dry run — nothing closed.")
+        else:
+            closed_ids = eidolon.close_stale_topics(cutoff, peer_id=args.stale_peer_id)
+            print(f"  Closed {len(closed_ids)} topic(s): {closed_ids}")
+
+    store.close()
+    tracer.close()
 
 
 def main() -> None:
@@ -217,6 +258,10 @@ def main() -> None:
         clustering_shortlist_size=config.clustering.shortlist_size,
         tracer=tracer,
     )
+
+    if args.close_stale_topics:
+        _run_stale_topic_cleanup(eidolon, store, tracer, args)
+        return
 
     # Session state (managed by the CLI, not by the Core)
     active_topic_id: int | None = None

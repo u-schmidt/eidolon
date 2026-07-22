@@ -338,6 +338,68 @@ class TestTopics:
         assert store.search_topics(tags=["fitness"]) == []
 
 
+class TestGetStaleActiveTopics:
+    def test_stale_when_last_message_predates_cutoff(self, store: SqliteStore):
+        tid = store.create_topic("Old chat", summary="", peer_id="user")
+        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        store._conn.execute("UPDATE messages SET created_at = ? WHERE topic_id = ?", ("2020-01-01 00:00:00", tid))
+        store._conn.commit()
+
+        stale = store.get_stale_active_topics(datetime(2025, 1, 1, tzinfo=UTC))
+
+        assert [t["id"] for t in stale] == [tid]
+        assert stale[0]["last_activity"] == "2020-01-01 00:00:00"
+        assert stale[0]["status"] == "active"
+
+    def test_not_stale_when_last_message_after_cutoff(self, store: SqliteStore):
+        tid = store.create_topic("Fresh chat", summary="", peer_id="user")
+        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+
+        # cutoff far in the past — the just-stored message is newer than it
+        assert store.get_stale_active_topics(datetime(2020, 1, 1, tzinfo=UTC)) == []
+
+    def test_falls_back_to_topic_created_at_when_no_messages(self, store: SqliteStore):
+        tid = store.create_topic("Never used", summary="", peer_id="user")
+        store._conn.execute("UPDATE topics SET created_at = ? WHERE id = ?", ("2020-01-01 00:00:00", tid))
+        store._conn.commit()
+
+        stale = store.get_stale_active_topics(datetime(2025, 1, 1, tzinfo=UTC))
+
+        assert [t["id"] for t in stale] == [tid]
+        assert stale[0]["last_activity"] == "2020-01-01 00:00:00"
+
+    def test_excludes_closed_topics(self, store: SqliteStore):
+        tid = store.create_topic("Done", summary="", peer_id="user")
+        store.close_topic(tid, "wrapped up")
+        store._conn.execute("UPDATE topics SET created_at = ? WHERE id = ?", ("2020-01-01 00:00:00", tid))
+        store._conn.commit()
+
+        assert store.get_stale_active_topics(datetime(2025, 1, 1, tzinfo=UTC)) == []
+
+    def test_filters_by_peer_id(self, store: SqliteStore):
+        mine = store.create_topic("Mine", summary="", peer_id="user")
+        theirs = store.create_topic("Theirs", summary="", peer_id="someone_else")
+        store._conn.execute(
+            "UPDATE topics SET created_at = '2020-01-01 00:00:00' WHERE id IN (?, ?)", (mine, theirs)
+        )
+        store._conn.commit()
+
+        stale = store.get_stale_active_topics(datetime(2025, 1, 1, tzinfo=UTC), peer_id="user")
+
+        assert [t["id"] for t in stale] == [mine]
+
+    def test_ordered_oldest_first(self, store: SqliteStore):
+        newer = store.create_topic("Newer", summary="", peer_id="user")
+        older = store.create_topic("Older", summary="", peer_id="user")
+        store._conn.execute("UPDATE topics SET created_at = ? WHERE id = ?", ("2020-06-01 00:00:00", newer))
+        store._conn.execute("UPDATE topics SET created_at = ? WHERE id = ?", ("2020-01-01 00:00:00", older))
+        store._conn.commit()
+
+        stale = store.get_stale_active_topics(datetime(2025, 1, 1, tzinfo=UTC))
+
+        assert [t["id"] for t in stale] == [older, newer]
+
+
 class TestGetRecentTopics:
     def test_returns_closed_topics_newest_first(self, store: SqliteStore):
         older = store.create_topic("Older", summary="", peer_id="user")

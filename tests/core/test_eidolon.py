@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from core import Eidolon
 from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem
 from tests.mocks import SpyTracer
@@ -24,6 +26,7 @@ class MockStorage:
         self.clusters: dict[int, dict] = {}
         self._next_cluster_id = 1
         self.cluster_candidates: dict[int, list[dict]] = {}
+        self.stale_topic_ids: set[int] = set()
 
     def get_facts(self, peer_id: str) -> list[Fact]:
         return [f for f in self.facts if f.peer_id == peer_id]
@@ -175,6 +178,17 @@ class MockStorage:
     def get_recent_messages_by_topic(self, topic_id: int, limit: int) -> list[dict]:
         matching = [m for m in self.messages if m["topic_id"] == topic_id]
         return matching[-limit:]
+
+    def get_stale_active_topics(self, cutoff, peer_id: str | None = None) -> list[dict]:
+        # Staleness itself is exercised against the real SqliteStore
+        # (tests/core/test_sqlite_store.py); here `stale_topic_ids` lets a
+        # test control exactly which candidates Eidolon.close_stale_topics
+        # is handed, to isolate its own orchestration logic.
+        return [
+            t for t in self.topics.values()
+            if t["id"] in self.stale_topic_ids and t["status"] == "active"
+            and (peer_id is None or t.get("peer_id") == peer_id)
+        ]
 
 
 class MockLLM:
@@ -885,6 +899,71 @@ class TestEidolonTracing:
             environment=EnvironmentSnapshot(),
             new_topic_label="Test",
         )
+
+
+class TestCloseStaleTopics:
+    def test_closes_with_generated_summary_and_runs_clustering(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Old chat", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        storage.stale_topic_ids = {tid}
+        llm = MockLLM(summary_response="Summary: wrapped up\nTags: misc")
+        eidolon = Eidolon(storage, llm, MockEmbedder())
+
+        closed_ids = eidolon.close_stale_topics(datetime(2026, 1, 1, tzinfo=UTC))
+
+        assert closed_ids == [tid]
+        assert storage.topics[tid]["status"] == "closed"
+        assert storage.topics[tid]["summary"] == "wrapped up"  # real summary, not the fallback placeholder
+
+    def test_falls_back_to_placeholder_when_summarizer_cannot_produce_one(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Empty topic", peer_id="user")  # no messages -> summarizer returns False
+        storage.stale_topic_ids = {tid}
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        closed_ids = eidolon.close_stale_topics(datetime(2026, 1, 1, tzinfo=UTC))
+
+        assert closed_ids == [tid]
+        assert storage.topics[tid]["status"] == "closed"
+        assert storage.topics[tid]["summary"] == "Closed: idle timeout"
+
+    def test_only_closes_topics_storage_reports_as_stale(self):
+        storage = MockStorage()
+        stale = storage.create_topic("Stale", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=stale)
+        fresh = storage.create_topic("Fresh", peer_id="user")  # not in stale_topic_ids
+        storage.stale_topic_ids = {stale}
+        eidolon = Eidolon(storage, MockLLM(summary_response="Summary: x\nTags:"), MockEmbedder())
+
+        closed_ids = eidolon.close_stale_topics(datetime(2026, 1, 1, tzinfo=UTC))
+
+        assert closed_ids == [stale]
+        assert storage.topics[fresh]["status"] == "active"
+
+    def test_no_candidates_closes_nothing(self):
+        storage = MockStorage()
+        storage.create_topic("Active", peer_id="user")  # not marked stale
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        assert eidolon.close_stale_topics(datetime(2026, 1, 1, tzinfo=UTC)) == []
+
+    def test_records_stale_topic_cleanup_trace_event(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Old chat", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        storage.stale_topic_ids = {tid}
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, MockLLM(summary_response="Summary: x\nTags:"), MockEmbedder(), tracer=tracer)
+        cutoff = datetime(2026, 1, 1, tzinfo=UTC)
+
+        eidolon.close_stale_topics(cutoff, peer_id="user")
+
+        events = tracer.events_of_type("stale_topic_cleanup")
+        assert len(events) == 1
+        assert events[0]["payload"]["cutoff"] == cutoff.isoformat()
+        assert events[0]["payload"]["peer_id"] == "user"
+        assert events[0]["payload"]["closed_topic_ids"] == [tid]
 
 
 class TestCorrectFact:

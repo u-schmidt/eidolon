@@ -168,6 +168,19 @@ class StorageProvider(Protocol):
         """
         ...
 
+    def get_stale_active_topics(self, cutoff: datetime, peer_id: str | None = None) -> list[dict]:
+        """Return 'active' topics whose last message predates `cutoff`,
+        oldest first — candidates for graceful cleanup (see
+        `Eidolon.close_stale_topics`) when a topic was never properly
+        closed (a crashed session, an adapter that stopped calling
+        `store_turn`).
+
+        Each dict carries a `last_activity` timestamp alongside the usual
+        topic fields — the topic's own `created_at` when it has no
+        messages yet. `peer_id=None` scans every peer's active topics.
+        """
+        ...
+
     def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
         """Return `peer_id`'s most recently closed, unclustered topics,
         newest first.
