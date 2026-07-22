@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from core.stores.retrieval_scorer import _TRACE_TOP_K_PADDING, RetrievalScorer
+from core.stores.retrieval_scorer import _TRACE_TOP_K_PADDING, RetrievalScorer, _recency_score
 from tests.mocks import SpyTracer
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -172,3 +172,47 @@ class TestFinalize:
         payload = tracer.events_of_type("retrieval_scoring_summary")[0]["payload"]
         flags = {c["candidate_kind"]: c["included"] for c in payload["top_candidates"]}
         assert flags == {"cluster": True, "topic": False}
+
+
+class TestRecencyScore:
+    """Moved from tests/core/test_sqlite_store.py — this tests
+    _recency_score directly, which lives in this module, not SqliteStore.
+    """
+
+    _NOW = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def test_just_now_scores_one(self):
+        assert _recency_score("2026-01-01 00:00:00", self._NOW, 30.0) == pytest.approx(1.0)
+
+    def test_one_half_life_scores_half(self):
+        # 30 days before _NOW, half_life 30 -> 0.5
+        assert _recency_score("2025-12-02 00:00:00", self._NOW, 30.0) == pytest.approx(0.5)
+
+    def test_two_half_lives_scores_quarter(self):
+        # 60 days before _NOW, half_life 30 -> 0.25
+        assert _recency_score("2025-11-02 00:00:00", self._NOW, 30.0) == pytest.approx(0.25)
+
+    def test_none_scores_zero(self):
+        assert _recency_score(None, self._NOW, 30.0) == 0.0
+
+    def test_unparseable_scores_zero(self):
+        assert _recency_score("not-a-date", self._NOW, 30.0) == 0.0
+
+    def test_future_timestamp_clamps_to_one(self):
+        assert _recency_score("2027-01-01 00:00:00", self._NOW, 30.0) == 1.0
+
+    def test_naive_now_is_treated_as_utc(self):
+        # A naive `now` must not raise on the aware/naive subtraction.
+        assert _recency_score("2020-01-01 00:00:00", datetime(2026, 1, 1), 30.0) < 0.01
+
+    def test_accepts_a_real_datetime_not_just_a_sqlite_string(self):
+        """PostgresStore passes real tz-aware datetime objects (psycopg's
+        TIMESTAMPTZ representation) instead of SQLite's timestamp
+        strings — both must produce the same score for the same instant."""
+        as_datetime = _recency_score(datetime(2026, 1, 1, tzinfo=UTC), self._NOW, 30.0)
+        as_string = _recency_score("2026-01-01 00:00:00", self._NOW, 30.0)
+        assert as_datetime == pytest.approx(as_string)
+
+    def test_naive_datetime_is_treated_as_utc(self):
+        # A tz-naive datetime (shouldn't normally happen, but must not raise).
+        assert _recency_score(datetime(2020, 1, 1), self._NOW, 30.0) < 0.01

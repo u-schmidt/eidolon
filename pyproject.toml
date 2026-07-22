@@ -15,6 +15,13 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
     "mypy>=1.11",
+    # The storage-provider contract suite (tests/core/test_storage_provider_contract.py)
+    # runs against a real Postgres via testcontainers, and tests/conftest.py
+    # imports PostgresStore unconditionally — so these are dev-required,
+    # not just the `postgres` extra's runtime-optional deps.
+    "testcontainers[postgres]>=4",
+    "psycopg[binary]>=3.1",
+    "pgvector>=0.3",
 ]
 sentence-transformers = [
     "sentence-transformers>=3",
