@@ -215,6 +215,8 @@ EIDOLON_DEPLOYMENT_TOKEN=... EIDOLON_STORAGE_PASSWORD=... \
   docker compose -f deploy/docker-compose.example.yml up -d
 ```
 
+Already have a Postgres instance running (e.g. migrating an existing `embedded` + `postgres` deployment to `server` mode, rather than starting fresh)? [`deploy/docker-compose.external-db.example.yml`](deploy/docker-compose.external-db.example.yml) runs just the server, pointed at your existing instance via `EIDOLON_STORAGE_*` env vars, instead of bundling a new Postgres container.
+
 The adapter's own `eidolon.yaml` then only needs the `deployment:` block — everything else (models/storage/facts/...) is the separately-run server's own config, not the adapter's:
 
 ```yaml

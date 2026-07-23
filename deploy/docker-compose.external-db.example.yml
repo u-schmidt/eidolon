@@ -1,0 +1,50 @@
+# Example "server, existing Postgres" deployment preset for Eidolon.
+#
+# For the case where a Postgres instance already exists (e.g. a live
+# Hermes deployment already running Eidolon in `embedded` mode with
+# `storage.provider: postgres`) and you're only adding the
+# core-as-a-service server in front of it — unlike
+# docker-compose.example.yml, this does NOT bundle a new Postgres
+# container. Point EIDOLON_STORAGE_* below at your existing instance's
+# real connection details (the same ones already in the live adapter's
+# eidolon.yaml `storage:` section today).
+#
+# Usage (from the repo root, run on the same host as the existing
+# Postgres instance):
+#   cp eidolon.example.yaml deploy/eidolon.yaml   # then trim to just models:/retrieval:/facts:/... (no storage:/deployment:)
+#   EIDOLON_DEPLOYMENT_TOKEN=... EIDOLON_STORAGE_PASSWORD=... \
+#     docker compose -f deploy/docker-compose.external-db.example.yml up -d
+#
+# A caller (e.g. the Hermes adapter) then points its own eidolon.yaml at:
+#   deployment:
+#     mode: server
+#     server_url: http://<this-host>:8420
+#     token: ...   # must match EIDOLON_DEPLOYMENT_TOKEN below
+
+services:
+  eidolon-server:
+    build:
+      context: ..
+      dockerfile: deploy/server/Dockerfile
+    ports:
+      # Bind to a private/internal interface reachable from wherever
+      # your existing Postgres already is (not a public 0.0.0.0) —
+      # substitute the host's private IP for 127.0.0.1 if the caller
+      # (e.g. the Hermes container) reaches this host over a LAN/VPN
+      # rather than localhost.
+      - "127.0.0.1:8420:8420"
+    environment:
+      - EIDOLON_DEPLOYMENT_TOKEN=${EIDOLON_DEPLOYMENT_TOKEN:?set a real token}
+      - EIDOLON_STORAGE_PROVIDER=postgres
+      - EIDOLON_STORAGE_HOST=${EIDOLON_STORAGE_HOST:?set your existing Postgres host}
+      - EIDOLON_STORAGE_PORT=${EIDOLON_STORAGE_PORT:-5432}
+      - EIDOLON_STORAGE_DBNAME=${EIDOLON_STORAGE_DBNAME:-eidolon}
+      - EIDOLON_STORAGE_USER=${EIDOLON_STORAGE_USER:-eidolon}
+      - EIDOLON_STORAGE_PASSWORD=${EIDOLON_STORAGE_PASSWORD:?set your existing Postgres password}
+    volumes:
+      # Your own eidolon.yaml for models:/retrieval:/facts:/clustering:/
+      # debug:/language/timezone — everything the live adapter's old
+      # eidolon.yaml had except storage: (set via env vars above) and
+      # deployment: (irrelevant to the server itself).
+      - ./eidolon.yaml:/app/eidolon.yaml:ro
+    restart: unless-stopped
