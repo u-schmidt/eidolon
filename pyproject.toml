@@ -79,7 +79,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.12"
-files = ["core", "adapters", "tools", "server"]
+files = ["core", "adapters", "tools", "server", "client"]
 # Optional/runtime-resolved deps (Hermes' `agent.*`, textual,
 # sentence_transformers) have no stubs and aren't importable here.
 ignore_missing_imports = true
