@@ -109,6 +109,52 @@ consolidation. 400+ tests.
   boundary and provider-injection pattern. Not scoped in detail yet;
   revisit once the Hermes adapter and Phase 2 work are settled.
 
+## Ideas / open questions (not yet scoped)
+
+Raw observations from live-testing the deployed Hermes integration —
+not committed to Phase 3 yet, just captured here so they don't get
+lost. Pick up and scope properly when one of these becomes a priority.
+
+- **Topics never close on their own** — Hermes has no session-end
+  hook, so a session's last topic stays "active" indefinitely once the
+  user just stops chatting mid-topic. `close_stale_topics`/
+  `get_stale_active_topics` (Phase 2, shipped) exist for exactly this,
+  but nothing on the live path calls them automatically today — it's a
+  manual `tools/cli.py` operation. Needs either a scheduled trigger
+  (cron-style, natural now that `tools/serve.py` is a standalone
+  long-running process) or a different mechanism entirely.
+- **Lots of 1-3 turn "mini-topics"** — worth a merge/consolidation pass,
+  distinct from `ClusterConsolidator`'s existing recurring-topic
+  clustering (which groups *related* topics across time, not small
+  topics by turn count). Open question: merge into the nearest related
+  topic, or fold into a catch-all bucket?
+- **Topic names chosen too early** — the label largely reflects the
+  first turn or two; by turn 5 the real topic may look different.
+  Possible fix: re-run labeling once N turns have accumulated, rather
+  than only relying on the label set at creation (`TopicSummarizer`
+  already runs a separate summary pass at topic *close* — the question
+  is whether the early label itself needs revisiting mid-conversation).
+- **More explicit temporal modeling** — when did what happen, and how
+  do topics relate to each other in time, not just via the embedding/
+  tag similarity retrieval already weighs (`retrieval.temporal`).
+- **Direct topic-to-topic relations** — beyond the existing cluster
+  grouping, could topics reference each other directly (e.g. "this is
+  a follow-up to topic X")?
+- **Usefulness scoring for topics/facts** — some notion of which
+  topics/facts actually get surfaced and used again vs. which never
+  come up. Open question: how to even measure "useful" — retrieval
+  frequency? explicit user correction/confirmation signals?
+- **The insights/monitoring tool, revisited** — not built *for* the
+  core-as-a-service work, but that work is what makes it newly
+  practical: a standalone tool could talk to a running `eidolon-server`
+  (only the ~9-method `EidolonClient` facade — deliberately scoped to
+  adapter-lifecycle needs, see `core/eidolon_client.py`) or connect to
+  Postgres directly for read-only browsing, which the storage migration
+  already made safe to do. Worth a real design pass once the above
+  ideas clarify what such a tool would actually need to show — several
+  of them (temporal relations, usefulness scoring) are exactly the kind
+  of thing a monitoring tool would want to surface.
+
 ## Shipped ahead of schedule
 
 - **Weighted associative retrieval** — `semantic`/`tag_overlap`/`person`/

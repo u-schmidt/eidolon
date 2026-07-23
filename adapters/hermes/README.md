@@ -108,6 +108,31 @@ Each model role (`llm`, `embedder`, and any future role) is a **self-contained**
 | `language` | string | Language code for stop word filtering (`en`, `de`) |
 | `timezone` | string | IANA zone name (e.g. `Europe/Berlin`) for displaying the injected `[Environment]` time (default `UTC`); stored timestamps stay UTC internally |
 
+### Deployment mode
+
+Two presets, picked via `deployment.mode` — full rationale in the main
+[README's Deployment Modes section](../../README.md#deployment-modes).
+Here's specifically what each means for *this plugin's* `eidolon.yaml`:
+
+- **`embedded` (default)** — `eidolon.yaml` needs the full config shown
+  in [Installation](#installation) above (`models:`/`storage:`/
+  `retrieval:`/`facts:`/...). Core runs in-process inside the adapter.
+- **`server`** — `eidolon.yaml` needs *only* the `deployment:` block:
+
+  ```yaml
+  deployment:
+    mode: server
+    server_url: http://<server-host>:8420
+    token: ...          # or EIDOLON_DEPLOYMENT_TOKEN
+    timeout: 30
+  ```
+
+  Everything else (`models:`/`storage:`/`retrieval:`/`facts:`/...)
+  belongs to the separately-run server's own `eidolon.yaml` instead
+  (see [`deploy/`](../../deploy/)) — the adapter no longer reads or
+  needs those sections at all. This is also the permanent fix for the
+  Postgres/psycopg fragility issue below.
+
 ### Postgres storage — deployed-environment dependency
 
 `install-plugin.sh` only rsyncs Eidolon's own code — it does **not** install
