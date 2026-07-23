@@ -113,6 +113,22 @@ class ContextBundle:
 
 
 @dataclass
+class PrefetchResult:
+    """The topic decision and retrieved context for one prefetch call.
+
+    Returned by ``Eidolon.prepare_context()`` — bundles both pieces so a
+    caller (e.g. an HTTP-backed ``EidolonClient``) gets them in a single
+    round trip instead of two separate calls, while still letting it
+    cache ``topic_change`` for a later ``store_turn()`` the way
+    ``detect_topic()``+``retrieve_context()`` called separately always
+    has.
+    """
+
+    topic_change: TopicChange
+    bundle: ContextBundle
+
+
+@dataclass
 class Topic:
     """A conversation segment with summary, tags, and optional embedding."""
 

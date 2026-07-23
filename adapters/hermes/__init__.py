@@ -38,6 +38,7 @@ from core import Eidolon
 from core.config import EidolonConfig
 from core.config_loader import ConfigLoader
 from core.context_formatter import ContextFormatter
+from core.eidolon_client import EidolonClient
 from core.interfaces import StorageProvider, Tracer
 from core.models import EnvironmentSnapshot
 from core.provider_factory import ProviderFactory
@@ -53,7 +54,7 @@ class EidolonMemoryProvider(MemoryProvider):
     """
 
     def __init__(self) -> None:
-        self._eidolon: Eidolon | None = None
+        self._eidolon: EidolonClient | None = None
         self._store: StorageProvider | None = None
         self._tracer: Tracer | None = None
         # Keyed by Hermes session_id. Hermes gives this instance its own
@@ -265,35 +266,29 @@ class EidolonMemoryProvider(MemoryProvider):
             # self._timezone only for display.
             turn_now = datetime.now(UTC)
 
-            # Detect topic — the user's message is the only input that
-            # ever matters here (see sync_turn(), which reuses this
-            # decision instead of recomputing it from the AI's reply).
-            topic_change = self._eidolon.detect_topic(
-                message=query,
-                active_topic_id=session.active_topic_id,
-                session_id=resolved_session_id,
-                request_id=turn_request_id,
-            )
-            session.pending_topic_change = topic_change
-            session.pending_query = query
-            session.pending_request_id = turn_request_id
-
-            # Retrieve context
-            is_new = topic_change.type == "NEW_TOPIC"
-            bundle = self._eidolon.retrieve_context(
+            # Detect topic + retrieve context in one call — the user's
+            # message is the only input that ever matters for the topic
+            # decision (see sync_turn(), which reuses it instead of
+            # recomputing from the AI's reply). Fused into one
+            # prepare_context() call (rather than detect_topic() then
+            # retrieve_context() separately) so an HTTP-backed
+            # EidolonClient only needs one round trip per prefetch — see
+            # core.models.PrefetchResult.
+            result = self._eidolon.prepare_context(
                 message=query,
                 peer_id=self._peer_id,
                 environment=EnvironmentSnapshot(
                     situation="conversation", time=turn_now, day_of_week=turn_now.strftime("%A"),
                 ),
-                topic_label=topic_change.label,
-                is_new_topic=is_new,
                 active_topic_id=session.active_topic_id,
                 session_id=resolved_session_id,
                 request_id=turn_request_id,
             )
+            session.pending_topic_change = result.topic_change
+            session.pending_query = query
+            session.pending_request_id = turn_request_id
 
-            return ContextFormatter.format(bundle, now=turn_now, timezone=self._timezone)
+            return ContextFormatter.format(result.bundle, now=turn_now, timezone=self._timezone)
 
         except Exception as e:
             logger.debug("Eidolon prefetch failed (non-fatal): %s", e)

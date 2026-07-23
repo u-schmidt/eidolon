@@ -8,13 +8,22 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from adapters.hermes.session_state import SessionState
-from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem, RelatedTopic, TopicChange
+from core.models import (
+    ContextBundle,
+    EnvironmentSnapshot,
+    Fact,
+    MemoryItem,
+    PrefetchResult,
+    RelatedTopic,
+    TopicChange,
+)
 
 
 class MockEidolon:
     """Mock Eidolon core for adapter testing (new API)."""
 
     def __init__(self) -> None:
+        self.prepare_context_calls = 0
         self.detect_topic_calls = 0
         self.retrieve_context_calls = 0
         self.store_turn_calls = 0
@@ -50,6 +59,43 @@ class MockEidolon:
         if session_id in self.active_topics_by_session:
             return self.active_topics_by_session[session_id]
         return self.active_topic_to_resume
+
+    def prepare_context(
+        self,
+        message: str,
+        peer_id: str,
+        environment: EnvironmentSnapshot,
+        active_topic_id: int | None = None,
+        *,
+        session_id: str | None = None,
+        request_id: str | None = None,
+    ) -> PrefetchResult:
+        # Merges detect_topic()'s + retrieve_context()'s bookkeeping —
+        # one call, one request_id recorded, matching the real fused
+        # Eidolon.prepare_context().
+        self.prepare_context_calls += 1
+        self.last_message = message
+        self.last_active_topic_id = active_topic_id
+        self.last_retrieve_context_active_topic_id = active_topic_id
+        self.last_peer_id = peer_id
+        self.last_environment = environment
+        self.last_session_id = session_id
+        self.last_request_id = request_id
+        self.request_ids_seen.append(request_id)
+
+        topic_change = TopicChange(type="NEW_TOPIC", label="Test Topic")
+        bundle = ContextBundle(
+            current_topic_label=topic_change.label,
+            facts=[Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")],
+            related_topics=[
+                RelatedTopic(topic_id=1, summary="Previous conversation", tags=["test"])
+            ],
+            memory_items=[
+                MemoryItem(content="User said something", item_type="essence",
+                          source_peer="user", subject_peer="user", attribution_type="self_statement")
+            ],
+        )
+        return PrefetchResult(topic_change=topic_change, bundle=bundle)
 
     def detect_topic(
         self,
@@ -193,13 +239,10 @@ class TestEidolonMemoryProvider:
         result = p.prefetch("hello", session_id="sess_1")
         assert result == ""
 
-    def test_prefetch_detects_topic(self, provider):
+    def test_prefetch_detects_topic_and_retrieves_context(self, provider):
+        # Fused into one prepare_context() call — see core.models.PrefetchResult.
         provider.prefetch("hello", session_id="sess_1")
-        assert provider._eidolon.detect_topic_calls >= 1
-
-    def test_prefetch_retrieves_context(self, provider):
-        provider.prefetch("hello", session_id="sess_1")
-        assert provider._eidolon.retrieve_context_calls >= 1
+        assert provider._eidolon.prepare_context_calls >= 1
 
     def test_prefetch_passes_session_id_through(self, provider):
         provider.prefetch("hello", session_id="sess_1")
@@ -283,14 +326,15 @@ class TestEidolonMemoryProvider:
 
     def test_sync_turn_reuses_cached_topic_change_from_prefetch(self, provider):
         provider.prefetch("hello", session_id="sess_1")
-        assert provider._eidolon.detect_topic_calls == 1
+        assert provider._eidolon.prepare_context_calls == 1
+        assert provider._eidolon.detect_topic_calls == 0
         provider.sync_turn(
             user_content="hello",
             assistant_content="hi",
             session_id="sess_1",
         )
-        # Same message as prefetch's — cache hit, no second LLM call.
-        assert provider._eidolon.detect_topic_calls == 1
+        # Same message as prefetch's — cache hit, no separate detect_topic() call.
+        assert provider._eidolon.detect_topic_calls == 0
 
     def test_sync_turn_recomputes_when_message_differs_from_cache(self, provider):
         provider.prefetch("hello", session_id="sess_1")
@@ -299,8 +343,9 @@ class TestEidolonMemoryProvider:
             assistant_content="hi",
             session_id="sess_1",
         )
-        # Cached decision was for a different message — must not be trusted.
-        assert provider._eidolon.detect_topic_calls == 2
+        # Cached decision was for a different message — must not be trusted,
+        # so sync_turn falls back to its own detect_topic() call.
+        assert provider._eidolon.detect_topic_calls == 1
 
     def test_sync_turn_clears_pending_cache_after_use(self, provider):
         provider.prefetch("hello", session_id="sess_1")
@@ -313,12 +358,14 @@ class TestEidolonMemoryProvider:
         assert session.pending_topic_change is None
         assert session.pending_query is None
 
-    def test_prefetch_shares_one_request_id_across_detect_and_retrieve(self, provider):
+    def test_prefetch_records_one_request_id(self, provider):
+        # prepare_context() fuses what used to be two separate calls
+        # (detect_topic + retrieve_context) into one — one request_id
+        # recorded, not two.
         provider.prefetch("hello", session_id="sess_1")
         eidolon = provider._eidolon
-        assert len(eidolon.request_ids_seen) == 2
+        assert len(eidolon.request_ids_seen) == 1
         assert eidolon.request_ids_seen[0] is not None
-        assert eidolon.request_ids_seen[0] == eidolon.request_ids_seen[1]
 
     def test_sync_turn_reuses_prefetchs_request_id_on_cache_hit(self, provider):
         provider.prefetch("hello", session_id="sess_1")
@@ -328,10 +375,10 @@ class TestEidolonMemoryProvider:
             user_content="hello", assistant_content="hi", session_id="sess_1"
         )
 
-        # store_turn's request_id (the 3rd call recorded) must match the
-        # id prefetch's two calls already shared — one id for the turn.
+        # store_turn's request_id (the 2nd call recorded) must match the
+        # id prepare_context() already used — one id for the turn.
         assert provider._eidolon.request_ids_seen == [
-            prefetch_request_id, prefetch_request_id, prefetch_request_id
+            prefetch_request_id, prefetch_request_id
         ]
 
     def test_sync_turn_gets_fresh_request_id_on_cache_miss(self, provider):

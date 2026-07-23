@@ -246,12 +246,13 @@ class TestEidolon:
         eidolon = Eidolon(storage, llm, embedder)
 
         env = EnvironmentSnapshot(location="home")
-        bundle = eidolon.prepare_context(
+        result = eidolon.prepare_context(
             message="jep, mach weiter",
             peer_id="user",
             environment=env,
             active_topic_id=1,
         )
+        bundle = result.bundle
 
         assert isinstance(bundle, ContextBundle)
         assert len(bundle.facts) == 1
@@ -264,11 +265,12 @@ class TestEidolon:
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder)
 
-        bundle = eidolon.prepare_context(
+        result = eidolon.prepare_context(
             message="Lass uns über Bello sprechen",
             peer_id="user",
             environment=EnvironmentSnapshot(),
         )
+        bundle = result.bundle
 
         assert isinstance(bundle, ContextBundle)
         # NEW_TOPIC detected → label is set
@@ -340,6 +342,20 @@ class TestEidolon:
         event = tracer.events_of_type("topic_detection")[0]
         assert event["payload"]["recent_message_count"] == 1
 
+    def test_prepare_context_also_returns_topic_change(self):
+        storage = MockStorage()
+        llm = MockLLM(detection_response="NEW_TOPIC:Bello")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        result = eidolon.prepare_context(
+            message="Lass uns über Bello sprechen", peer_id="user", environment=EnvironmentSnapshot(),
+        )
+
+        assert result.topic_change.type == "NEW_TOPIC"
+        assert result.topic_change.label == "Bello"
+        assert result.bundle.current_topic_label == "Bello"
+
     def test_retrieve_context(self):
         storage = MockStorage()
         storage.facts = [Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")]
@@ -370,11 +386,11 @@ class TestEidolon:
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder)
 
-        bundle = eidolon.prepare_context(
+        result = eidolon.prepare_context(
             message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(), active_topic_id=tid,
         )
 
-        assert bundle.current_topic_label == "Talking about Bello's diet"
+        assert result.bundle.current_topic_label == "Talking about Bello's diet"
 
     def test_retrieve_context_continue_resolves_active_topic_label(self):
         storage = MockStorage()

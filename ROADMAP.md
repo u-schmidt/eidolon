@@ -77,6 +77,52 @@ consolidation. 400+ tests.
   `adapters/hermes/`, following the same `core`-never-imports-`adapters`
   boundary and provider-injection pattern. Not scoped in detail yet;
   revisit once the Hermes adapter and Phase 2 work are settled.
+- **Core-as-a-service deployment mode** (considered, not started) — an
+  alternative to today's in-process embedding, where `core` runs as its
+  own long-lived process (a small HTTP API over the `Eidolon` facade)
+  and the Hermes adapter becomes a thin client instead of importing
+  core directly. Motivated by two concrete pains, not scale: (1)
+  installing core's own dependencies (e.g. `psycopg`/`pgvector`) into
+  Hermes' container venv is fragile and doesn't survive a container
+  recreation — a client mode needs no core dependencies at all in that
+  venv; (2) a core code change currently requires restarting the whole
+  Hermes gateway process to pick up the new code, since Python has
+  already imported the old version — a separate core process can be
+  restarted independently, mid dev-loop or in production, without
+  touching Hermes.
+
+  Not a replacement — `SqliteStore`/`PostgresStore` established the
+  pattern of a zero-friction default plus an opt-in escalation path,
+  and this would be the same shape one layer up: **embedded** (today's
+  mode, in-process, `sqlite-vec`, nothing to run — the "try it in five
+  minutes" preset) stays the default, **server** (a separate process or
+  container, `pgvector`, decoupled lifecycle — the "running this for
+  real" preset) becomes selectable via one `deployment.mode` config
+  field. The two presets are what gets marketed to newcomers; any other
+  combination (e.g. embedded+postgres, already possible today) stays
+  available but undocumented as a headline path — deliberately, to
+  avoid a 2×2 decision fatigue nobody asked for.
+
+  The design leans on two things already in place: the `Eidolon` facade
+  is already the adapter's *only* touchpoint into core (never calls
+  into `TopicDetector`/stores/etc. directly), and core is already
+  stateless (every call takes its session info as parameters — no
+  server-side session affinity needed). So this isn't "duplicate core
+  for a server" — the actual logic (detection, retrieval, consolidation,
+  storage) stays a single implementation; what's added is two thin
+  transport layers around the facade's ~9 public methods: a FastAPI
+  server translating HTTP → facade calls, and an `EidolonClient`-Protocol
+  HTTP implementation the adapter swaps in for the in-process `Eidolon`
+  instance. One real behavior change needed: `prepare_context()` would
+  need to return the detected `TopicChange` alongside the `ContextBundle`
+  (today the adapter gets those from two separate facade calls so it can
+  cache the topic decision for the later `store_turn()`) — collapsing
+  that into one response avoids doubling the prefetch path's network
+  round trips. Auth via a static bearer token (env var, not YAML —
+  matches the Postgres password precedent); a storage-provider-contract-
+  style parametrized test suite would run the same test cases against
+  both the in-process and HTTP-client implementations so they can't
+  silently drift apart.
 
 ## Shipped ahead of schedule
 

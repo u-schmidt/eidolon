@@ -9,12 +9,13 @@ Usage:
     eidolon = Eidolon(storage=store, llm=llm, embedder=embedder)
 
     # Before LLM responds (sync):
-    bundle = eidolon.prepare_context(
+    result = eidolon.prepare_context(
         message="Let's talk about Bello",
         peer_id="user",
         environment=env,
         active_topic_id=42,
     )
+    bundle = result.bundle
 
     # After LLM responds (async):
     eidolon.store_turn(
@@ -39,7 +40,7 @@ from core.consolidation.fact_consolidator import FactConsolidator
 from core.detection.topic_detector import TopicDetector
 from core.extraction.fragmentary_extractor import FragmentaryExtractor
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
-from core.models import ContextBundle, EnvironmentSnapshot, MemoryItem, TopicChange
+from core.models import ContextBundle, EnvironmentSnapshot, MemoryItem, PrefetchResult, TopicChange
 from core.retrieval.associative_retriever import AssociativeRetriever
 from core.summarization.topic_summarizer import TopicSummarizer
 from core.trace.null_tracer import NullTracer
@@ -149,7 +150,7 @@ class Eidolon:
         *,
         session_id: str | None = None,
         request_id: str | None = None,
-    ) -> ContextBundle:
+    ) -> PrefetchResult:
         """Prepare context for an LLM call.
 
         Combines topic detection and context retrieval into a single sync call.
@@ -174,9 +175,11 @@ class Eidolon:
 
         Returns
         -------
-        ContextBundle
-            Facts, environment, topic info, related topics, and memory items
-            for prompt injection.
+        PrefetchResult
+            The detected topic change alongside the retrieved context
+            bundle — returning both (not just the bundle) lets a caller
+            cache the topic decision for a later store_turn() without a
+            second detect_topic() call, in one round trip either way.
         """
         request_id = request_id or _new_request_id()
 
@@ -201,7 +204,7 @@ class Eidolon:
             session_id=session_id,
         )
 
-        return bundle
+        return PrefetchResult(topic_change=topic_change, bundle=bundle)
 
     def detect_topic(
         self,
