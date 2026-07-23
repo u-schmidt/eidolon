@@ -632,9 +632,9 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
 
-        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
-             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+        with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -662,9 +662,9 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
 
-        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
-             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+        with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -716,9 +716,9 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
 
-        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
-             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+        with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -744,9 +744,9 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
 
-        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
-             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+        with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -774,9 +774,9 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
 
-        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
-             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+        with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -811,9 +811,9 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
 
-        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
-             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.Eidolon", return_value=mock_eidolon):
+        with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -844,9 +844,9 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.temporal = 0.1
         sentinel_tracer = MagicMock()
 
-        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
-             patch("adapters.hermes.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.Eidolon", return_value=mock_eidolon) as MockEidolonClass:
+        with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
+             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon) as MockEidolonClass:
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -876,8 +876,8 @@ class TestEidolonMemoryProvider:
         mock_config.deployment.token = "sekrit"
         mock_config.deployment.timeout = 12.0
 
-        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
-             patch("adapters.hermes.ProviderFactory") as MockProviderFactory:
+        with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory:
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
 
@@ -913,8 +913,8 @@ class TestEidolonMemoryProvider:
         sentinel_tracer = MagicMock()
         boom = RuntimeError("database is locked")
 
-        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
-             patch("adapters.hermes.ProviderFactory") as MockProviderFactory:
+        with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory:
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_tracer.return_value = sentinel_tracer
