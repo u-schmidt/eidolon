@@ -153,6 +153,27 @@ class ClusteringConfig:
 
 
 @dataclass
+class DeploymentConfig:
+    """Which core-as-a-service mode a caller (e.g. the Hermes adapter)
+    runs in — see ROADMAP.md's "Core-as-a-service deployment mode".
+
+    ``mode: "embedded"`` (the default) builds a real in-process
+    ``core.Eidolon`` from the rest of this config, exactly as before —
+    ``server_url``/``token``/``timeout`` are unused in that mode.
+    ``mode: "server"`` instead builds a ``client.http_client.
+    EidolonHttpClient`` pointed at ``server_url``, and the rest of this
+    config (models/storage/facts/...) becomes irrelevant to the caller,
+    since it's the separately-run server process's own config, not this
+    one's — see tools/serve.py.
+    """
+
+    mode: str = "embedded"  # "embedded" | "server"
+    server_url: str = "http://127.0.0.1:8420"
+    token: str = ""  # via EIDOLON_DEPLOYMENT_TOKEN — excluded from to_dict()
+    timeout: float = 30.0
+
+
+@dataclass
 class DebugConfig:
     """Debug-tracing configuration.
 
@@ -180,6 +201,7 @@ class EidolonConfig:
     facts: FactsConfig = field(default_factory=FactsConfig)
     clustering: ClusteringConfig = field(default_factory=ClusteringConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
+    deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
     language: str = "en"
     timezone: str = "UTC"  # IANA name (e.g. "Europe/Berlin"); used to display env time
 
@@ -247,6 +269,13 @@ class EidolonConfig:
             "debug": {
                 "enabled": self.debug.enabled,
                 "trace_db_path": self.debug.trace_db_path,
+            },
+            "deployment": {
+                "mode": self.deployment.mode,
+                "server_url": self.deployment.server_url,
+                "timeout": self.deployment.timeout,
+                # token intentionally excluded — same reason as
+                # storage.password/models.*.api_key above.
             },
             "language": self.language,
             "timezone": self.timezone,

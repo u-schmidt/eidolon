@@ -860,6 +860,43 @@ class TestEidolonMemoryProvider:
         assert p._tracer is sentinel_tracer
         assert MockEidolonClass.call_args.kwargs["tracer"] is sentinel_tracer
 
+    def test_initialize_server_mode_builds_http_client_not_local_providers(self, tmp_path):
+        """deployment.mode: server must skip storage/llm/embedder/tracer
+        construction entirely and build an EidolonHttpClient instead —
+        see adapters/hermes/__init__.py's initialize()."""
+        from adapters.hermes import EidolonMemoryProvider
+        from client.http_client import EidolonHttpClient
+
+        config_path = tmp_path / "eidolon.yaml"
+        config_path.write_text("deployment:\n  mode: server\n")
+
+        mock_config = MagicMock()
+        mock_config.deployment.mode = "server"
+        mock_config.deployment.server_url = "http://127.0.0.1:8420"
+        mock_config.deployment.token = "sekrit"
+        mock_config.deployment.timeout = 12.0
+
+        with patch("adapters.hermes.ConfigLoader") as MockConfigLoader, \
+             patch("adapters.hermes.ProviderFactory") as MockProviderFactory:
+            MockConfigLoader.return_value.load.return_value = mock_config
+            factory = MockProviderFactory.return_value
+
+            p = EidolonMemoryProvider()
+            p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
+
+            # No local providers/tracer built in server mode.
+            factory.create_storage.assert_not_called()
+            factory.create_llm.assert_not_called()
+            factory.create_embedder.assert_not_called()
+            factory.create_tracer.assert_not_called()
+
+        assert isinstance(p._eidolon, EidolonHttpClient)
+        assert p._eidolon._base_url == "http://127.0.0.1:8420"
+        assert p._eidolon._timeout == 12.0
+        assert p._eidolon._session.headers["Authorization"] == "Bearer sekrit"
+        assert p._tracer is None
+        assert p._store is None
+
     def test_initialize_records_error_and_reraises_when_storage_fails(self, tmp_path, caplog):
         """A storage/llm/embedder construction failure (e.g. 'database is
         locked') must not vanish silently — it's recorded to the tracer

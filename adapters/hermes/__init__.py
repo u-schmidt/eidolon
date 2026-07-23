@@ -34,6 +34,7 @@ except ImportError:
 
 # Eidolon core
 from adapters.hermes.session_state import SessionState
+from client.http_client import EidolonHttpClient
 from core import Eidolon
 from core.config import EidolonConfig
 from core.config_loader import ConfigLoader
@@ -161,62 +162,80 @@ class EidolonMemoryProvider(MemoryProvider):
         # Load configuration
         loader = ConfigLoader(config_path=str(config_path))
         config: EidolonConfig = loader.load()
-
-        # Create providers via factory. Tracer first — a failure building
-        # storage/llm/embedder can then still be recorded before it's
-        # re-raised, instead of vanishing before anything capable of
-        # recording it exists (this is exactly what happened with a real
-        # "database is locked" storage failure: it never reached trace.db).
-        # SafeTracer never raises itself (see core/trace/safe_tracer.py),
-        # so this reordering can't introduce a new failure mode even if
-        # trace.db itself is unavailable. The trace.db event is only ever
-        # written when debug.enabled, though — logger.exception() is the
-        # channel that's visible regardless of that flag (see also the
-        # non-fatal failures logged the same way elsewhere in this file).
-        factory = ProviderFactory(config)
-        tracer = factory.create_tracer()
-        self._tracer = tracer
-        try:
-            store = factory.create_storage()
-            llm = factory.create_llm()
-            embedder = factory.create_embedder()
-        except Exception as exc:
-            tracer.record("error", {"step": "initialize", "exception": repr(exc)}, session_id=session_id)
-            logger.exception("Eidolon initialize failed")
-            raise
-
-        # Store references for shutdown
-        self._store = store
         self._timezone = config.timezone
 
-        # Eidolon core
-        self._eidolon = Eidolon(
-            storage=store,
-            llm=llm,
-            embedder=embedder,
-            language=config.language,
-            retrieval_weights={
-                "semantic": config.retrieval.semantic,
-                "tag_overlap": config.retrieval.tag_overlap,
-                "person": config.retrieval.person,
-                "temporal": config.retrieval.temporal,
-            },
-            retrieval_limits={
-                "related_topics_new": config.retrieval.related_topics_new,
-                "related_topics_continue": config.retrieval.related_topics_continue,
-                "memory_items_new": config.retrieval.memory_items_new,
-                "memory_items_continue": config.retrieval.memory_items_continue,
-                "recent_topics": config.retrieval.recent_topics,
-                "cluster_summaries": config.retrieval.cluster_summaries,
-                "cluster_recent_topics": config.retrieval.cluster_recent_topics,
-            },
-            facts_consolidation_interval=config.facts.consolidation_interval,
-            facts_target_max=config.facts.target_max,
-            facts_categories=config.facts.categories,
-            clustering_enabled=config.clustering.enabled,
-            clustering_shortlist_size=config.clustering.shortlist_size,
-            tracer=tracer,
-        )
+        if config.deployment.mode == "server":
+            # Server mode: core runs as its own process (tools/serve.py) —
+            # this adapter is just a thin HTTP client, with no storage/
+            # llm/embedder/tracer to build locally at all. No tracer is
+            # wired here either: there's nothing on this side to attach
+            # one to, and building one would just open a trace.db file
+            # for no purpose. Deliberate v1 limitation — see ROADMAP.md's
+            # "Core-as-a-service deployment mode" entry: a transport-layer
+            # failure (timeout, connection refused) is only visible via
+            # the broad except/logger.warning already in prefetch()/
+            # sync_turn(), not via tools/trace.py.
+            self._eidolon = EidolonHttpClient(
+                base_url=config.deployment.server_url,
+                token=config.deployment.token,
+                timeout=config.deployment.timeout,
+            )
+        else:
+            # Embedded mode (default): build storage/llm/embedder and run
+            # core in-process. Create providers via factory. Tracer first —
+            # a failure building storage/llm/embedder can then still be
+            # recorded before it's re-raised, instead of vanishing before
+            # anything capable of recording it exists (this is exactly what
+            # happened with a real "database is locked" storage failure: it
+            # never reached trace.db). SafeTracer never raises itself (see
+            # core/trace/safe_tracer.py), so this reordering can't introduce
+            # a new failure mode even if trace.db itself is unavailable. The
+            # trace.db event is only ever written when debug.enabled,
+            # though — logger.exception() is the channel that's visible
+            # regardless of that flag (see also the non-fatal failures
+            # logged the same way elsewhere in this file).
+            factory = ProviderFactory(config)
+            tracer = factory.create_tracer()
+            self._tracer = tracer
+            try:
+                store = factory.create_storage()
+                llm = factory.create_llm()
+                embedder = factory.create_embedder()
+            except Exception as exc:
+                tracer.record("error", {"step": "initialize", "exception": repr(exc)}, session_id=session_id)
+                logger.exception("Eidolon initialize failed")
+                raise
+
+            # Store reference for shutdown
+            self._store = store
+
+            self._eidolon = Eidolon(
+                storage=store,
+                llm=llm,
+                embedder=embedder,
+                language=config.language,
+                retrieval_weights={
+                    "semantic": config.retrieval.semantic,
+                    "tag_overlap": config.retrieval.tag_overlap,
+                    "person": config.retrieval.person,
+                    "temporal": config.retrieval.temporal,
+                },
+                retrieval_limits={
+                    "related_topics_new": config.retrieval.related_topics_new,
+                    "related_topics_continue": config.retrieval.related_topics_continue,
+                    "memory_items_new": config.retrieval.memory_items_new,
+                    "memory_items_continue": config.retrieval.memory_items_continue,
+                    "recent_topics": config.retrieval.recent_topics,
+                    "cluster_summaries": config.retrieval.cluster_summaries,
+                    "cluster_recent_topics": config.retrieval.cluster_recent_topics,
+                },
+                facts_consolidation_interval=config.facts.consolidation_interval,
+                facts_target_max=config.facts.target_max,
+                facts_categories=config.facts.categories,
+                clustering_enabled=config.clustering.enabled,
+                clustering_shortlist_size=config.clustering.shortlist_size,
+                tracer=tracer,
+            )
 
         # Seed the current-session fallback before resolving so an empty
         # session_id from a later prefetch() call still lands here.

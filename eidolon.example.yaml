@@ -9,6 +9,21 @@
 # Environment variables use the pattern: EIDOLON_<SECTION>_<KEY>
 # Example: EIDOLON_LLM_PROVIDER=lm_studio
 
+# ── Deployment Mode ──────────────────────────────────────────
+# "embedded" (default) — core runs in-process inside this adapter, built
+# directly from the storage/models/... sections below. Nothing extra to
+# run — the "try it in five minutes" preset.
+# "server" — core runs as its own separate process instead (see
+# tools/serve.py), and this adapter becomes a thin HTTP client. In this
+# mode, every OTHER section in this file (storage/models/facts/...) is
+# irrelevant to the adapter — that's the separately-run server's own
+# eidolon.yaml, not this one. Only the three settings below matter here.
+deployment:
+  mode: embedded              # embedded | server
+  # server_url: http://127.0.0.1:8420
+  # token: ...                 # or EIDOLON_DEPLOYMENT_TOKEN — required for mode: server
+  # timeout: 30                 # HTTP request timeout in seconds
+
 # ── Storage ────────────────────────────────────────────────
 # Where and how Eidolon stores its data.
 storage:

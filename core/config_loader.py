@@ -116,6 +116,10 @@ class ConfigLoader:
             "clustering_shortlist_size": ("clustering", "shortlist_size"),
             "debug_enabled": ("debug", "enabled"),
             "debug_trace_db_path": ("debug", "trace_db_path"),
+            "deployment_mode": ("deployment", "mode"),
+            "deployment_server_url": ("deployment", "server_url"),
+            "deployment_token": ("deployment", "token"),
+            "deployment_timeout": ("deployment", "timeout"),
             "language": ("language",),
             "timezone": ("timezone",),
         }
@@ -182,6 +186,10 @@ class ConfigLoader:
             "clustering_shortlist_size": ("clustering", "shortlist_size"),
             "debug_enabled": ("debug", "enabled"),
             "debug_trace_db_path": ("debug", "trace_db_path"),
+            "deployment_mode": ("deployment", "mode"),
+            "deployment_server_url": ("deployment", "server_url"),
+            "deployment_token": ("deployment", "token"),
+            "deployment_timeout": ("deployment", "timeout"),
             "language": ("language",),
             "timezone": ("timezone",),
         }
@@ -257,6 +265,8 @@ class ConfigLoader:
                 self._merge_into(config.clustering, value)
             elif key == "debug" and isinstance(value, dict):
                 self._merge_into(config.debug, value)
+            elif key == "deployment" and isinstance(value, dict):
+                self._merge_into(config.deployment, value)
             elif hasattr(config, key):
                 setattr(config, key, value)
 

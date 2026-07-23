@@ -12,6 +12,7 @@ import pytest
 from core.config import (
     ConfigError,
     DebugConfig,
+    DeploymentConfig,
     EidolonConfig,
     ModelConfig,
     RetrievalConfig,
@@ -74,6 +75,19 @@ class TestEidolonConfig:
         debug = DebugConfig()
         assert debug.enabled is False
         assert debug.trace_db_path.endswith("trace.db")
+
+    def test_deployment_config_defaults(self):
+        deployment = DeploymentConfig()
+        assert deployment.mode == "embedded"
+        assert deployment.server_url == "http://127.0.0.1:8420"
+        assert deployment.token == ""
+        assert deployment.timeout == 30.0
+
+    def test_to_dict_excludes_deployment_token(self):
+        config = EidolonConfig(deployment=DeploymentConfig(mode="server", token="secret"))
+        d = config.to_dict()
+        assert d["deployment"]["mode"] == "server"
+        assert "token" not in d["deployment"]
 
     def test_custom_values(self):
         config = EidolonConfig(
@@ -509,6 +523,60 @@ debug:
 
         assert config.debug.enabled is True
         assert config.debug.trace_db_path == "/cli/trace.db"
+
+    def test_yaml_deployment_section(self):
+        yaml_content = """
+deployment:
+  mode: server
+  server_url: http://127.0.0.1:9000
+  token: yaml-token
+  timeout: 15
+"""
+        tmp = tempfile.mkdtemp()
+        yaml_path = str(Path(tmp) / "config.yaml")
+        with open(yaml_path, "w") as f:
+            f.write(yaml_content)
+
+        loader = ConfigLoader(config_path=yaml_path)
+        config = loader.load()
+
+        assert config.deployment.mode == "server"
+        assert config.deployment.server_url == "http://127.0.0.1:9000"
+        assert config.deployment.token == "yaml-token"
+        assert config.deployment.timeout == 15
+
+    def test_env_deployment_vars(self):
+        os.environ["EIDOLON_DEPLOYMENT_MODE"] = "server"
+        os.environ["EIDOLON_DEPLOYMENT_SERVER_URL"] = "http://127.0.0.1:9001"
+        os.environ["EIDOLON_DEPLOYMENT_TOKEN"] = "env-token"
+        os.environ["EIDOLON_DEPLOYMENT_TIMEOUT"] = "45"
+
+        loader = ConfigLoader()
+        config = loader.load()
+
+        assert config.deployment.mode == "server"
+        assert config.deployment.server_url == "http://127.0.0.1:9001"
+        assert config.deployment.token == "env-token"
+        assert config.deployment.timeout == 45.0
+
+        del os.environ["EIDOLON_DEPLOYMENT_MODE"]
+        del os.environ["EIDOLON_DEPLOYMENT_SERVER_URL"]
+        del os.environ["EIDOLON_DEPLOYMENT_TOKEN"]
+        del os.environ["EIDOLON_DEPLOYMENT_TIMEOUT"]
+
+    def test_cli_deployment_args(self):
+        args = Namespace(
+            deployment_mode="server", deployment_server_url="http://127.0.0.1:9002",
+            deployment_token="cli-token", deployment_timeout=20.0,
+        )
+
+        loader = ConfigLoader(cli_args=args)
+        config = loader.load()
+
+        assert config.deployment.mode == "server"
+        assert config.deployment.server_url == "http://127.0.0.1:9002"
+        assert config.deployment.token == "cli-token"
+        assert config.deployment.timeout == 20.0
 
 
 class TestProviderFactory:
