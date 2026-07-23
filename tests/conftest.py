@@ -117,3 +117,42 @@ def store(store_backend: SqliteBackend | PostgresBackend):
     """The connected StorageProvider itself — for the majority of
     contract tests that don't need store_backend.backdate()."""
     return store_backend.store
+
+
+@pytest.fixture(params=["embedded", "http"])
+def make_eidolon_client(request):
+    """Factory fixture: hand it an already-built ``Eidolon`` (backed by
+    whatever storage/llm/embedder doubles a test needs) and get back an
+    ``EidolonClient`` — either that same instance directly ("embedded"),
+    or an ``EidolonHttpClient`` talking to it through a real FastAPI app
+    via ``TestClient`` (in-process, no real sockets — "http"). Same
+    underlying ``Eidolon`` either way, so a behavior difference between
+    the two branches would mean the HTTP transport lost or mangled
+    something — see tests/core/test_eidolon_client_contract.py.
+
+    A factory rather than a fixed value (unlike ``store`` above) because
+    each test typically needs its own canned LLM responses (NEW_TOPIC
+    vs. CONTINUE, etc.), which the caller controls by constructing its
+    own ``Eidolon`` before handing it in.
+    """
+    def _make(eidolon):
+        if request.param == "embedded":
+            return eidolon
+
+        from fastapi.testclient import TestClient
+
+        from client.http_client import EidolonHttpClient
+        from server.app import create_app
+        from server.auth import require_token
+
+        app = create_app(eidolon)
+        # Auth itself is already covered by server/'s own smoke tests —
+        # not what this suite is checking — so it's bypassed here rather
+        # than threading a token through every contract test.
+        app.dependency_overrides[require_token] = lambda: None
+        test_client = TestClient(app)
+        # base_url="" — TestClient already knows its own base URL
+        # internally and expects bare paths, unlike a real requests.Session.
+        return EidolonHttpClient(base_url="", token="unused", timeout=5.0, session=test_client)
+
+    return _make

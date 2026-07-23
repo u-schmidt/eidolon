@@ -28,16 +28,28 @@ class EidolonHttpClient:
     no inheritance needed.
     """
 
-    def __init__(self, base_url: str, token: str, timeout: float = 30.0) -> None:
+    def __init__(self, base_url: str, token: str, timeout: float = 30.0, session: Any = None) -> None:
+        """``session`` defaults to a real ``requests.Session()`` — the
+        production path. Tests may inject a FastAPI ``TestClient``
+        instead (it implements the same ``.post(url, json=..., headers=
+        ...)``-shaped interface deliberately, for exactly this kind of
+        substitution), to exercise this class against a real in-process
+        app with no real sockets — see tests/conftest.py.
+        """
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
-        self._session = requests.Session()
+        self._session = session if session is not None else requests.Session()
         self._session.headers["Authorization"] = f"Bearer {token}"
 
     def _call(self, path: str, body: dict[str, Any]) -> Any:
-        response = self._session.post(
-            f"{self._base_url}{path}", json=wire.to_jsonable(body), timeout=self._timeout,
-        )
+        # A real requests.Session needs an explicit per-request timeout —
+        # an injected test session (e.g. FastAPI's TestClient) has no
+        # real network to time out on, and passing timeout= to it is a
+        # deprecated no-op there (see tests/conftest.py's make_eidolon_client).
+        kwargs: dict[str, Any] = {"json": wire.to_jsonable(body)}
+        if isinstance(self._session, requests.Session):
+            kwargs["timeout"] = self._timeout
+        response = self._session.post(f"{self._base_url}{path}", **kwargs)
         response.raise_for_status()
         if response.status_code == 204 or not response.content:
             return None

@@ -270,6 +270,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "mypy" },
     { name = "pgvector" },
     { name = "psycopg", extra = ["binary"] },
@@ -299,6 +300,7 @@ vec = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "pgvector", marker = "extra == 'dev'", specifier = ">=0.3" },
     { name = "pgvector", marker = "extra == 'postgres'", specifier = ">=0.3" },
