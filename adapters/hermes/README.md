@@ -92,6 +92,8 @@ Each model role (`llm`, `embedder`, and any future role) is a **self-contained**
 | `storage.provider` | string | `sqlite` (default, zero setup) \| `postgres` (recommended for production — see below) |
 | `storage.path` | string | Path to the SQLite database file (`provider: sqlite` only) |
 | `storage.host`/`port`/`dbname`/`user`/`password` | string/int | Postgres connection (`provider: postgres` only); `password` also settable via `EIDOLON_STORAGE_PASSWORD` |
+| `deployment.mode` | string | `embedded` (default, in-process, uses the sections above) \| `server` (thin HTTP client instead — see below) |
+| `deployment.server_url`/`token`/`timeout` | string/float | Remote server connection (`mode: server` only); `token` also settable via `EIDOLON_DEPLOYMENT_TOKEN` |
 | `retrieval.semantic` | float | Embedding similarity weight (0-1) |
 | `retrieval.tag_overlap` | float | Tag overlap weight (0-1) |
 | `retrieval.person` | float | Same peer weight (0-1) |
@@ -125,9 +127,20 @@ container). **This does not survive a container recreation** — only an
 in-place restart of the gateway process. Recreating the container (e.g.
 after changing `docker-compose.yml`, such as adding
 `EIDOLON_STORAGE_PASSWORD`) wipes the ephemeral install and it needs
-redoing. There's no permanent fix for this yet — baking the dependency
-into a custom image layer is the natural next step if this becomes
-routine.
+redoing. Two permanent fixes, depending on which deployment mode this
+adapter runs in:
+
+- **Staying in `embedded` mode**: bake `psycopg`/`pgvector` into a
+  custom image layer over the upstream Hermes image (`RUN uv pip
+  install ... "psycopg[binary]>=3.1" "pgvector>=0.3"` in a `Dockerfile`,
+  built once, reused across recreations) instead of installing them by
+  hand after every recreation.
+- **Switching to `deployment.mode: server`** (see the main
+  [README's Deployment Modes section](../../README.md#deployment-modes)):
+  this problem disappears entirely, since the adapter no longer imports
+  `core` at all in this mode — `psycopg`/`pgvector` only need to be
+  installed in the separately-run server process (see
+  [`deploy/`](../../deploy/)), never in the Hermes container's venv.
 
 ## How It Works
 

@@ -1,0 +1,63 @@
+# Example "server + pgvector" deployment preset for Eidolon.
+#
+# Bundles the core-as-a-service server (./server/Dockerfile) with a
+# pgvector/pgvector:pg15 container in one compose file — mirroring
+# Honcho's own pattern (API + its Postgres together in one stack),
+# rather than requiring two separately-managed pieces. See
+# ROADMAP.md's "Core-as-a-service deployment mode" entry for the
+# "embedded + sqlite-vec" (try it in five minutes) vs. "server +
+# pgvector" (running this for real) framing this implements.
+#
+# Usage (from the repo root):
+#   cp eidolon.example.yaml deploy/eidolon.yaml   # then edit models: for your LLM/embedder
+#   EIDOLON_DEPLOYMENT_TOKEN=... EIDOLON_STORAGE_PASSWORD=... \
+#     docker compose -f deploy/docker-compose.example.yml up -d
+#
+# A caller (e.g. the Hermes adapter) then points its own eidolon.yaml at:
+#   deployment:
+#     mode: server
+#     server_url: http://<this-host>:8420
+#     token: ...   # must match EIDOLON_DEPLOYMENT_TOKEN below
+
+services:
+  eidolon-server:
+    build:
+      context: ..
+      dockerfile: deploy/server/Dockerfile
+    ports:
+      - "127.0.0.1:8420:8420"
+    environment:
+      - EIDOLON_DEPLOYMENT_TOKEN=${EIDOLON_DEPLOYMENT_TOKEN:?set a real token}
+      - EIDOLON_STORAGE_PROVIDER=postgres
+      - EIDOLON_STORAGE_HOST=eidolon-db
+      - EIDOLON_STORAGE_PORT=5432
+      - EIDOLON_STORAGE_DBNAME=eidolon
+      - EIDOLON_STORAGE_USER=eidolon
+      - EIDOLON_STORAGE_PASSWORD=${EIDOLON_STORAGE_PASSWORD:?set a real password}
+    volumes:
+      # Your own eidolon.yaml for LLM/embedder config (the `models:`
+      # section) — storage is already fully configured via the env vars
+      # above, so eidolon.yaml's `storage:` section is unused here.
+      - ./eidolon.yaml:/app/eidolon.yaml:ro
+    depends_on:
+      eidolon-db:
+        condition: service_healthy
+
+  eidolon-db:
+    image: pgvector/pgvector:pg15
+    environment:
+      - POSTGRES_DB=eidolon
+      - POSTGRES_USER=eidolon
+      - POSTGRES_PASSWORD=${EIDOLON_STORAGE_PASSWORD:?set a real password}
+    volumes:
+      # A host directory, never a Docker named volume — matches this
+      # project's own storage-migration precedent (see ROADMAP.md's
+      # Postgres/pgvector entry) of keeping data recoverable on the
+      # host filesystem directly.
+      - ./pgvector-data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eidolon"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

@@ -28,24 +28,36 @@ eidolon/
 │   │   ├── openrouter.py     #     Preset of openai_compatible (OpenRouter, LLM only)
 │   │   ├── sentence_transformers.py  # Local PyTorch embeddings (fallback)
 │   │   └── simulated.py      #     Deterministic fake provider for tests/CLI dry-runs
-│   └── context_formatter.py  #   Renders a ContextBundle into the prompt-injection text
+│   ├── context_formatter.py  #   Renders a ContextBundle into the prompt-injection text
+│   └── eidolon_client.py     #   EidolonClient Protocol — the contract adapters code against
+├── server/                   # Core-as-a-service HTTP server (the "server" deployment mode)
+│   ├── app.py                 #   FastAPI app — one route per EidolonClient method
+│   └── auth.py                #   Bearer-token auth dependency
+├── client/                   # HTTP implementation of EidolonClient (talks to server/)
+│   ├── http_client.py         #   EidolonHttpClient — uses `requests`, already a base dependency
+│   └── wire.py                #   Stdlib-only (de)serialization — deliberately no pydantic
+├── deploy/                   # Docker packaging for the "server + pgvector" preset
+│   ├── server/Dockerfile      #   Image running tools/serve.py
+│   ├── docker-compose.example.yml  # Bundles the server with a pgvector/pgvector:pg15 container
+│   └── init.sql               #   Bootstraps the `vector` extension
 ├── adapters/                 # Platform-specific adapters
 │   └── hermes/               #   Hermes MemoryProvider plugin
 ├── tools/                    # Standalone tools
-│   ├── cli.py                #   CLI for testing without Hermes
-│   ├── trace.py              #   Terminal viewer for debug trace events
-│   ├── trace_tui.py          #   Interactive drill-down TUI over trace.db (needs `tui` extra)
-│   ├── tui/                  #   Textual screens for trace_tui.py
-│   ├── simulate_injection.py #   Replays a turn's prefetch() injection string from trace.db
-│   ├── run_eval.py           #   Eval harness CLI entry point
-│   ├── eval/                 #   Eval harness: YAML scripts run against real LLMs, tier-1/tier-2 scoring
-│   │   ├── scripts/          #     Golden eval scripts (YAML)
-│   │   └── reports/          #     Retained run reports (markdown + JSON), not deleted after each run
-│   ├── install-plugin.sh     #   Deploys the Hermes adapter into a live Hermes install
+│   ├── cli.py                #   CLI for testing without Hermes (embedded mode only)
+│   ├── serve.py               #   Entry point for the core-as-a-service HTTP server
+│   ├── trace.py               #   Terminal viewer for debug trace events
+│   ├── trace_tui.py           #   Interactive drill-down TUI over trace.db (needs `tui` extra)
+│   ├── tui/                   #   Textual screens for trace_tui.py
+│   ├── simulate_injection.py  #   Replays a turn's prefetch() injection string from trace.db
+│   ├── run_eval.py            #   Eval harness CLI entry point
+│   ├── eval/                  #   Eval harness: YAML scripts run against real LLMs, tier-1/tier-2 scoring
+│   │   ├── scripts/           #     Golden eval scripts (YAML)
+│   │   └── reports/           #     Retained run reports (markdown + JSON), not deleted after each run
+│   ├── install-plugin.sh      #   Deploys the Hermes adapter into a live Hermes install
 │   ├── migrate_sqlite_to_postgres.py  # One-time data migration between storage backends
-│   └── reset-db.sh           #   Wipes the local dev memory DB (SQLite only)
+│   └── reset-db.sh            #   Wipes the local dev memory DB (SQLite only)
 ├── tests/                    # Test suite
-│   ├── conftest.py           #   store/store_backend fixtures — parametrizes contract tests over sqlite/postgres
+│   ├── conftest.py           #   store/store_backend + make_eidolon_client fixtures
 │   ├── core/                 #   Core tests (incl. core/trace/, core/stores/)
 │   ├── adapters/hermes/      #   Adapter tests
 │   └── tools/                #   Trace viewer + TUI tests
@@ -189,6 +201,32 @@ python tools/cli.py --close-stale-topics --stale-older-than-hours 12 --stale-pee
 
 See [`adapters/hermes/README.md`](adapters/hermes/README.md) for installation and configuration instructions.
 
+## Deployment Modes
+
+Two presets, picked via `deployment.mode` in `eidolon.yaml`:
+
+**`embedded` (default) — try it in five minutes.** Core runs in-process inside the adapter — nothing extra to start, works with `sqlite` storage out of the box. This is what the Quick Start and CLI sections above use; no `deployment:` section needed at all.
+
+**`server` — running this for real.** Core runs as its own standalone HTTP process ([`tools/serve.py`](tools/serve.py)), and the adapter becomes a thin HTTP client ([`client/http_client.py`](client/http_client.py)) instead of importing core directly. Decouples a core code change or restart from the adapter's own process, and avoids installing core's dependencies (e.g. `psycopg` for Postgres) into a platform adapter's own environment. Pairs naturally with `postgres` storage — [`deploy/docker-compose.example.yml`](deploy/docker-compose.example.yml) bundles both in one stack:
+
+```bash
+cp eidolon.example.yaml deploy/eidolon.yaml   # then edit models: for your LLM/embedder
+EIDOLON_DEPLOYMENT_TOKEN=... EIDOLON_STORAGE_PASSWORD=... \
+  docker compose -f deploy/docker-compose.example.yml up -d
+```
+
+The adapter's own `eidolon.yaml` then only needs the `deployment:` block — everything else (models/storage/facts/...) is the separately-run server's own config, not the adapter's:
+
+```yaml
+deployment:
+  mode: server
+  server_url: http://<server-host>:8420
+  token: ...          # or EIDOLON_DEPLOYMENT_TOKEN — must match the server's own token
+  timeout: 30
+```
+
+`tools/cli.py` stays `embedded`-only (its `/items`/`/score` debug commands read storage directly, which a remote server doesn't expose) — run it against a local config for testing regardless of what your Hermes deployment uses. Any other combination (e.g. `embedded` + `postgres`, already the case if you just set `storage.provider: postgres` without touching `deployment:`) works too; these two are simply what's documented as the headline path, to keep the decision simple for a first deployment.
+
 ## Configuration
 
 Eidolon uses a YAML-based configuration system with three sources (highest wins):
@@ -330,7 +368,7 @@ Both are configured in `pyproject.toml` and installed via the `dev` extra
 | Phase | Status | What |
 |---|---|---|
 | **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, batch facts consolidation, 419+ tests |
-| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage acceleration ✅, Postgres/pgvector storage backend ✅, topic detection & summarization review, fact consolidation hardening — see [`ROADMAP.md`](ROADMAP.md); 710+ tests |
+| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage acceleration ✅, Postgres/pgvector storage backend ✅, core-as-a-service deployment mode ✅, topic detection & summarization review, fact consolidation hardening — see [`ROADMAP.md`](ROADMAP.md); 744+ tests |
 | **Phase 3** | ⏳ TBD | Topic-Only Mode, production deployment, performance optimization |
 
 ## Roadmap

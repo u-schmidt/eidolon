@@ -40,6 +40,13 @@ data/
 tools/eval/reports/*
 !tools/eval/reports/.gitkeep
 
+# deploy/docker-compose.example.yml expects a real eidolon.yaml and a
+# Postgres data directory alongside it — both created locally by whoever
+# follows the quickstart, never checked in (the former may hold secrets,
+# the latter is generated data)
+deploy/eidolon.yaml
+deploy/pgvector-data/
+
 # Claude Code local settings — personal, machine-specific (permissions,
 # local paths); a shared .claude/settings.json would be fine to commit
 .claude/settings.local.json
