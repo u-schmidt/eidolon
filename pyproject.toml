@@ -36,12 +36,16 @@ postgres = [
     "psycopg[binary]>=3.1",
     "pgvector>=0.3",
 ]
+server = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
-include = ["core*", "adapters*", "tools*"]
+include = ["core*", "adapters*", "tools*", "server*", "client*"]
 exclude = ["data*", "tests*"]
 
 [tool.ruff]
@@ -67,10 +71,15 @@ ignore = [
 "tools/run_eval.py" = ["E402"]
 "tools/analyze_reports.py" = ["E402"]
 "tools/migrate_sqlite_to_postgres.py" = ["E402"]
+"tools/serve.py" = ["E402"]
+# FastAPI's dependency-injection idiom requires Body(...)/Depends(...)
+# as argument defaults — not the mutable-default-argument bug B008
+# otherwise guards against.
+"server/app.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["core", "adapters", "tools"]
+files = ["core", "adapters", "tools", "server"]
 # Optional/runtime-resolved deps (Hermes' `agent.*`, textual,
 # sentence_transformers) have no stubs and aren't importable here.
 ignore_missing_imports = true
