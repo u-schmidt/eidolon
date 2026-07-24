@@ -1,0 +1,64 @@
+# Tests FactConsolidator's "check whether it actually answers the same
+# question as an existing key under different wording" instruction (see
+# its own system prompt in core/consolidation/fact_consolidator.py) — the
+# harder sibling of fact_correction.de.yaml's same-key contradiction case.
+#
+# Here the second mention never repeats the words "notes app" or
+# "Obsidian" at all — it describes the switch in completely different
+# terms ("gave up on the linked-database idea", "plain text file"). A
+# consolidator that only matches on exact/similar key names would invent
+# a second key (e.g. "note_format" or "text_editor") sitting alongside
+# the original "notes_app" entry instead of recognizing both mentions
+# answer the same underlying question: which note-taking method the
+# person currently uses.
+#
+# Needs facts.consolidation_interval: 2 (see tools/eval/eval_config.example.yaml)
+# so this 4-turn script crosses two consolidation passes: one after turn 2
+# (establishes Obsidian), one after turn 4 (should overwrite it with the
+# plain-text-file answer under the same key, not add a second one).
+#
+# expect_end.facts only checks that the plain-text-file answer is present
+# — it can't check that a stray "Obsidian"/second key is ABSENT (the
+# script format has no negative assertions). That's what the report's
+# "Full consolidated facts profile" section is for — review it by eye for
+# a leftover key still holding "Obsidian".
+
+name: "reconciled preference under a differently-worded key — notes app switch"
+peer_id: "eval-peer-key-reconciliation"
+language: "en"
+
+turns:
+  - user: "I've started keeping all my notes in Obsidian, I really like the linked-notes feature."
+    ai: "Nice, backlinks are great for that. How's it working out so far?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "notes app: using Obsidian for linked notes"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user has started using Obsidian for note-taking, likes the linked-notes feature"
+
+  - user: "Pretty well, I've stuck with it for a few months now."
+    ai: "Good stretch — has it changed how you write things down day to day?"
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Actually I gave up on the whole linked-database idea — these days I just dump everything into one plain text file and search through it when I need something."
+    ai: "Ha, sometimes the simplest tool wins. What made you switch?"
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user switched from Obsidian's linked-notes system to keeping everything in a single plain text file"
+
+  - user: "Way less friction, honestly. I've kept doing it that way since."
+    ai: "Whatever actually gets you writing things down, right?"
+    expect:
+      topic_change: CONTINUE
+
+expect_end:
+  facts:
+    - {category: "preference", key: "notes_app", value: "plain text file, searches through it instead of using Obsidian's linked notes"}
+  topics:
+    - label_hint: "notes app: switched from Obsidian to a plain text file"

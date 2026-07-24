@@ -1,0 +1,58 @@
+# Tests FactConsolidator's "episodic-sounding mention can still reveal a
+# durable fact underneath" instruction (see its own worked example in
+# core/consolidation/fact_consolidator.py's system prompt — a letter
+# correspondence, deliberately mirrored here with different, fictional
+# names/content).
+#
+# Turn 1 on its own reads as purely episodic ("waiting for a reply") —
+# the kind of thing FactConsolidator's own "Bad profile facts" examples
+# warn against promoting. Turn 2 is what should tip the balance: it
+# reveals the underlying relationship is a standing, years-long
+# correspondence, not a one-off wait. A consolidator that rejects turn 1's
+# framing outright (rather than looking past it for the durable relationship
+# underneath) will end up with no relationship fact at all instead of one.
+#
+# Needs facts.consolidation_interval: 2 (see tools/eval/eval_config.example.yaml)
+# so the single consolidation pass fires right after turn 2, while both
+# the episodic framing and the durable detail are in the same batch of
+# new material the LLM reviews together.
+
+name: "episodic-sounding mention reveals a durable correspondence relationship"
+peer_id: "eval-peer-episodic-relationship"
+language: "de"
+
+turns:
+  - user: "Ich warte jetzt schon fast zwei Wochen auf eine Antwort auf einen Brief, den ich an Mira geschrieben habe."
+    ai: "Das kann mit der Post schon mal dauern. Schreibt ihr euch öfter?"
+    expect:
+      topic_change: NEW_TOPIC
+      topic_label_hint: "waiting for a letter reply from Mira"
+      memory_items:
+        - item_type: essence
+          subject_peer: user
+          content_hint: "user is waiting for a reply to a letter they wrote to Mira"
+
+  - user: "Ja, wir schreiben uns eigentlich schon seit Jahren regelmäßig Briefe, sie lebt im Ausland."
+    ai: "Das ist schön, dass ihr das über die Jahre so beibehalten habt."
+    expect:
+      topic_change: CONTINUE
+      memory_items:
+        - item_type: fact
+          subject_peer: user
+          content_hint: "user and Mira have been writing letters to each other regularly for years; Mira lives abroad"
+
+  - user: "Naja, mal sehen, die Post ist ja oft langsam."
+    ai: "Stimmt, das kann schon mal dauern."
+    expect:
+      topic_change: CONTINUE
+
+  - user: "Ich schreib ihr wahrscheinlich nochmal, falls in den nächsten Tagen nichts kommt."
+    ai: "Guter Plan, dann hast du's zumindest versucht."
+    expect:
+      topic_change: CONTINUE
+
+expect_end:
+  facts:
+    - {category: "relationship", key: "correspondent_mira", value: "regular letter correspondent for years, lives abroad"}
+  topics:
+    - label_hint: "waiting for a letter reply from Mira / long-standing correspondence"

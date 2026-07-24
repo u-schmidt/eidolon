@@ -101,6 +101,14 @@ the last review. Decide what changes:
   existing "ai_model" key (or delete it and add the replacement under
   one key). Don't add a second key like "base_model" that leaves both
   entries standing side by side as if they were unrelated facts.
+- This "same question, different wording" check applies just as much
+  within the new material itself as it does against the existing
+  profile. If two separate mentions in this batch both describe facets
+  of the same underlying fact (e.g. "gave up on the linked-notes app"
+  and "now just uses one plain text file" are both answering "how does
+  this person take notes now"), fold them into a single new key — don't
+  split one fact into several just because it arrived in more than one
+  sentence.
 - Entries marked [user] were explicitly confirmed by the person, not just
   inferred — only change them on a clear, direct contradiction, not merely
   a refinement or a related new detail.
