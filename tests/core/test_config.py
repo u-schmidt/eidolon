@@ -51,7 +51,7 @@ class TestEidolonConfig:
         assert config.retrieval.related_topics_continue == 3
         assert config.retrieval.memory_items_new == 4
         assert config.retrieval.memory_items_continue == 2
-        assert config.retrieval.recent_topics == 2
+        assert config.retrieval.recent_topics == 5
         assert config.retrieval.cluster_summaries == 3
         assert config.retrieval.cluster_recent_topics == 2
         assert config.facts.consolidation_interval == 20

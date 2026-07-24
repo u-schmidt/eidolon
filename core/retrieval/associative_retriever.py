@@ -42,12 +42,15 @@ class AssociativeRetriever:
         "related_topics_continue", "memory_items_new", "memory_items_continue",
         "recent_topics", "cluster_summaries", "cluster_recent_topics",
         "min_topic_messages". Defaults: 5/2 for topics, 3/1 for items
-        (new-topic/continue), 2 for recent_topics, 3 for
+        (new-topic/continue), 5 for recent_topics, 3 for
         cluster_summaries, 2 for cluster_recent_topics, -1 (no
         filtering) for min_topic_messages. A caller passing its own
         dict here should include this key explicitly (see
         `RetrievalConfig.min_topic_messages`) — a missing key falls
         back to -1 at the call site, not this constructor default.
+        ``min_topic_messages`` is applied to the relevance-scored
+        related-topics search only, never to ``recent_topics`` — that
+        surface is unconditional recency by design (see step 4b below).
     tracer : Tracer | None
         Debug tracer recording the retrieval summary and (when the storage
         backend supports it) per-candidate score breakdowns. Defaults to a
@@ -76,7 +79,7 @@ class AssociativeRetriever:
             "related_topics_continue": 2,
             "memory_items_new": 3,
             "memory_items_continue": 1,
-            "recent_topics": 2,
+            "recent_topics": 5,
             "cluster_summaries": 3,
             "cluster_recent_topics": 2,
             "min_topic_messages": -1,  # -1 = no mini-topic filtering
@@ -188,11 +191,15 @@ class AssociativeRetriever:
         # recency, not relevance) — padded so that even if every one of
         # them also showed up in the relevance search above, dedup still
         # leaves `recent_topics` limit worth of genuinely distinct ones.
-        recent_limit = self._limits.get("recent_topics", 2)
+        # Deliberately NOT passing min_topic_messages here (unlike the
+        # search_topics call above) — this surface is documented to the
+        # LLM as "regardless of relevance" (see ContextFormatter's
+        # preamble), so filtering it by size would silently break that
+        # promise for a peer's most recent exchange, however short.
+        recent_limit = self._limits.get("recent_topics", 5)
         related_ids = {t.topic_id for t in related_topics}
         recent_rows = self._storage.get_recent_topics(
             peer_id=peer_id, limit=recent_limit + len(related_ids),
-            min_message_count=self._limits.get("min_topic_messages", -1),
         )
         recent_topics = [
             RelatedTopic(

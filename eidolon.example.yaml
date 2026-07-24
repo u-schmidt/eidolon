@@ -128,12 +128,14 @@ retrieval:
   related_topics_continue: 3 # Related topics injected on a CONTINUE turn
   memory_items_new: 4        # Memory items injected on a NEW_TOPIC turn
   memory_items_continue: 2   # Memory items injected on a CONTINUE turn
-  recent_topics: 2           # Most-recently-closed topics injected regardless of relevance,
-                              # excluding anything already surfaced above as a related topic
-  min_topic_messages: 3      # Soft-hide topics at/below this message count from related/recent
-                              # topics ("mini-topics" — one-off 1-2 exchange asides). Nothing is
-                              # deleted; a query-time filter, so raising/lowering this later
-                              # instantly reclassifies every topic, old and new, with no backfill.
+  recent_topics: 5           # Most-recently-closed topics injected regardless of relevance,
+                              # excluding anything already surfaced above as a related topic —
+                              # never filtered by min_topic_messages below (unconditional recency)
+  min_topic_messages: 3      # Soft-hide topics at/below this message count from related-topic
+                              # search only, not recent_topics above ("mini-topics" — one-off
+                              # 1-2 exchange asides). Nothing is deleted; a query-time filter, so
+                              # raising/lowering this later instantly reclassifies every topic,
+                              # old and new, with no backfill.
 
 # ── Durable Facts Profile ───────────────────────────────────
 # The small, curated profile (name, location, partner, work, ...) is

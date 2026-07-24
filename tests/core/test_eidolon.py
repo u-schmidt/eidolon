@@ -82,6 +82,32 @@ class TestEidolon:
         assert thick in topic_ids
         assert thin not in topic_ids
 
+    def test_prepare_context_recent_topics_ignores_min_topic_messages(self):
+        """[Recently discussed] is documented as unconditional recency
+        ('regardless of relevance') — a thin topic must still surface
+        there even though the same threshold hides it from related_topics."""
+        storage = MockStorage()
+        thin = storage.create_topic("Thin", peer_id="user")
+        storage.close_topic(thin, "")
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thin)
+        llm = MockLLM(detection_response="NEW_TOPIC:Bello Features")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(
+            storage, llm, embedder,
+            retrieval_limits={
+                "related_topics_new": 5, "related_topics_continue": 2,
+                "memory_items_new": 3, "memory_items_continue": 1,
+                "recent_topics": 5, "cluster_summaries": 3, "cluster_recent_topics": 2,
+                "min_topic_messages": 2,
+            },
+        )
+
+        result = eidolon.prepare_context(
+            message="something unrelated", peer_id="user", environment=EnvironmentSnapshot(),
+        )
+
+        assert thin in {t.topic_id for t in result.bundle.recent_topics}
+
     def test_detect_topic_continue(self):
         storage = MockStorage()
         llm = MockLLM(detection_response="CONTINUE")

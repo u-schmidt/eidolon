@@ -603,7 +603,10 @@ class TestAssociativeRetrieverCurrentTopicLabel:
 
 
 class TestAssociativeRetrieverMinTopicMessages:
-    def test_min_topic_messages_passed_to_search_topics_and_get_recent_topics(self):
+    def test_min_topic_messages_passed_to_search_topics_only(self):
+        """recent_topics is documented as unconditional recency ("regardless
+        of relevance") — min_topic_messages must never reach it, even when
+        explicitly configured, or that promise silently breaks."""
         storage = MockStorage()
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder, limits={
@@ -619,7 +622,7 @@ class TestAssociativeRetrieverMinTopicMessages:
         )
 
         assert storage.last_min_message_count == 4
-        assert storage.last_recent_topics_min_message_count == 4
+        assert storage.last_recent_topics_min_message_count == -1
 
     def test_missing_min_topic_messages_key_falls_back_to_no_filtering(self):
         """A caller passing its own limits dict without this key (an
@@ -719,7 +722,7 @@ class TestAssociativeRetrieverRecentTopics:
             message="hi", peer_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
-        assert len(bundle.recent_topics) == 2  # built-in default
+        assert len(bundle.recent_topics) == 5  # built-in default
 
     def test_recent_topics_query_scoped_to_peer(self):
         storage = MockStorage()

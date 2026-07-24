@@ -118,14 +118,19 @@ class RetrievalConfig:
     related_topics_continue: int = 3  # was hardcoded 2
     memory_items_new: int = 4         # was hardcoded 3
     memory_items_continue: int = 2    # was hardcoded 1
-    recent_topics: int = 2            # most-recently-closed topics, regardless of relevance
+    recent_topics: int = 5            # most-recently-closed topics, regardless of relevance —
+                                       # NOT filtered by min_topic_messages below (see that field's
+                                       # docstring): this surface is unconditional recency by design.
     cluster_summaries: int = 3        # recurring-topic clusters competing for injection per turn
     cluster_recent_topics: int = 2    # member topics shown in a cluster's "newest: ..." tail
     min_topic_messages: int = 3       # soft-hide topics at/below this message count from
-                                       # search_topics/get_recent_topics ("mini-topics" — one-off
-                                       # 1-2 exchange asides). Nothing is deleted; a lower/higher
-                                       # value instantly reclassifies every topic, old and new,
-                                       # since this is a query-time filter, not a stored flag.
+                                       # search_topics only ("mini-topics" — one-off 1-2 exchange
+                                       # asides). Deliberately NOT applied to get_recent_topics —
+                                       # that surface is unconditional recency, not relevance, so a
+                                       # size filter there would contradict its whole purpose.
+                                       # Nothing is deleted; a lower/higher value instantly
+                                       # reclassifies every topic, old and new, since this is a
+                                       # query-time filter, not a stored flag.
 
 
 @dataclass
