@@ -31,31 +31,31 @@ eidolon/
 │   ├── context_formatter.py  #   Renders a ContextBundle into the prompt-injection text
 │   └── eidolon_client.py     #   EidolonClient Protocol — the contract adapters code against
 ├── server/                   # Core-as-a-service HTTP server (the "server" deployment mode)
-│   ├── app.py                 #   FastAPI app — one route per EidolonClient method
-│   └── auth.py                #   Bearer-token auth dependency
+│   ├── app.py                #   FastAPI app — one route per EidolonClient method
+│   └── auth.py               #   Bearer-token auth dependency
 ├── client/                   # HTTP implementation of EidolonClient (talks to server/)
-│   ├── http_client.py         #   EidolonHttpClient — uses `requests`, already a base dependency
-│   └── wire.py                #   Stdlib-only (de)serialization — deliberately no pydantic
+│   ├── http_client.py        #   EidolonHttpClient — uses `requests`, already a base dependency
+│   └── wire.py               #   Stdlib-only (de)serialization — deliberately no pydantic
 ├── deploy/                   # Docker packaging for the "server + pgvector" preset
-│   ├── server/Dockerfile      #   Image running tools/serve.py
+│   ├── server/Dockerfile     #   Image running tools/serve.py
 │   ├── docker-compose.example.yml  # Bundles the server with a pgvector/pgvector:pg15 container
-│   └── init.sql               #   Bootstraps the `vector` extension
+│   └── init.sql              #   Bootstraps the `vector` extension
 ├── adapters/                 # Platform-specific adapters
 │   └── hermes/               #   Hermes MemoryProvider plugin
 ├── tools/                    # Standalone tools
 │   ├── cli.py                #   CLI for testing without Hermes (embedded mode only)
-│   ├── serve.py               #   Entry point for the core-as-a-service HTTP server
-│   ├── trace.py               #   Terminal viewer for debug trace events
-│   ├── trace_tui.py           #   Interactive drill-down TUI over trace.db (needs `tui` extra)
-│   ├── tui/                   #   Textual screens for trace_tui.py
-│   ├── simulate_injection.py  #   Replays a turn's prefetch() injection string from trace.db
-│   ├── run_eval.py            #   Eval harness CLI entry point
-│   ├── eval/                  #   Eval harness: YAML scripts run against real LLMs, tier-1/tier-2 scoring
-│   │   ├── scripts/           #     Golden eval scripts (YAML)
-│   │   └── reports/           #     Retained run reports (markdown + JSON), not deleted after each run
-│   ├── install-plugin.sh      #   Deploys the Hermes adapter into a live Hermes install
+│   ├── serve.py              #   Entry point for the core-as-a-service HTTP server
+│   ├── trace.py              #   Terminal viewer for debug trace events
+│   ├── trace_tui.py          #   Interactive drill-down TUI over trace.db (needs `tui` extra)
+│   ├── tui/                  #   Textual screens for trace_tui.py
+│   ├── simulate_injection.py #   Replays a turn's prefetch() injection string from trace.db
+│   ├── run_eval.py           #   Eval harness CLI entry point
+│   ├── eval/                 #   Eval harness: YAML scripts run against real LLMs, tier-1/tier-2 scoring
+│   │   ├── scripts/          #     Golden eval scripts (YAML)
+│   │   └── reports/          #     Retained run reports (markdown + JSON), not deleted after each run
+│   ├── install-plugin.sh     #   Deploys the Hermes adapter into a live Hermes install
 │   ├── migrate_sqlite_to_postgres.py  # One-time data migration between storage backends
-│   └── reset-db.sh            #   Wipes the local dev memory DB (SQLite only)
+│   └── reset-db.sh           #   Wipes the local dev memory DB (SQLite only)
 ├── tests/                    # Test suite
 │   ├── conftest.py           #   store/store_backend + make_eidolon_client fixtures
 │   ├── core/                 #   Core tests (incl. core/trace/, core/stores/)
@@ -252,7 +252,7 @@ storage:
   port: 5432
   dbname: eidolon
   user: eidolon
-  password: ...          # or EIDOLON_STORAGE_PASSWORD
+  password: ...         # or EIDOLON_STORAGE_PASSWORD
 ```
 
 Why a second storage backend at all: SQLite's concurrency model has every client process take OS-level advisory file locks directly on the `.db` file, which doesn't reliably work over network/bridged filesystems (Docker Desktop's virtiofs bind mounts on macOS, NFS, SMB) — Postgres's single-writer-process-plus-wire-protocol model doesn't hit that failure class at all. See [`core/stores/postgres_store.py`](core/stores/postgres_store.py)'s module docstring for the full story.
@@ -262,11 +262,11 @@ Why a second storage backend at all: SQLite's concurrency model has every client
 ```yaml
 models:
   llm:
-    provider: openai               # or: openai_compatible | ollama | lm_studio | openrouter | simulated
-    api_key: sk-...                # only for authenticated endpoints
+    provider: openai          # or: openai_compatible | ollama | lm_studio | openrouter | simulated
+    api_key: sk-...           # only for authenticated endpoints
 
   embedder:
-    provider: lm_studio           # a local preset of openai_compatible
+    provider: lm_studio       # a local preset of openai_compatible
     base_url: http://192.168.1.100:1234
     model: text-embedding-bge-m3
 
@@ -276,17 +276,17 @@ retrieval:
   memory_items_new: 4         # Memory items injected on a NEW_TOPIC turn (default: 4)
   memory_items_continue: 2    # Memory items injected on a CONTINUE turn (default: 2)
   recent_topics: 2            # Most-recently-closed topics injected regardless of relevance,
-                               # excluding duplicates of related_topics_* above (default: 2)
+                              # excluding duplicates of related_topics_* above (default: 2)
 
 facts:
   consolidation_interval: 20  # See Facts Consolidation above
   target_max: 100
 
 debug:
-  enabled: false             # See Debug Tracing below
+  enabled: false              # See Debug Tracing below
   trace_db_path: ~/.eidolon/trace.db
 
-timezone: Europe/Berlin      # IANA zone for displaying injected time (default: UTC)
+timezone: Europe/Berlin       # IANA zone for displaying injected time (default: UTC)
 ```
 
 `llm` and `embedder` have dedicated CLI flags/env vars for quick overrides without touching YAML: `--llm-provider`/`--llm-base-url`/`--llm-model`/`--llm-max-tokens`/`--llm-timeout` (and the `embedder-`/`EIDOLON_LLM_*`/`EIDOLON_EMBEDDER_*` equivalents). Other roles are YAML-only for now.
