@@ -93,6 +93,15 @@ the last review. Decide what changes:
   exact category and key — this updates it in place instead of creating a
   duplicate (e.g. if a job title changes, update the existing "work: role"
   key, don't add a new key for it).
+- Before adding a new key, check whether it actually answers the same
+  question as an existing key under different wording — don't only match
+  on exact key names. For example, if the profile already has
+  preference: ai_model = "Flux 1 Dev" and new material reveals the
+  person now uses "Z Image Turbo" instead, that's the same underlying
+  fact (which model they currently use), not a new one — update the
+  existing "ai_model" key (or delete it and add the replacement under
+  one key). Don't add a second key like "base_model" that leaves both
+  entries standing side by side as if they were unrelated facts.
 - Entries marked [user] were explicitly confirmed by the person, not just
   inferred — only change them on a clear, direct contradiction, not merely
   a refinement or a related new detail.
