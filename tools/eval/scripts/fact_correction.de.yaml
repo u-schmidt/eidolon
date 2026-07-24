@@ -53,6 +53,6 @@ turns:
 
 expect_end:
   facts:
-    - {category: "location", key: "city", value: "Berlin"}
+    - {category: "identity", key: "city", value: "Berlin"}
   topics:
     - label_hint: "living situation / move from Hamburg to Berlin"

@@ -1507,9 +1507,9 @@ turns:
 
 expect_end:
   facts:
-    - {category: "pets", key: "cat_name", value: "Mochi"}
-    - {category: "career", key: "job_status", value: "accepted a new position at a software company, starting in two months"}
-    - {category: "fitness", key: "marathon", value: "completed their first marathon in 4:12"}
+    - {category: "possession", key: "cat_name", value: "Mochi"}
+    - {category: "work", key: "job_status", value: "accepted a new position at a software company, starting in two months"}
+    - {category: "health", key: "marathon", value: "completed their first marathon in 4:12"}
   topics:
     - label_hint: "tomorrow's weather"
     - label_hint: "weekend activities"
