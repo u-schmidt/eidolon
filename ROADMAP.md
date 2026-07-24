@@ -160,26 +160,22 @@ lost. Pick up and scope properly when one of these becomes a priority.
 
 - **Interrupting tangents fragmenting a real conversation** — the
   other half of the mini-topics problem (see the ✅ shipped soft-hide
-  entry above for the standalone-one-off half, now handled). Live data
-  showed small unrelated asides splitting a genuinely substantial
-  conversation into several disconnected topic rows (e.g. a real
-  image-prompt/LoRA discussion fragmented into four separate topics by
-  two tiny tangents). A `message_count` threshold filter doesn't help
-  here — the fragments themselves are often not thin — this needs
-  actual retroactive re-linking of topics across a gap, distinct from
-  `ClusterConsolidator`'s existing recurring-topic clustering (which
-  groups *related* topics across time, not adjacent interrupted ones).
-  Open question: detect via temporal adjacency + semantic similarity
-  across the gap, or something else? A bigger, related idea (deferred,
-  not this) was also raised: deferring topic *detection itself* for
-  the first N turns of a possible new topic, which could prevent
-  fragmentation from happening in the first place rather than
-  re-linking after the fact — rejected for the stuck-labels fix
-  specifically because `prefetch()` needs a real `active_topic_id`
-  every turn to retrieve context, and a genuine topic switch inside
-  the deferred window would need retroactive multi-way segmentation.
-  Worth reconsidering on its own merits for this problem specifically,
-  where that trade-off may look different.
+  entry above for the standalone-one-off half). Re-checked against live
+  data before scoping this as new work, and it turned out to already be
+  handled: the exact example that motivated this entry (an image-prompt/
+  LoRA discussion split by two tangents) is fully re-linked in the live
+  DB today — `ClusterConsolidator` (embedding/tag/temporal-scored
+  candidates, LLM match judgment, runs on every topic close) correctly
+  grouped all the image-prompt fragments into one cluster while keeping
+  the two interrupting tangents in a separate cluster of their own, and
+  left a genuine standalone one-off unclustered. Between that and the
+  stuck-topic-labels fix (better labels reduce how often a resumed
+  subject even reads as "new" to begin with), both halves of the
+  original observation may already be covered by mechanisms that
+  shipped for other reasons. Deferring further action here — not
+  reopening unless real data later shows a case clustering actually
+  misses (e.g. a longer gap or weaker semantic overlap between
+  fragments than this example had).
 - **More explicit temporal modeling** — when did what happen, and how
   do topics relate to each other in time, not just via the embedding/
   tag similarity retrieval already weighs (`retrieval.temporal`).
