@@ -149,8 +149,65 @@ consolidation. 400+ tests.
   storage work above.
 - **OpenClaw adapter** — a second platform adapter alongside
   `adapters/hermes/`, following the same `core`-never-imports-`adapters`
-  boundary and provider-injection pattern. Not scoped in detail yet;
-  revisit once the Hermes adapter and Phase 2 work are settled.
+  boundary and provider-injection pattern. Not implemented yet, but a
+  real reconnaissance pass was done (2026-07-24) to size the effort —
+  findings below so a future session doesn't have to rediscover them.
+
+  **Runtime mismatch, and why it doesn't block this**: OpenClaw is a
+  Node.js/TypeScript gateway (its global npm install's real source —
+  `dist/`, `docs/plugins/`, etc. — is what this reconnaissance pass
+  actually read); native plugins run in-process, in JS — there is
+  no way to embed `core.Eidolon` directly the way Hermes does. That
+  turns out not to matter: **`eidolon-server`** (this session's
+  "Core-as-a-service" work) already exposes exactly the HTTP contract
+  a JS plugin would need (`/prepare-context`, `/store-turn`, etc.,
+  the same surface `EidolonHttpClient` speaks) — an OpenClaw adapter
+  would be a thin TypeScript HTTP client, no changes to `core/` at all.
+
+  **Real precedent found and inspected**: `@honcho-ai/openclaw-honcho`
+  — the OpenClaw plugin for Honcho, the same memory provider already
+  running in this user's live Hermes deployment — is cached locally at
+  `~/.openclaw/npm/projects/honcho-ai-openclaw-honcho-*/node_modules/
+  @honcho-ai/openclaw-honcho/` (path will shift on reinstall/update;
+  re-find via `find ~/.openclaw/npm -iname "*openclaw-honcho*"` if
+  gone). Its `dist/` source was read in full — the single best
+  reference for what this port actually needs, since it solves the
+  identical problem (an external AI-native memory service plugged into
+  OpenClaw's memory slot) that an Eidolon plugin would solve.
+
+  **What the port would actually involve**, per that reference:
+  - Packaging: a real npm package — `package.json` with an `openclaw`
+    metadata block (`plugin`, `extensions`, `build.openclawVersion`,
+    `compat.pluginApi`) plus an `openclaw.plugin.json` manifest
+    (`id`, `kind: "memory"`, `contracts.tools`, JSON-schema
+    `configSchema`, `uiHints`), built via `tsc`. New tooling this repo
+    has never needed — no JS/TS build pipeline exists here today.
+  - Hook mapping is clean 1:1: `before_prompt_build` ≈
+    `prepare_context`/`retrieve_context`; `agent_end` ≈ `store_turn`.
+  - `plugins.slots.memory` is an **exclusive slot** — an Eidolon
+    plugin would contend with whatever currently owns it (today:
+    OpenClaw's builtin, since nothing is set explicitly), same
+    single-active-provider constraint Hermes already has.
+  - The real extra weight, not present in `adapters/hermes/
+    session_state.py` today: OpenClaw's capture hook does per-session
+    watermarking (`lastSavedIndex`, so a re-fired hook never re-sends
+    already-persisted messages), chunks at 100 messages/request,
+    resolves a sender id per message for group-chat multi-party
+    conversations, filters noise patterns, tracks sub-agent parent/
+    child sessions, and flushes on three separate triggers
+    (`agent_end`, `before_compaction`, `before_reset`) so nothing is
+    lost when OpenClaw truncates a transcript. None of that exists in
+    Hermes' simpler one-call-per-turn model — this is where the actual
+    size of the port lives, not in talking to `eidolon-server` itself.
+
+  **Verdict**: doable without dramatic changes to `core/` — real work,
+  concentrated in a new TS session-bookkeeping layer heavier than
+  `session_state.py`'s Hermes equivalent, plus adopting TS build/test
+  tooling from scratch. Estimate multi-day, not a quick afternoon
+  adapter; worth its own scoping pass (own plan, own session) rather
+  than folding into an existing one. Revisit once a concrete need
+  arises (e.g. wanting Eidolon alongside/instead of Honcho on the
+  OpenClaw side), not before.
 
 ## Ideas / open questions (not yet scoped)
 
@@ -179,9 +236,56 @@ lost. Pick up and scope properly when one of these becomes a priority.
 - **More explicit temporal modeling** — when did what happen, and how
   do topics relate to each other in time, not just via the embedding/
   tag similarity retrieval already weighs (`retrieval.temporal`).
+- **Artificial salience + associative (non-relevance) recall** — a much
+  bigger, genuinely uncertain idea, explicitly not committed to and put
+  here only so it isn't lost. Motivation: human memory doesn't retrieve
+  purely by topical relevance — it's shaped by emotional impact (an AI
+  has none, so this would have to be faked with an artificial score) and
+  by arbitrary co-occurrence. Two distinct mechanisms were named, and
+  they're genuinely different problems:
+  - **Temporal-proximity binding** — two topics linked purely because
+    they happened close together in time, regardless of subject (e.g. a
+    house move forever bound to a vacation two weeks earlier). Cheap to
+    detect (a time-window join), but raw proximity alone over-generates
+    — most things that happen in the same two weeks aren't bound
+    together, so there's usually a second ingredient (significance)
+    that makes proximity memorable, not proximity by itself.
+  - **Salience/vividness triggers** — a sensory or emotional detail
+    (heavy rain, a TV show playing in the background) acting as a
+    retrieval key regardless of elapsed time. This needs an artificial
+    "vividness" marker on a topic/memory (parallel to `Fact.importance`)
+    plus a trigger-detector on new messages, closer to an associative
+    index than anything time-based.
+
+  Explored but deliberately not decided: how such a score gets
+  estimated (LLM-judged at close time vs. inferred from language cues
+  like intensity words), and how it would surface at retrieval — folding
+  it into the existing scored `search_topics`/`search_memory_items`
+  pipeline risks degrading precision on ordinary "help me debug this"
+  turns, so a small, separately-gated, possibly probabilistic injection
+  channel (distinct from `[Related topics]`, easy to disable) seems
+  safer than blending it into the main scoring path. The real open
+  question isn't mechanism, it's whether occasional non-relevant recall
+  reads as "natural"/human or as noise — worth prototyping the smallest
+  possible version (an LLM-judged vividness score at topic-close + one
+  trigger-matching retrieval call) and actually sitting with it in a
+  real conversation before designing further, rather than speccing this
+  fully upfront.
 - **Direct topic-to-topic relations** — beyond the existing cluster
   grouping, could topics reference each other directly (e.g. "this is
   a follow-up to topic X")?
+- **Explicit "current status" line in cluster summaries** — questionable,
+  low-conviction, try only when in the mood for an experiment. Motivated
+  by wanting the LLM to volunteer a thread's latest resolution (e.g.
+  "want to use Z Image Turbo again?") without having to infer it from
+  narrative prose. `_CLUSTER_SYSTEM_PROMPT` already trends toward ending
+  with the resolution in real live output, so the actual gap (if any) is
+  unclear — the idea was floated, then explicitly walked back as
+  not-well-thought-through rather than scoped. If revisited: a prompt
+  tweak asking the rewrite to close with an unambiguous status sentence,
+  not a new schema field (a separate field risks drifting out of sync
+  with the narrative it summarizes) — and check against real cluster
+  data before/after rather than assuming it helps.
 - **Usefulness scoring for topics/facts** — some notion of which
   topics/facts actually get surfaced and used again vs. which never
   come up. Open question: how to even measure "useful" — retrieval
