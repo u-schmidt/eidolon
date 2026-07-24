@@ -277,6 +277,8 @@ retrieval:
   memory_items_continue: 2    # Memory items injected on a CONTINUE turn (default: 2)
   recent_topics: 2            # Most-recently-closed topics injected regardless of relevance,
                               # excluding duplicates of related_topics_* above (default: 2)
+  min_topic_messages: 3       # Soft-hide topics at/below this message count from related/recent
+                              # topics — "mini-topics" like one-off asides (default: 3)
 
 facts:
   consolidation_interval: 20  # See Facts Consolidation above

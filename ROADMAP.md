@@ -112,6 +112,21 @@ consolidation. 400+ tests.
   continued — or `TopicSummarizer`'s existing close-time pass, now
   also producing a label in the same LLM call, as the fallback for
   topics that close before ever reaching the threshold.
+- ✅ **Mini-topic soft-hide** — roughly 25% of topics in live usage
+  were 1-2 message asides too thin to be worth surfacing as their own
+  unit, cluttering `[Related topics]`/`[Recently discussed]` alongside
+  genuinely substantial topics. Fixed with a persisted
+  `topics.message_count` column (kept in sync via an explicit `UPDATE`
+  in `store_message()`, no DB trigger), filtered at query time in
+  `search_topics`/`get_recent_topics` (`retrieval.min_topic_messages`,
+  default 3) — a raw stored count rather than a boolean flag baked in
+  at topic-close time, so changing the threshold later reclassifies
+  every topic, old and new, for free, with no backfill. Nothing is
+  ever deleted or merged (B1 "soft-hide"): a thin topic's row,
+  messages, and any extracted memory items stay fully intact, they
+  just stop being *returned* by those two queries below the threshold.
+  Scoped to standalone one-offs only — see the "interrupting tangents"
+  case still open below.
 - 🚧 **Fact consolidation hardening** — `FactConsolidator` already ships
   and works (Phase 1); ongoing work is about improving edge cases like
   the boundary between "essence" and "fact" classification during
@@ -143,22 +158,28 @@ Raw observations from live-testing the deployed Hermes integration —
 not committed to Phase 3 yet, just captured here so they don't get
 lost. Pick up and scope properly when one of these becomes a priority.
 
-- **Lots of 1-3 turn "mini-topics"** — worth a merge/consolidation pass,
-  distinct from `ClusterConsolidator`'s existing recurring-topic
-  clustering (which groups *related* topics across time, not small
-  topics by turn count). A real, sizeable problem, not just a hunch —
-  roughly 25% of topics in the user's own live database are 1-turn.
-  Open question: merge into the nearest related topic, or fold into a
-  catch-all bucket? A bigger, related idea (deferred, not this) was
-  also raised: deferring topic *detection itself* for the first N
-  turns of a possible new topic, which could prevent these mini-topics
-  from ever being created rather than merging them after the fact —
-  rejected for the stuck-labels fix specifically because `prefetch()`
-  needs a real `active_topic_id` every turn to retrieve context, and a
-  genuine topic switch inside the deferred window would need
-  retroactive multi-way segmentation. Worth reconsidering on its own
-  merits for this mini-topics problem specifically, where that
-  trade-off may look different.
+- **Interrupting tangents fragmenting a real conversation** — the
+  other half of the mini-topics problem (see the ✅ shipped soft-hide
+  entry above for the standalone-one-off half, now handled). Live data
+  showed small unrelated asides splitting a genuinely substantial
+  conversation into several disconnected topic rows (e.g. a real
+  image-prompt/LoRA discussion fragmented into four separate topics by
+  two tiny tangents). A `message_count` threshold filter doesn't help
+  here — the fragments themselves are often not thin — this needs
+  actual retroactive re-linking of topics across a gap, distinct from
+  `ClusterConsolidator`'s existing recurring-topic clustering (which
+  groups *related* topics across time, not adjacent interrupted ones).
+  Open question: detect via temporal adjacency + semantic similarity
+  across the gap, or something else? A bigger, related idea (deferred,
+  not this) was also raised: deferring topic *detection itself* for
+  the first N turns of a possible new topic, which could prevent
+  fragmentation from happening in the first place rather than
+  re-linking after the fact — rejected for the stuck-labels fix
+  specifically because `prefetch()` needs a real `active_topic_id`
+  every turn to retrieve context, and a genuine topic switch inside
+  the deferred window would need retroactive multi-way segmentation.
+  Worth reconsidering on its own merits for this problem specifically,
+  where that trade-off may look different.
 - **More explicit temporal modeling** — when did what happen, and how
   do topics relate to each other in time, not just via the embedding/
   tag similarity retrieval already weighs (`retrieval.temporal`).
