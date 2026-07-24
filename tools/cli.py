@@ -114,6 +114,8 @@ Examples:
                         help="Recurring-topic clusters to inject per turn")
     parser.add_argument("--cluster-recent-topics", type=int, default=None, dest="retrieval_cluster_recent_topics",
                         help="Member topics shown in a cluster's 'newest: ...' tail")
+    parser.add_argument("--retrieval-min-topic-messages", type=int, default=None,
+                        help="Soft-hide topics at/below this message count from search/recent results")
 
     # Facts consolidation
     parser.add_argument("--facts-consolidation-interval", type=int, default=None,
@@ -260,6 +262,7 @@ def main() -> None:
             "recent_topics": config.retrieval.recent_topics,
             "cluster_summaries": config.retrieval.cluster_summaries,
             "cluster_recent_topics": config.retrieval.cluster_recent_topics,
+            "min_topic_messages": config.retrieval.min_topic_messages,
         },
         facts_consolidation_interval=config.facts.consolidation_interval,
         facts_target_max=config.facts.target_max,

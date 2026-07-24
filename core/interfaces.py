@@ -159,6 +159,7 @@ class StorageProvider(Protocol):
         tracer: Tracer | None = None,
         request_id: str | None = None,
         now: datetime | None = None,
+        min_message_count: int = -1,
     ) -> list[dict]:
         """Search topics by embedding similarity, tag overlap, peer, and recency.
 
@@ -183,6 +184,13 @@ class StorageProvider(Protocol):
         ``search_clusters``) — a clustered topic is represented by its
         cluster's consolidated summary instead of competing individually.
 
+        ``min_message_count`` soft-hides "mini-topics" (see
+        ``core/config.py``'s ``RetrievalConfig.min_topic_messages``) —
+        only topics with more than this many messages are returned.
+        -1 (default) disables the filter, since every real topic has
+        ``message_count >= 0``. Applied before ranking, not as a
+        post-fetch discard, so it never eats into the result count.
+
         Returns topic dicts ordered by relevance.
         """
         ...
@@ -200,7 +208,7 @@ class StorageProvider(Protocol):
         """
         ...
 
-    def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
+    def get_recent_topics(self, peer_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
         """Return `peer_id`'s most recently closed, unclustered topics,
         newest first.
 
@@ -208,6 +216,9 @@ class StorageProvider(Protocol):
         last" alongside (and independent of) ``search_topics``'s
         relevance ranking, which has no recency term. Excludes clustered
         topics for the same reason ``search_topics`` does.
+
+        ``min_message_count`` soft-hides "mini-topics" — see
+        ``search_topics``'s docstring for the same parameter.
         """
         ...
 

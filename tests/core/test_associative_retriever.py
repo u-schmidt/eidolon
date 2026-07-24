@@ -31,6 +31,8 @@ class MockStorage:
         self.last_weights: dict[str, float] | None = None
         self.last_tracer = None
         self.last_request_id: str | None = None
+        self.last_min_message_count: int | None = None
+        self.last_recent_topics_min_message_count: int | None = None
 
     def get_facts(self, peer_id: str) -> list[Fact]:
         self.last_peer_id = peer_id
@@ -63,6 +65,7 @@ class MockStorage:
         tracer=None,
         request_id: str | None = None,
         now=None,
+        min_message_count: int = -1,
     ) -> list[dict]:
         self.last_query_embedding = query_embedding
         self.last_tags = tags
@@ -71,11 +74,13 @@ class MockStorage:
         self.last_tracer = tracer
         self.last_request_id = request_id
         self.last_now = now
+        self.last_min_message_count = min_message_count
         return self.topics[:limit]
 
-    def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
+    def get_recent_topics(self, peer_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
         self.last_recent_topics_peer_id = peer_id
         self.last_recent_topics_limit = limit
+        self.last_recent_topics_min_message_count = min_message_count
         return self.recent_topics_data[:limit]
 
     def search_clusters(
@@ -595,6 +600,46 @@ class TestAssociativeRetrieverCurrentTopicLabel:
             topic_label=None, is_new_topic=False, active_topic_id=999,
         )
         assert bundle.current_topic_label is None
+
+
+class TestAssociativeRetrieverMinTopicMessages:
+    def test_min_topic_messages_passed_to_search_topics_and_get_recent_topics(self):
+        storage = MockStorage()
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder, limits={
+            "related_topics_new": 5, "related_topics_continue": 2,
+            "memory_items_new": 3, "memory_items_continue": 1,
+            "recent_topics": 2, "cluster_summaries": 3, "cluster_recent_topics": 2,
+            "min_topic_messages": 4,
+        })
+
+        retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+
+        assert storage.last_min_message_count == 4
+        assert storage.last_recent_topics_min_message_count == 4
+
+    def test_missing_min_topic_messages_key_falls_back_to_no_filtering(self):
+        """A caller passing its own limits dict without this key (an
+        older/partial dict) must not accidentally filter everything —
+        falls back to -1 (disabled), not 0."""
+        storage = MockStorage()
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder, limits={
+            "related_topics_new": 5, "related_topics_continue": 2,
+            "memory_items_new": 3, "memory_items_continue": 1,
+            "recent_topics": 2, "cluster_summaries": 3, "cluster_recent_topics": 2,
+        })
+
+        retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+
+        assert storage.last_min_message_count == -1
+        assert storage.last_recent_topics_min_message_count == -1
 
 
 class TestAssociativeRetrieverRecentTopics:

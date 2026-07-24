@@ -110,6 +110,23 @@ MIGRATIONS: dict[int, str] = {
     -- core/consolidation/fact_consolidator.py.
     ALTER TABLE facts ADD COLUMN importance TEXT NOT NULL DEFAULT 'medium';
     """,
+    8: """
+    -- Real, persisted per-topic message count ("mini-topic" soft-hide,
+    -- see ROADMAP.md). Kept in sync incrementally by
+    -- StorageProvider.store_message() (an explicit UPDATE alongside the
+    -- INSERT INTO messages — no DB trigger), not recomputed at query
+    -- time. Filtered in search_topics/get_recent_topics via a
+    -- `message_count > :threshold` WHERE clause (config:
+    -- retrieval.min_topic_messages) — a raw stored count rather than a
+    -- boolean flag baked in at topic-close time, so changing the
+    -- threshold later reclassifies every topic, old and new, for free,
+    -- with no backfill ever needed again after this one.
+    ALTER TABLE topics ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0;
+
+    UPDATE topics SET message_count = (
+        SELECT COUNT(*) FROM messages WHERE messages.topic_id = topics.id
+    );
+    """,
 }
 
 

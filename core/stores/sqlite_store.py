@@ -262,7 +262,7 @@ class SqliteStore:
 
     def get_topic(self, topic_id: int) -> dict | None:
         row = self._conn.execute(
-            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
+            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at, message_count "
             "FROM topics WHERE id = ?",
             (topic_id,),
         ).fetchone()
@@ -277,6 +277,7 @@ class SqliteStore:
             "peer_id": row[5],
             "created_at": row[6],
             "closed_at": row[7],
+            "message_count": row[8],
         }
 
     def close_topic(self, topic_id: int, summary: str) -> None:
@@ -354,7 +355,7 @@ class SqliteStore:
             })
         return stale
 
-    def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
+    def get_recent_topics(self, peer_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
         """Return `peer_id`'s most recently closed topics, newest first.
 
         Ordered purely by `closed_at` — no relevance scoring, unlike
@@ -364,8 +365,9 @@ class SqliteStore:
         rows = self._conn.execute(
             "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
             "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ? "
+            "AND message_count > ? "
             "ORDER BY closed_at DESC, id DESC LIMIT ?",
-            (peer_id, limit),
+            (peer_id, min_message_count, limit),
         ).fetchall()
         return [
             {
@@ -448,6 +450,7 @@ class SqliteStore:
         tracer: Tracer | None = None,
         request_id: str | None = None,
         now: datetime | None = None,
+        min_message_count: int = -1,
     ) -> list[dict]:
         """Search topics by embedding similarity, tag overlap, peer, and recency.
 
@@ -477,6 +480,14 @@ class SqliteStore:
         total/included counts — not one event per candidate, which doesn't
         scale with DB size.
 
+        `min_message_count` soft-hides "mini-topics" — see
+        StorageProvider.search_topics's docstring. Applied in every
+        branch's row-fetch SQL, before RetrievalScorer ever sees a
+        candidate, not as a post-fetch discard (the accelerated path's
+        vec0 KNN step itself has no message_count column to filter on,
+        so this lands in the row-fetch that follows it — still well
+        before scoring/ranking).
+
         Returns topic dicts ordered by relevance (highest first).
         """
         scorer = RetrievalScorer(weights, now)
@@ -504,19 +515,22 @@ class SqliteStore:
                 placeholders = ",".join("?" * len(semantic_lookup))
                 rows = self._conn.execute(
                     f"SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
-                    f"FROM topics WHERE id IN ({placeholders}) AND status='closed' AND cluster_id IS NULL",
-                    tuple(semantic_lookup.keys()),
+                    f"FROM topics WHERE id IN ({placeholders}) AND status='closed' AND cluster_id IS NULL "
+                    f"AND message_count > ?",
+                    (*semantic_lookup.keys(), min_message_count),
                 ).fetchall()
         elif peer_id:
             rows = self._conn.execute(
                 "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
-                "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ?",
-                (peer_id,),
+                "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ? "
+                "AND message_count > ?",
+                (peer_id, min_message_count),
             ).fetchall()
         else:
             rows = self._conn.execute(
                 "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
-                "FROM topics WHERE status='closed' AND cluster_id IS NULL"
+                "FROM topics WHERE status='closed' AND cluster_id IS NULL AND message_count > ?",
+                (min_message_count,),
             ).fetchall()
 
         scored: list[tuple[float, dict, dict]] = []
@@ -1040,6 +1054,11 @@ class SqliteStore:
             "VALUES (?, ?, ?, ?, ?)",
             (turn_id, role, content, peer_id, topic_id),
         )
+        if topic_id is not None:
+            self._conn.execute(
+                "UPDATE topics SET message_count = message_count + 1 WHERE id = ?",
+                (topic_id,),
+            )
         self._conn.commit()
         return cur.lastrowid  # type: ignore[return-value]
 

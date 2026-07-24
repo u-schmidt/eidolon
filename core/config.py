@@ -121,6 +121,11 @@ class RetrievalConfig:
     recent_topics: int = 2            # most-recently-closed topics, regardless of relevance
     cluster_summaries: int = 3        # recurring-topic clusters competing for injection per turn
     cluster_recent_topics: int = 2    # member topics shown in a cluster's "newest: ..." tail
+    min_topic_messages: int = 3       # soft-hide topics at/below this message count from
+                                       # search_topics/get_recent_topics ("mini-topics" — one-off
+                                       # 1-2 exchange asides). Nothing is deleted; a lower/higher
+                                       # value instantly reclassifies every topic, old and new,
+                                       # since this is a query-time filter, not a stored flag.
 
 
 @dataclass

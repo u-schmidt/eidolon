@@ -221,6 +221,7 @@ class EidolonMemoryProvider(MemoryProvider):
                     "recent_topics": config.retrieval.recent_topics,
                     "cluster_summaries": config.retrieval.cluster_summaries,
                     "cluster_recent_topics": config.retrieval.cluster_recent_topics,
+                    "min_topic_messages": config.retrieval.min_topic_messages,
                 },
                 facts_consolidation_interval=config.facts.consolidation_interval,
                 facts_target_max=config.facts.target_max,

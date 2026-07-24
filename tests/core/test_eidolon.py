@@ -50,6 +50,38 @@ class TestEidolon:
         # NEW_TOPIC detected → label is set
         assert bundle.current_topic_label == "Bello Features"
 
+    def test_prepare_context_excludes_mini_topics_below_min_topic_messages(self):
+        """Locks the facade-to-storage wiring for retrieval_limits'
+        min_topic_messages key end-to-end — a thin (1-message) topic must
+        not surface in related_topics once the threshold excludes it."""
+        storage = MockStorage()
+        thin = storage.create_topic("Thin", peer_id="user")
+        storage.close_topic(thin, "")
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thin)
+        thick = storage.create_topic("Thick", peer_id="user")
+        storage.close_topic(thick, "")
+        for _ in range(3):
+            storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thick)
+        llm = MockLLM(detection_response="NEW_TOPIC:Bello Features")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(
+            storage, llm, embedder,
+            retrieval_limits={
+                "related_topics_new": 5, "related_topics_continue": 2,
+                "memory_items_new": 3, "memory_items_continue": 1,
+                "recent_topics": 2, "cluster_summaries": 3, "cluster_recent_topics": 2,
+                "min_topic_messages": 2,
+            },
+        )
+
+        result = eidolon.prepare_context(
+            message="Lass uns über Bello sprechen", peer_id="user", environment=EnvironmentSnapshot(),
+        )
+
+        topic_ids = {t.topic_id for t in result.bundle.related_topics}
+        assert thick in topic_ids
+        assert thin not in topic_ids
+
     def test_detect_topic_continue(self):
         storage = MockStorage()
         llm = MockLLM(detection_response="CONTINUE")

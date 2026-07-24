@@ -223,7 +223,7 @@ class PostgresStore:
 
     def get_topic(self, topic_id: int) -> dict | None:
         row = self._conn.execute(
-            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
+            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at, message_count "
             "FROM topics WHERE id = %s",
             (topic_id,),
         ).fetchone()
@@ -238,6 +238,7 @@ class PostgresStore:
             "peer_id": row[5],
             "created_at": row[6],
             "closed_at": row[7],
+            "message_count": row[8],
         }
 
     def close_topic(self, topic_id: int, summary: str) -> None:
@@ -293,12 +294,13 @@ class PostgresStore:
             for row in rows
         ]
 
-    def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
+    def get_recent_topics(self, peer_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
         rows = self._conn.execute(
             "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
             "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = %s "
+            "AND message_count > %s "
             "ORDER BY closed_at DESC, id DESC LIMIT %s",
-            (peer_id, limit),
+            (peer_id, min_message_count, limit),
         ).fetchall()
         return [
             {
@@ -342,10 +344,13 @@ class PostgresStore:
         tracer: Tracer | None = None,
         request_id: str | None = None,
         now: datetime | None = None,
+        min_message_count: int = -1,
     ) -> list[dict]:
         """See StorageProvider.search_topics / SqliteStore's docstring for
         the full scoring semantics (peer_id as a hard filter, temporal as
-        a re-ranking-only signal, etc.) — unchanged here.
+        a re-ranking-only signal, etc.) — unchanged here. `min_message_count`
+        soft-hides "mini-topics", applied in every branch's WHERE clause
+        before ranking, same as SqliteStore.
 
         When `query_embedding` is given, pgvector's `<=>` cosine-distance
         operator does the nearest-neighbor prefiltering directly in one
@@ -367,25 +372,27 @@ class PostgresStore:
                     "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at, "
                     "1 - (embedding <=> %(q)s::vector) AS similarity "
                     "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = %(peer_id)s "
-                    "AND embedding IS NOT NULL "
+                    "AND embedding IS NOT NULL AND message_count > %(min_msgs)s "
                     "ORDER BY embedding <=> %(q)s::vector LIMIT %(k)s",
-                    {"q": query_embedding, "peer_id": peer_id, "k": k},
+                    {"q": query_embedding, "peer_id": peer_id, "k": k, "min_msgs": min_message_count},
                 ).fetchall()
             else:
                 rows = self._conn.execute(
                     "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at, "
                     "1 - (embedding <=> %(q)s::vector) AS similarity "
                     "FROM topics WHERE status='closed' AND cluster_id IS NULL AND embedding IS NOT NULL "
+                    "AND message_count > %(min_msgs)s "
                     "ORDER BY embedding <=> %(q)s::vector LIMIT %(k)s",
-                    {"q": query_embedding, "k": k},
+                    {"q": query_embedding, "k": k, "min_msgs": min_message_count},
                 ).fetchall()
         elif peer_id:
             rows = [
                 (*r, 0.0)
                 for r in self._conn.execute(
                     "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
-                    "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = %s",
-                    (peer_id,),
+                    "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = %s "
+                    "AND message_count > %s",
+                    (peer_id, min_message_count),
                 ).fetchall()
             ]
         else:
@@ -393,7 +400,8 @@ class PostgresStore:
                 (*r, 0.0)
                 for r in self._conn.execute(
                     "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
-                    "FROM topics WHERE status='closed' AND cluster_id IS NULL"
+                    "FROM topics WHERE status='closed' AND cluster_id IS NULL AND message_count > %s",
+                    (min_message_count,),
                 ).fetchall()
             ]
 
@@ -787,6 +795,11 @@ class PostgresStore:
             "VALUES (%s, %s, %s, %s, %s) RETURNING id",
             (turn_id, role, content, peer_id, topic_id),
         ).fetchone()
+        if topic_id is not None:
+            self._conn.execute(
+                "UPDATE topics SET message_count = message_count + 1 WHERE id = %s",
+                (topic_id,),
+            )
         self._conn.commit()
         assert row is not None  # RETURNING id always yields a row on successful INSERT
         return row[0]

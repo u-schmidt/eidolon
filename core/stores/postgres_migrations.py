@@ -21,6 +21,16 @@ _SCHEMA_SQL_PATH = Path(__file__).parent / "postgres_schema.sql"
 # the same way core/stores/migrations.py's MIGRATIONS dict grows.
 POSTGRES_MIGRATIONS: dict[int, str] = {
     1: _SCHEMA_SQL_PATH.read_text(),
+    # Real, persisted per-topic message count ("mini-topic" soft-hide,
+    # see ROADMAP.md) — see core/stores/migrations.py's version 8 for
+    # the full rationale (mirrors it exactly).
+    2: """
+    ALTER TABLE topics ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0;
+
+    UPDATE topics SET message_count = (
+        SELECT COUNT(*) FROM messages WHERE messages.topic_id = topics.id
+    );
+    """,
 }
 
 

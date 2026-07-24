@@ -197,6 +197,7 @@ retrieval:
   tag_overlap: 0.3
   related_topics_new: 9
   related_topics_continue: 4
+  min_topic_messages: 5
 language: de
 timezone: Europe/Berlin
 """
@@ -218,6 +219,7 @@ timezone: Europe/Berlin
         assert config.retrieval.semantic == 0.5
         assert config.retrieval.related_topics_new == 9
         assert config.retrieval.related_topics_continue == 4
+        assert config.retrieval.min_topic_messages == 5
         assert config.language == "de"
         assert config.timezone == "Europe/Berlin"
 
@@ -378,6 +380,7 @@ models:
         os.environ["EIDOLON_RETRIEVAL_RECENT_TOPICS"] = "1"
         os.environ["EIDOLON_RETRIEVAL_CLUSTER_SUMMARIES"] = "6"
         os.environ["EIDOLON_RETRIEVAL_CLUSTER_RECENT_TOPICS"] = "4"
+        os.environ["EIDOLON_RETRIEVAL_MIN_TOPIC_MESSAGES"] = "5"
 
         config = ConfigLoader().load()
 
@@ -388,6 +391,7 @@ models:
         assert config.retrieval.recent_topics == 1
         assert config.retrieval.cluster_summaries == 6
         assert config.retrieval.cluster_recent_topics == 4
+        assert config.retrieval.min_topic_messages == 5
 
         del os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_NEW"]
         del os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_CONTINUE"]
@@ -396,12 +400,14 @@ models:
         del os.environ["EIDOLON_RETRIEVAL_RECENT_TOPICS"]
         del os.environ["EIDOLON_RETRIEVAL_CLUSTER_SUMMARIES"]
         del os.environ["EIDOLON_RETRIEVAL_CLUSTER_RECENT_TOPICS"]
+        del os.environ["EIDOLON_RETRIEVAL_MIN_TOPIC_MESSAGES"]
 
     def test_cli_retrieval_limits(self):
         args = Namespace(
             retrieval_related_topics_new=9, retrieval_related_topics_continue=4,
             retrieval_memory_items_new=5, retrieval_memory_items_continue=3,
             retrieval_recent_topics=1, retrieval_cluster_summaries=6, retrieval_cluster_recent_topics=4,
+            retrieval_min_topic_messages=5,
             storage_provider=None, storage_path=None,
         )
         config = ConfigLoader(cli_args=args).load()
@@ -412,6 +418,7 @@ models:
         assert config.retrieval.recent_topics == 1
         assert config.retrieval.cluster_summaries == 6
         assert config.retrieval.cluster_recent_topics == 4
+        assert config.retrieval.min_topic_messages == 5
 
     def test_yaml_facts_section(self):
         yaml_content = """

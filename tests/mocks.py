@@ -193,11 +193,19 @@ class MockStorage:
         return len(self.get_messages_by_topic(topic_id))
 
     def search_topics(self, query_embedding=None, tags=None, peer_id=None, limit=5, weights=None,
-                       tracer=None, request_id=None, now=None):
-        return [t for t in self.topics.values() if t["status"] == "closed"][:limit]
+                       tracer=None, request_id=None, now=None, min_message_count: int = -1):
+        return [
+            t for t in self.topics.values()
+            if t["status"] == "closed"
+            and len(self.get_messages_by_topic(t["id"])) > min_message_count
+        ][:limit]
 
-    def get_recent_topics(self, peer_id: str, limit: int) -> list[dict]:
-        return [t for t in self.topics.values() if t["status"] == "closed"][:limit]
+    def get_recent_topics(self, peer_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
+        return [
+            t for t in self.topics.values()
+            if t["status"] == "closed"
+            and len(self.get_messages_by_topic(t["id"])) > min_message_count
+        ][:limit]
 
     def create_cluster(self, peer_id: str, label: str, summary: str,
                        tags: list[str] | None = None, embedding: list[float] | None = None) -> int:

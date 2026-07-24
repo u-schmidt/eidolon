@@ -173,6 +173,25 @@ class TestTopics:
         tid = store.create_topic("Fresh", peer_id="user")
         assert store.count_messages_by_topic(tid) == 0
 
+    def test_store_message_increments_persisted_message_count(self, store: StorageProvider):
+        """topics.message_count is a real, kept-in-sync column (see
+        store_message()) — distinct from count_messages_by_topic, which
+        recomputes live. Drives search_topics/get_recent_topics'
+        min_message_count filter."""
+        tid = store.create_topic("Bello", peer_id="user")
+        assert store.get_topic(tid)["message_count"] == 0
+
+        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        assert store.get_topic(tid)["message_count"] == 1
+
+        store.store_message(turn_id=1, role="ai", content="hello", peer_id="ai", topic_id=tid)
+        assert store.get_topic(tid)["message_count"] == 2
+
+    def test_store_message_without_topic_id_does_not_crash(self, store: StorageProvider):
+        # No topic to increment — must be a clean no-op, not an error.
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=None)
+        assert isinstance(msg_id, int)
+
     def test_get_active_topic_returns_open_topic(self, store: StorageProvider):
         tid = store.create_topic("Ongoing", summary="", peer_id="user")
         assert store.get_active_topic("user") == tid
@@ -364,6 +383,38 @@ class TestTopics:
 
         assert store.search_topics(tags=["fitness"]) == []
 
+    def test_search_topics_min_message_count_excludes_thin_topics(self, store: StorageProvider):
+        thin = store.create_topic("Thin", summary="", tags=["fitness"], peer_id="user")
+        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thin)
+        store.close_topic(thin, "")
+
+        thick = store.create_topic("Thick", summary="", tags=["fitness"], peer_id="user")
+        for _ in range(3):
+            store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thick)
+        store.close_topic(thick, "")
+
+        results = store.search_topics(tags=["fitness"], min_message_count=2)
+        assert [r["id"] for r in results] == [thick]
+
+    def test_search_topics_min_message_count_boundary_is_strictly_greater_than(
+        self, store: StorageProvider,
+    ):
+        """A topic with exactly `min_message_count` messages must be
+        excluded — the filter is `>`, not `>=`."""
+        tid = store.create_topic("Exactly at threshold", summary="", tags=["fitness"], peer_id="user")
+        for _ in range(3):
+            store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        store.close_topic(tid, "")
+
+        assert store.search_topics(tags=["fitness"], min_message_count=3) == []
+        assert len(store.search_topics(tags=["fitness"], min_message_count=2)) == 1
+
+    def test_search_topics_default_min_message_count_applies_no_filtering(self, store: StorageProvider):
+        tid = store.create_topic("Untouched", summary="", tags=["fitness"], peer_id="user")
+        store.close_topic(tid, "")  # zero messages
+
+        assert [r["id"] for r in store.search_topics(tags=["fitness"])] == [tid]
+
 
 class TestGetStaleActiveTopics:
     def test_stale_when_last_message_predates_cutoff(self, store_backend):
@@ -472,6 +523,34 @@ class TestGetRecentTopics:
 
         results = store.get_recent_topics("user", limit=10)
         assert [t["id"] for t in results] == [unclustered]
+
+    def test_min_message_count_excludes_thin_topics(self, store: StorageProvider):
+        thin = store.create_topic("Thin", summary="", peer_id="user")
+        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thin)
+        store.close_topic(thin, "")
+
+        thick = store.create_topic("Thick", summary="", peer_id="user")
+        for _ in range(3):
+            store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thick)
+        store.close_topic(thick, "")
+
+        results = store.get_recent_topics("user", limit=10, min_message_count=2)
+        assert [t["id"] for t in results] == [thick]
+
+    def test_min_message_count_boundary_is_strictly_greater_than(self, store: StorageProvider):
+        tid = store.create_topic("Exactly at threshold", summary="", peer_id="user")
+        for _ in range(3):
+            store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        store.close_topic(tid, "")
+
+        assert store.get_recent_topics("user", limit=10, min_message_count=3) == []
+        assert len(store.get_recent_topics("user", limit=10, min_message_count=2)) == 1
+
+    def test_default_min_message_count_applies_no_filtering(self, store: StorageProvider):
+        tid = store.create_topic("Untouched", summary="", peer_id="user")
+        store.close_topic(tid, "")  # zero messages
+
+        assert [t["id"] for t in store.get_recent_topics("user", limit=10)] == [tid]
 
 
 class TestClusters:
