@@ -75,6 +75,18 @@ consolidation. 400+ tests.
   [`tests/core/test_eidolon_http_smoke.py`](tests/core/test_eidolon_http_smoke.py)
   (a real server subprocess over real sockets). `tools/cli.py` stays
   `embedded`-only (its debug commands read storage directly).
+- ✅ **Stale-topic auto-close** — Hermes has no session-end hook, so a
+  topic a peer just abandons mid-conversation used to stay `active`
+  indefinitely (`close_stale_topics`/`get_stale_active_topics`,
+  Phase 2, existed but nothing called them automatically). Fixed with
+  an activity-gated sweep in `EidolonMemoryProvider` (`adapters/hermes/
+  memory_provider.py`, `maintenance.*` config, off by default) —
+  deliberately *not* a fixed timer, since closing a topic while its
+  peer is away risks fragmenting a conversation they'd have naturally
+  continued once they return. Piggybacks on real per-turn activity
+  instead, checked no more than once every `maintenance.interval_hours`
+  and run after `store_turn()` so a turn's own topic can never be
+  caught by the sweep it just triggered.
 - ✅ **Recurring-topic clustering** — `ClusterConsolidator` merges
   related closed topics (e.g. several separate mentions of "buying a
   new bike" over days or weeks) into a single, continuously-rewritten
@@ -115,14 +127,6 @@ Raw observations from live-testing the deployed Hermes integration —
 not committed to Phase 3 yet, just captured here so they don't get
 lost. Pick up and scope properly when one of these becomes a priority.
 
-- **Topics never close on their own** — Hermes has no session-end
-  hook, so a session's last topic stays "active" indefinitely once the
-  user just stops chatting mid-topic. `close_stale_topics`/
-  `get_stale_active_topics` (Phase 2, shipped) exist for exactly this,
-  but nothing on the live path calls them automatically today — it's a
-  manual `tools/cli.py` operation. Needs either a scheduled trigger
-  (cron-style, natural now that `tools/serve.py` is a standalone
-  long-running process) or a different mechanism entirely.
 - **Lots of 1-3 turn "mini-topics"** — worth a merge/consolidation pass,
   distinct from `ClusterConsolidator`'s existing recurring-topic
   clustering (which groups *related* topics across time, not small
