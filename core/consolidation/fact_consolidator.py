@@ -67,7 +67,7 @@ surface framing sounds temporary:
 - Mention: "waiting on a reply to a letter to Chris for almost two weeks"
 - Bad: skip this entirely because "waiting for a reply" sounds episodic
   (loses a real, durable relationship)
-- Good: relationship: correspondent_fabian = "regular letter correspondent"
+- Good: relationship: correspondent_chris = "regular letter correspondent"
   (the durable fact — a standing correspondence — survives; the specific
   wait, which is genuinely episodic, does not get its own profile entry)
 
@@ -77,14 +77,13 @@ Others are usually singular (identity, health, work, routine) — reuse the
 existing key when correcting or updating the same field. Never append a
 new, distinct fact onto an existing key's value — that turns a fact into a
 story. For example:
-- Bad: preference: fashion = "prefers vintage, minimalist, canvas clothing; owns a
-  black canvas-coated nylon tracksuit; owns a canvas hose from Northline; bought a
-  Vertex suit impulsively; likes brand Northline" (five distinct facts
-  crammed into one key)
-- Good: preference: fashion_style = "prefers vintage, minimalist, canvas clothing,
-  dark colors"; possession: garment_tracksuit = "black canvas-coated nylon
-  tracksuit"; possession: garment_hose = "canvas hose from Northline"; ...
-  (each fact gets its own key)
+- Bad: preference: photography = "prefers manual-focus lenses, warm film
+  tones; owns a Nikon FM2 body; owns a 50mm f/1.4 lens; bought a vintage
+  enlarger impulsively; likes brand Zeiss" (five distinct facts crammed
+  into one key)
+- Good: preference: photography_style = "prefers manual-focus lenses,
+  warm film tones"; possession: camera_body = "Nikon FM2"; possession:
+  camera_lens = "50mm f/1.4"; ... (each fact gets its own key)
 
 You will be shown the current profile — each entry tagged with who
 contributed it and how important it is — and new material revealed since
