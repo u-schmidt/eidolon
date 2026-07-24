@@ -96,6 +96,22 @@ consolidation. 400+ tests.
   has held up well across three structurally different local/cloud
   models in eval runs so far, which lowers the urgency of a dedicated
   review pass, but it hasn't had one yet.
+- ✅ **Stuck topic labels fixed** — a topic's label was guessed from
+  just the first message and never revisited, not even at close
+  (`close_topic()` only ever wrote `status`/`summary`/`closed_at`) — a
+  message that's mostly small talk stayed labeled "Greeting" forever,
+  including live in-conversation display, even once the conversation
+  turned into something substantive. New topics now start pending
+  (`label=""`), finalized by whichever comes first: `TopicRelabeler`
+  (`core/summarization/topic_relabeler.py`, new) firing mid-conversation
+  from `store_turn`'s CONTINUE branch once a still-pending topic
+  accumulates `RelabelConfig.message_threshold` messages (default 4,
+  on by default) — deliberately activity-gated rather than
+  timer-driven, since closing/relabeling a topic while its peer is
+  away risks fragmenting a conversation they'd have naturally
+  continued — or `TopicSummarizer`'s existing close-time pass, now
+  also producing a label in the same LLM call, as the fallback for
+  topics that close before ever reaching the threshold.
 - 🚧 **Fact consolidation hardening** — `FactConsolidator` already ships
   and works (Phase 1); ongoing work is about improving edge cases like
   the boundary between "essence" and "fact" classification during
@@ -130,14 +146,19 @@ lost. Pick up and scope properly when one of these becomes a priority.
 - **Lots of 1-3 turn "mini-topics"** — worth a merge/consolidation pass,
   distinct from `ClusterConsolidator`'s existing recurring-topic
   clustering (which groups *related* topics across time, not small
-  topics by turn count). Open question: merge into the nearest related
-  topic, or fold into a catch-all bucket?
-- **Topic names chosen too early** — the label largely reflects the
-  first turn or two; by turn 5 the real topic may look different.
-  Possible fix: re-run labeling once N turns have accumulated, rather
-  than only relying on the label set at creation (`TopicSummarizer`
-  already runs a separate summary pass at topic *close* — the question
-  is whether the early label itself needs revisiting mid-conversation).
+  topics by turn count). A real, sizeable problem, not just a hunch —
+  roughly 25% of topics in the user's own live database are 1-turn.
+  Open question: merge into the nearest related topic, or fold into a
+  catch-all bucket? A bigger, related idea (deferred, not this) was
+  also raised: deferring topic *detection itself* for the first N
+  turns of a possible new topic, which could prevent these mini-topics
+  from ever being created rather than merging them after the fact —
+  rejected for the stuck-labels fix specifically because `prefetch()`
+  needs a real `active_topic_id` every turn to retrieve context, and a
+  genuine topic switch inside the deferred window would need
+  retroactive multi-way segmentation. Worth reconsidering on its own
+  merits for this mini-topics problem specifically, where that
+  trade-off may look different.
 - **More explicit temporal modeling** — when did what happen, and how
   do topics relate to each other in time, not just via the embedding/
   tag similarity retrieval already weighs (`retrieval.temporal`).
