@@ -21,6 +21,7 @@
 
 services:
   eidolon-server:
+    image: eidolon-server
     build:
       context: ..
       dockerfile: deploy/server/Dockerfile
