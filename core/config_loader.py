@@ -120,6 +120,10 @@ class ConfigLoader:
             "deployment_server_url": ("deployment", "server_url"),
             "deployment_token": ("deployment", "token"),
             "deployment_timeout": ("deployment", "timeout"),
+            "maintenance_enabled": ("maintenance", "enabled"),
+            "maintenance_interval_hours": ("maintenance", "interval_hours"),
+            "maintenance_stale_after_hours": ("maintenance", "stale_after_hours"),
+            "maintenance_peer_id": ("maintenance", "peer_id"),
             "language": ("language",),
             "timezone": ("timezone",),
         }
@@ -190,6 +194,10 @@ class ConfigLoader:
             "deployment_server_url": ("deployment", "server_url"),
             "deployment_token": ("deployment", "token"),
             "deployment_timeout": ("deployment", "timeout"),
+            "maintenance_enabled": ("maintenance", "enabled"),
+            "maintenance_interval_hours": ("maintenance", "interval_hours"),
+            "maintenance_stale_after_hours": ("maintenance", "stale_after_hours"),
+            "maintenance_peer_id": ("maintenance", "peer_id"),
             "language": ("language",),
             "timezone": ("timezone",),
         }
@@ -267,6 +275,8 @@ class ConfigLoader:
                 self._merge_into(config.debug, value)
             elif key == "deployment" and isinstance(value, dict):
                 self._merge_into(config.deployment, value)
+            elif key == "maintenance" and isinstance(value, dict):
+                self._merge_into(config.maintenance, value)
             elif hasattr(config, key):
                 setattr(config, key, value)
 

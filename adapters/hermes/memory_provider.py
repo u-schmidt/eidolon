@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,7 @@ except ImportError:
 from adapters.hermes.session_state import SessionState
 from client.http_client import EidolonHttpClient
 from core import Eidolon
-from core.config import EidolonConfig
+from core.config import EidolonConfig, MaintenanceConfig
 from core.config_loader import ConfigLoader
 from core.context_formatter import ContextFormatter
 from core.eidolon_client import EidolonClient
@@ -65,6 +65,12 @@ class EidolonMemoryProvider(MemoryProvider):
         # IANA zone name (e.g. "Europe/Berlin") for displaying the injected
         # [Environment] time — resolved once in initialize() from config.
         self._timezone: str = "UTC"
+        # Resolved once in initialize() from config. Disabled by default —
+        # see MaintenanceConfig's docstring for why. _last_maintenance_check
+        # is None until the first sweep attempt (gated by _maybe_run_
+        # maintenance(), called at the end of sync_turn()).
+        self._maintenance: MaintenanceConfig = MaintenanceConfig()
+        self._last_maintenance_check: datetime | None = None
         self._initialized = False
 
     def _resolve_session_id(self, session_id: str) -> str:
@@ -149,6 +155,7 @@ class EidolonMemoryProvider(MemoryProvider):
         loader = ConfigLoader(config_path=str(config_path))
         config: EidolonConfig = loader.load()
         self._timezone = config.timezone
+        self._maintenance = config.maintenance
 
         if config.deployment.mode == "server":
             # Server mode: core runs as its own process (tools/serve.py) —
@@ -383,8 +390,52 @@ class EidolonMemoryProvider(MemoryProvider):
             if new_topic_id is not None:
                 session.active_topic_id = new_topic_id
 
+            # Activity-gated maintenance sweep — see _maybe_run_maintenance()'s
+            # docstring for why this runs here (after store_turn(), not before).
+            self._maybe_run_maintenance()
+
         except Exception as e:
             logger.warning("Eidolon sync_turn failed: %s", e)
+
+    def _maybe_run_maintenance(self) -> None:
+        """Close stale-open topics as a side effect of real activity.
+
+        Deliberately activity-gated, not timer-driven: closing a topic
+        while its owning peer is away risks fragmenting a conversation
+        they'd have naturally continued — once closed, topic detection
+        has nothing "active" left to compare against, so a returning
+        peer's continuation is forced into a NEW_TOPIC instead of
+        resuming the old one. Piggybacking on *any* peer's real turn
+        avoids that: a topic only gets closed once some turn proves
+        enough time has passed, never on a fixed schedule independent
+        of activity. Called at the end of sync_turn(), after
+        store_turn() — that ordering means the topic THIS turn just
+        touched already has a fresh last_activity, so it can never be
+        caught by the sweep its own turn triggers, with no exclusion
+        logic needed.
+
+        No-op unless config.maintenance.enabled — see MaintenanceConfig's
+        docstring for why this defaults off. Never raises: a failure
+        (e.g. eidolon-server briefly unreachable) is logged and
+        swallowed like every other non-critical failure in this class,
+        and still updates _last_maintenance_check so a persistent
+        failure waits a full interval before retrying rather than
+        retrying every single turn.
+        """
+        if not self._maintenance.enabled or not self._eidolon:
+            return
+
+        now = datetime.now(UTC)
+        interval = timedelta(hours=self._maintenance.interval_hours)
+        if self._last_maintenance_check is not None and now - self._last_maintenance_check < interval:
+            return
+        self._last_maintenance_check = now
+
+        try:
+            cutoff = now - timedelta(hours=self._maintenance.stale_after_hours)
+            self._eidolon.close_stale_topics(cutoff, peer_id=self._maintenance.peer_id)
+        except Exception as e:
+            logger.warning("Eidolon maintenance sweep failed: %s", e)
 
     # ── Tools ────────────────────────────────────────────
 

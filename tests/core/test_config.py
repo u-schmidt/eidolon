@@ -14,6 +14,7 @@ from core.config import (
     DebugConfig,
     DeploymentConfig,
     EidolonConfig,
+    MaintenanceConfig,
     ModelConfig,
     RetrievalConfig,
     StorageConfig,
@@ -88,6 +89,21 @@ class TestEidolonConfig:
         d = config.to_dict()
         assert d["deployment"]["mode"] == "server"
         assert "token" not in d["deployment"]
+
+    def test_maintenance_config_defaults(self):
+        maintenance = MaintenanceConfig()
+        assert maintenance.enabled is False
+        assert maintenance.interval_hours == 1.0
+        assert maintenance.stale_after_hours == 24.0
+        assert maintenance.peer_id is None
+
+    def test_to_dict_includes_maintenance(self):
+        config = EidolonConfig(maintenance=MaintenanceConfig(enabled=True, peer_id="udo"))
+        d = config.to_dict()
+        assert d["maintenance"]["enabled"] is True
+        assert d["maintenance"]["interval_hours"] == 1.0
+        assert d["maintenance"]["stale_after_hours"] == 24.0
+        assert d["maintenance"]["peer_id"] == "udo"
 
     def test_custom_values(self):
         config = EidolonConfig(
@@ -577,6 +593,60 @@ deployment:
         assert config.deployment.server_url == "http://127.0.0.1:9002"
         assert config.deployment.token == "cli-token"
         assert config.deployment.timeout == 20.0
+
+    def test_yaml_maintenance_section(self):
+        yaml_content = """
+maintenance:
+  enabled: true
+  interval_hours: 2
+  stale_after_hours: 12
+  peer_id: udo
+"""
+        tmp = tempfile.mkdtemp()
+        yaml_path = str(Path(tmp) / "config.yaml")
+        with open(yaml_path, "w") as f:
+            f.write(yaml_content)
+
+        loader = ConfigLoader(config_path=yaml_path)
+        config = loader.load()
+
+        assert config.maintenance.enabled is True
+        assert config.maintenance.interval_hours == 2
+        assert config.maintenance.stale_after_hours == 12
+        assert config.maintenance.peer_id == "udo"
+
+    def test_env_maintenance_vars(self):
+        os.environ["EIDOLON_MAINTENANCE_ENABLED"] = "true"
+        os.environ["EIDOLON_MAINTENANCE_INTERVAL_HOURS"] = "2"
+        os.environ["EIDOLON_MAINTENANCE_STALE_AFTER_HOURS"] = "12"
+        os.environ["EIDOLON_MAINTENANCE_PEER_ID"] = "udo"
+
+        loader = ConfigLoader()
+        config = loader.load()
+
+        assert config.maintenance.enabled is True
+        assert config.maintenance.interval_hours == 2.0
+        assert config.maintenance.stale_after_hours == 12.0
+        assert config.maintenance.peer_id == "udo"
+
+        del os.environ["EIDOLON_MAINTENANCE_ENABLED"]
+        del os.environ["EIDOLON_MAINTENANCE_INTERVAL_HOURS"]
+        del os.environ["EIDOLON_MAINTENANCE_STALE_AFTER_HOURS"]
+        del os.environ["EIDOLON_MAINTENANCE_PEER_ID"]
+
+    def test_cli_maintenance_args(self):
+        args = Namespace(
+            maintenance_enabled=True, maintenance_interval_hours=2.0,
+            maintenance_stale_after_hours=12.0, maintenance_peer_id="udo",
+        )
+
+        loader = ConfigLoader(cli_args=args)
+        config = loader.load()
+
+        assert config.maintenance.enabled is True
+        assert config.maintenance.interval_hours == 2.0
+        assert config.maintenance.stale_after_hours == 12.0
+        assert config.maintenance.peer_id == "udo"
 
 
 class TestProviderFactory:

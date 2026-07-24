@@ -160,6 +160,21 @@ debug:
   enabled: false
   trace_db_path: ~/.eidolon/trace.db
 
+# ── Stale-Topic Maintenance ─────────────────────────────────
+# Off by default. When a conversation is just abandoned mid-topic (no
+# session-end signal from the adapter's platform), that topic stays
+# "active" indefinitely unless something closes it — see ROADMAP.md's
+# "Topics never close on their own" entry. When enabled, the Hermes
+# adapter piggybacks a stale-topic sweep on real chat activity (never
+# on a fixed timer independent of activity — closing a topic while its
+# owner is away risks fragmenting a conversation they'd have naturally
+# continued into two disconnected topics).
+maintenance:
+  enabled: false
+  interval_hours: 1          # minimum time between sweep attempts
+  stale_after_hours: 24      # how long a topic must be idle to count as stale
+  # peer_id: someone           # restrict the sweep to one peer (default: every peer)
+
 # ── General ───────────────────────────────────────────────
 language: en                 # Language for stop word filtering (en | de)
                                # Note: LLM prompts are always in English

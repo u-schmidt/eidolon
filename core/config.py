@@ -187,6 +187,33 @@ class DebugConfig:
 
 
 @dataclass
+class MaintenanceConfig:
+    """Activity-gated stale-topic cleanup — see ROADMAP.md's "Topics
+    never close on their own" entry.
+
+    Disabled by default: enabling this changes behavior for
+    already-stuck-open topics on upgrade (each closed topic runs a real
+    LLM summarization call), so it's opt-in rather than on by default
+    like ``ClusteringConfig``, which only adds behavior with no side
+    effect on existing data.
+
+    Deliberately *not* timer-driven — a topic is only ever closed as a
+    side effect of some other real turn happening (any peer, any
+    session), checked no more often than ``interval_hours``. Closing a
+    topic independently of activity risks fragmenting a conversation a
+    peer would have naturally continued: once closed, topic detection
+    has nothing "active" left to compare against, so a returning peer's
+    continuation gets forced into a new topic instead of resuming the
+    old one.
+    """
+
+    enabled: bool = False
+    interval_hours: float = 1.0
+    stale_after_hours: float = 24.0  # mirrors tools/cli.py's --stale-older-than-hours default
+    peer_id: str | None = None  # restrict the sweep to one peer; None = every peer
+
+
+@dataclass
 class EidolonConfig:
     """Complete Eidolon configuration.
 
@@ -202,6 +229,7 @@ class EidolonConfig:
     clustering: ClusteringConfig = field(default_factory=ClusteringConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
+    maintenance: MaintenanceConfig = field(default_factory=MaintenanceConfig)
     language: str = "en"
     timezone: str = "UTC"  # IANA name (e.g. "Europe/Berlin"); used to display env time
 
@@ -276,6 +304,12 @@ class EidolonConfig:
                 "timeout": self.deployment.timeout,
                 # token intentionally excluded — same reason as
                 # storage.password/models.*.api_key above.
+            },
+            "maintenance": {
+                "enabled": self.maintenance.enabled,
+                "interval_hours": self.maintenance.interval_hours,
+                "stale_after_hours": self.maintenance.stale_after_hours,
+                "peer_id": self.maintenance.peer_id,
             },
             "language": self.language,
             "timezone": self.timezone,

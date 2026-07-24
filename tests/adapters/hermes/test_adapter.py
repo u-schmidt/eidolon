@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from adapters.hermes.session_state import SessionState
+from core.config import MaintenanceConfig
 from core.models import (
     ContextBundle,
     EnvironmentSnapshot,
@@ -50,6 +52,10 @@ class MockEidolon:
         self.inspect_cluster_calls = 0
         self.last_inspect_cluster_id: int | None = None
         self.cluster_topics: list[dict] = []
+        self.close_stale_topics_calls = 0
+        self.last_close_stale_topics_cutoff: datetime | None = None
+        self.last_close_stale_topics_peer_id: str | None = None
+        self.close_stale_topics_raises: Exception | None = None
 
     def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
         self.get_active_topic_calls += 1
@@ -188,6 +194,21 @@ class MockEidolon:
         self.inspect_cluster_calls += 1
         self.last_inspect_cluster_id = cluster_id
         return self.cluster_topics
+
+    def close_stale_topics(
+        self,
+        cutoff: datetime,
+        peer_id: str | None = None,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> list[int]:
+        self.close_stale_topics_calls += 1
+        self.last_close_stale_topics_cutoff = cutoff
+        self.last_close_stale_topics_peer_id = peer_id
+        if self.close_stale_topics_raises is not None:
+            raise self.close_stale_topics_raises
+        return []
 
 
 class MockStore:
@@ -932,6 +953,71 @@ class TestEidolonMemoryProvider:
         # The tracer itself must still be reachable for shutdown() even
         # though initialize() didn't complete.
         assert p._tracer is sentinel_tracer
+
+
+class TestMaintenanceSweep:
+    """Tests for the activity-gated stale-topic maintenance sweep —
+    see EidolonMemoryProvider._maybe_run_maintenance()'s docstring."""
+
+    @pytest.fixture
+    def provider(self):
+        from adapters.hermes import EidolonMemoryProvider
+        p = EidolonMemoryProvider()
+        p._eidolon = MockEidolon()
+        p._store = MockStore()
+        p._initialized = True
+        return p
+
+    def _sync_turn(self, provider):
+        provider.sync_turn(user_content="hi", assistant_content="hello", session_id="sess_1")
+
+    def test_disabled_by_default_never_sweeps(self, provider):
+        self._sync_turn(provider)
+        assert provider._eidolon.close_stale_topics_calls == 0
+
+    def test_first_turn_sweeps_when_enabled(self, provider):
+        provider._maintenance = MaintenanceConfig(enabled=True, interval_hours=1.0, stale_after_hours=24.0)
+        self._sync_turn(provider)
+        assert provider._eidolon.close_stale_topics_calls == 1
+        assert provider._last_maintenance_check is not None
+
+    def test_within_interval_does_not_sweep_again(self, provider):
+        provider._maintenance = MaintenanceConfig(enabled=True, interval_hours=1.0)
+        self._sync_turn(provider)
+        self._sync_turn(provider)
+        assert provider._eidolon.close_stale_topics_calls == 1
+
+    def test_after_interval_elapsed_sweeps_again(self, provider):
+        provider._maintenance = MaintenanceConfig(enabled=True, interval_hours=1.0)
+        self._sync_turn(provider)
+        # Simulate the interval having elapsed since the last check.
+        provider._last_maintenance_check = datetime.now(UTC) - timedelta(hours=2)
+        self._sync_turn(provider)
+        assert provider._eidolon.close_stale_topics_calls == 2
+
+    def test_cutoff_derived_from_stale_after_hours(self, provider):
+        provider._maintenance = MaintenanceConfig(enabled=True, stale_after_hours=6.0)
+        before = datetime.now(UTC)
+        self._sync_turn(provider)
+        cutoff = provider._eidolon.last_close_stale_topics_cutoff
+        assert cutoff is not None
+        assert abs((before - timedelta(hours=6.0) - cutoff).total_seconds()) < 5
+
+    def test_peer_id_passed_through(self, provider):
+        provider._maintenance = MaintenanceConfig(enabled=True, peer_id="udo")
+        self._sync_turn(provider)
+        assert provider._eidolon.last_close_stale_topics_peer_id == "udo"
+
+    def test_exception_is_caught_and_timestamp_still_updates(self, provider, caplog):
+        provider._maintenance = MaintenanceConfig(enabled=True)
+        provider._eidolon.close_stale_topics_raises = RuntimeError("server unreachable")
+        with caplog.at_level("WARNING"):
+            self._sync_turn(provider)  # must not raise
+        assert provider._last_maintenance_check is not None
+        assert "Eidolon maintenance sweep failed" in caplog.text
+        # A second immediate turn must not retry within the same interval.
+        self._sync_turn(provider)
+        assert provider._eidolon.close_stale_topics_calls == 1
 
 
 class TestEidolonTopicHook:

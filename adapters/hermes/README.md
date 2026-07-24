@@ -105,6 +105,10 @@ Each model role (`llm`, `embedder`, and any future role) is a **self-contained**
 | `facts.consolidation_interval` | int | Reconcile the durable-facts profile every N user turns (default 20) |
 | `facts.target_max` | int | Soft guidance to the LLM for the target profile size (default 100), not hard-enforced |
 | `facts.categories` | list of strings | Closed category list offered to the LLM — soft-enforced, see the main [README's Facts Consolidation section](../../README.md#facts-consolidation) |
+| `maintenance.enabled` | bool | Auto-close stale-open topics (default `false`) — see [Stale-topic maintenance](#stale-topic-maintenance) below |
+| `maintenance.interval_hours` | float | Minimum time between sweep attempts (default 1) |
+| `maintenance.stale_after_hours` | float | How long a topic must be idle to count as stale (default 24) |
+| `maintenance.peer_id` | string | Restrict the sweep to one peer (default: every peer) |
 | `language` | string | Language code for stop word filtering (`en`, `de`) |
 | `timezone` | string | IANA zone name (e.g. `Europe/Berlin`) for displaying the injected `[Environment]` time (default `UTC`); stored timestamps stay UTC internally |
 
@@ -132,6 +136,24 @@ Here's specifically what each means for *this plugin's* `eidolon.yaml`:
   (see [`deploy/`](../../deploy/)) — the adapter no longer reads or
   needs those sections at all. This is also the permanent fix for the
   Postgres/psycopg fragility issue below.
+
+### Stale-topic maintenance
+
+Hermes has no session-end hook, so a topic a peer just abandons
+mid-conversation stays `active` in storage forever unless something
+closes it — see ROADMAP.md's "Topics never close on their own" entry.
+Off by default (`maintenance.enabled: false`); when enabled, the
+adapter piggybacks a cleanup sweep on real chat activity — checked no
+more than once every `maintenance.interval_hours`, closing anything
+idle past `maintenance.stale_after_hours` — rather than running on a
+fixed timer independent of activity. That distinction matters: closing
+a topic while its owner is still away risks fragmenting a conversation
+they'd have naturally continued (topic detection has nothing "active"
+left to compare against once a topic is closed, so a returning peer's
+continuation gets forced into a new topic instead of resuming the old
+one). Piggybacking on activity means a topic only ever closes once
+some turn — anyone's, not necessarily its owner's — proves enough idle
+time has actually passed.
 
 ### Postgres storage — deployed-environment dependency
 
