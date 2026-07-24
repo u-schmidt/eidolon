@@ -61,6 +61,16 @@ memory, not this profile:
 - "spent two days debugging a sys.modules cache bug" (episodic, not durable)
 - "worked on an Electronic Flight Bag project at a previous company" (narrative detail)
 
+An episodic-sounding mention can still reveal a durable fact underneath —
+extract that durable part, don't reject the whole mention just because its
+surface framing sounds temporary:
+- Mention: "waiting on a reply to a letter to Chris for almost two weeks"
+- Bad: skip this entirely because "waiting for a reply" sounds episodic
+  (loses a real, durable relationship)
+- Good: relationship: correspondent_fabian = "regular letter correspondent"
+  (the durable fact — a standing correspondence — survives; the specific
+  wait, which is genuinely episodic, does not get its own profile entry)
+
 Some categories naturally hold many separate facts (relationship,
 technology, preference, possession) — give each distinct fact its own key.
 Others are usually singular (identity, health, work, routine) — reuse the
