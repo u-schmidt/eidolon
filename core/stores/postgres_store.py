@@ -322,6 +322,16 @@ class PostgresStore:
         self._conn.execute("UPDATE topics SET tags = %s WHERE id = %s", (Jsonb(tags), topic_id))
         self._conn.commit()
 
+    def update_topic_label(self, topic_id: int, label: str) -> None:
+        self._conn.execute("UPDATE topics SET label = %s WHERE id = %s", (label, topic_id))
+        self._conn.commit()
+
+    def count_messages_by_topic(self, topic_id: int) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE topic_id = %s", (topic_id,)
+        ).fetchone()
+        return row[0] if row else 0
+
     def search_topics(
         self,
         query_embedding: list[float] | None = None,

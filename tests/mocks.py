@@ -185,6 +185,13 @@ class MockStorage:
         if topic_id in self.topics:
             self.topics[topic_id]["tags"] = tags
 
+    def update_topic_label(self, topic_id: int, label: str) -> None:
+        if topic_id in self.topics:
+            self.topics[topic_id]["label"] = label
+
+    def count_messages_by_topic(self, topic_id: int) -> int:
+        return len(self.get_messages_by_topic(topic_id))
+
     def search_topics(self, query_embedding=None, tags=None, peer_id=None, limit=5, weights=None,
                        tracer=None, request_id=None, now=None):
         return [t for t in self.topics.values() if t["status"] == "closed"][:limit]
@@ -295,12 +302,14 @@ class EidolonMockLLM:
         detection_response: str = "CONTINUE",
         extraction_response: str = "[]",
         summary_response: str = "",
+        relabel_response: str = "",
         consolidation_response: str = '{"upserts": [], "deletes": []}',
         cluster_response: str = '{"match_index": null, "label": "", "summary": ""}',
     ):
         self.detection_response = detection_response
         self.extraction_response = extraction_response
         self.summary_response = summary_response
+        self.relabel_response = relabel_response
         self.consolidation_response = consolidation_response
         self.cluster_response = cluster_response
 
@@ -312,6 +321,8 @@ class EidolonMockLLM:
             return self.extraction_response
         if "summarizer" in sp:
             return self.summary_response
+        if "label conversation topics" in sp:
+            return self.relabel_response
         if "durable facts" in sp:
             return self.consolidation_response
         if "recurring conversation threads" in sp:

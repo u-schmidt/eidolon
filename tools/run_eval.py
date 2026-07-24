@@ -178,6 +178,8 @@ def main() -> None:
         facts_target_max=config.facts.target_max,
         clustering_enabled=config.clustering.enabled,
         clustering_shortlist_size=config.clustering.shortlist_size,
+        relabel_enabled=config.relabel.enabled,
+        relabel_message_threshold=config.relabel.message_threshold,
         tracer=tracer,
     )
 

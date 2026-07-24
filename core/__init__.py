@@ -42,6 +42,7 @@ from core.extraction.fragmentary_extractor import FragmentaryExtractor
 from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
 from core.models import ContextBundle, EnvironmentSnapshot, MemoryItem, PrefetchResult, TopicChange
 from core.retrieval.associative_retriever import AssociativeRetriever
+from core.summarization.topic_relabeler import TopicRelabeler
 from core.summarization.topic_summarizer import TopicSummarizer
 from core.trace.null_tracer import NullTracer
 
@@ -59,8 +60,9 @@ def _new_request_id() -> str:
 
 
 # How many of a topic's most recent messages to show the detector alongside
-# its (possibly still-generic, since it's only ever refreshed on close)
-# label — real, evolving content instead of a frozen string. ~2 exchanges.
+# its (possibly still-pending, if neither TopicRelabeler nor TopicSummarizer
+# has finalized it yet) label — real, evolving content instead of a frozen
+# string. ~2 exchanges.
 _TOPIC_DETECTION_MESSAGE_WINDOW = 4
 
 
@@ -99,6 +101,17 @@ class Eidolon:
     clustering_shortlist_size : int
         Max candidates shown to the LLM per topic close — see
         ``ClusterConsolidator``.
+    relabel_enabled : bool
+        Whether a still-pending topic (label == "") gets a mid-conversation
+        relabel once it accumulates ``relabel_message_threshold`` messages
+        (see ``store_turn``'s step 3b and ``TopicRelabeler``). A topic's
+        label always starts pending at creation regardless of this flag —
+        disabling it just means the only finalization path left is
+        ``TopicSummarizer``'s close-time fallback.
+    relabel_message_threshold : int
+        Messages a still-pending topic must accumulate before
+        ``TopicRelabeler`` fires — see ``core/config.py``'s
+        ``RelabelConfig``.
     tracer : Tracer | None
         Debug tracer recording per-step prompts/responses/scores/durations
         and otherwise-silent failures. Defaults to a no-op tracer — off
@@ -118,6 +131,8 @@ class Eidolon:
         facts_categories: list[str] | None = None,
         clustering_enabled: bool = True,
         clustering_shortlist_size: int = 5,
+        relabel_enabled: bool = True,
+        relabel_message_threshold: int = 4,
         tracer: Tracer | None = None,
     ) -> None:
         self._storage = storage
@@ -128,6 +143,7 @@ class Eidolon:
         )
         self._extractor = FragmentaryExtractor(llm, language, tracer=self._tracer)
         self._summarizer = TopicSummarizer(storage, llm, embedder, tracer=self._tracer)
+        self._relabeler = TopicRelabeler(storage, llm, tracer=self._tracer)
         self._fact_consolidator = FactConsolidator(
             storage, llm, target_max=facts_target_max, categories=facts_categories, tracer=self._tracer
         )
@@ -136,6 +152,8 @@ class Eidolon:
         )
         self._consolidation_interval = facts_consolidation_interval
         self._clustering_enabled = clustering_enabled
+        self._relabel_enabled = relabel_enabled
+        self._relabel_message_threshold = relabel_message_threshold
         self._embedder = embedder
         self._language = language
 
@@ -340,11 +358,13 @@ class Eidolon:
 
         Performs:
         1. Close old topic (if topic changed)
-        2. Create new topic (if topic changed)
+        2. Create new topic (if topic changed) — starts with a pending
+           label ("") rather than the detector's raw guess; see step 3b
         3. Store user message and AI response as messages
+        3b. Mid-conversation topic relabel, if a still-pending topic
+            (CONTINUE branch only) has accumulated enough messages
         4. Extract memory fragments from the turn
         5. Store memory items with perspective attribution + message reference
-        6. Generate embedding for the new topic
 
         Parameters
         ----------
@@ -397,11 +417,14 @@ class Eidolon:
             else:
                 self._storage.close_topic(old_topic_id, f"Continued to: {new_topic_label}")
 
-        # 2. Create new topic if topic changed
+        # 2. Create new topic if topic changed. Starts pending (label="")
+        # rather than the detector's raw guess (new_topic_label, still
+        # used below for extraction/tracing) — see TopicRelabeler/
+        # TopicSummarizer for the two ways a pending label gets finalized.
         new_topic_id: int | None = None
         if new_topic_label is not None:
             new_topic_id = self._storage.create_topic(
-                label=new_topic_label,
+                label="",
                 peer_id=peer_id,
                 session_id=session_id,
             )
@@ -419,30 +442,30 @@ class Eidolon:
             peer_id="ai", topic_id=resolved_topic_id,
         )
 
-        # 4. Generate embedding for the new topic
-        if new_topic_id is not None and new_topic_label:
+        # 3b. Mid-conversation relabel — a still-pending topic (never yet
+        # given a real label, since it's still open) gets one relabel pass
+        # once it accumulates enough messages. CONTINUE turns only: a
+        # NEW_TOPIC turn's topic was just created this same call, nowhere
+        # near the threshold yet. Checking label == "" before counting
+        # lets the common case (already labeled) skip the count query.
+        if self._relabel_enabled and new_topic_label is None and old_topic_id is not None:
             try:
-                embed_started = time.perf_counter()
-                topic_embedding = self._embedder.embed(new_topic_label)
-                embed_duration_ms = (time.perf_counter() - embed_started) * 1000
-                self._storage.update_topic_embedding(new_topic_id, topic_embedding)
-                self._tracer.record(
-                    "embedding",
-                    {"purpose": "topic_label", "text": new_topic_label, "dimension": len(topic_embedding)},
-                    request_id=request_id, session_id=session_id, duration_ms=embed_duration_ms,
-                )
+                topic = self._storage.get_topic(old_topic_id)
+                if (
+                    topic is not None
+                    and topic["label"] == ""
+                    and self._storage.count_messages_by_topic(old_topic_id) >= self._relabel_message_threshold
+                ):
+                    self._relabeler.relabel(old_topic_id, request_id=request_id, session_id=session_id)
             except Exception as exc:
                 self._tracer.record(
                     "error",
-                    {"step": "topic_label_embedding", "exception": repr(exc)},
+                    {"step": "topic_relabel_trigger", "topic_id": old_topic_id, "exception": repr(exc)},
                     request_id=request_id, session_id=session_id,
                 )
-                logger.warning("Eidolon topic_label_embedding failed: %s", exc)
-                # Embedding failure is non-critical for a single occurrence,
-                # but a persistent one silently degrades retrieval quality —
-                # see the warning above.
+                logger.warning("Eidolon topic_relabel_trigger failed (topic_id=%s): %s", old_topic_id, exc)
 
-        # 5. Extract memory fragments
+        # 4. Extract memory fragments
         items = self._extractor.extract(
             user_message=user_message,
             ai_response=ai_response,
@@ -453,7 +476,7 @@ class Eidolon:
             session_id=session_id,
         )
 
-        # 6. Store memory items with topic + message association + embeddings
+        # 5. Store memory items with topic + message association + embeddings
         fact_items: list[MemoryItem] = []
         for item in items:
             if resolved_topic_id is not None:
@@ -486,12 +509,12 @@ class Eidolon:
                     # retrieval quality — see the warning above.
             self._storage.store_memory_item(item)
             # Collect fact-type items — no longer converted to facts
-            # immediately (see step 7); kept here only for the
+            # immediately (see step 6); kept here only for the
             # turn_complete trace field below.
             if item.item_type == "fact":
                 fact_items.append(item)
 
-        # 7. Periodically reconcile the durable facts profile — a batch
+        # 6. Periodically reconcile the durable facts profile — a batch
         # review every N turns instead of a per-turn conversion, so
         # updates replace stale values in place and the LLM judges what's
         # actually durable rather than everything fact-shaped becoming a

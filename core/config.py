@@ -153,6 +153,29 @@ class ClusteringConfig:
 
 
 @dataclass
+class RelabelConfig:
+    """Mid-conversation topic relabeling — see
+    core/summarization/topic_relabeler.py.
+
+    A topic's label starts empty ("") at creation instead of the raw
+    first-message guess, and gets finalized one of two ways: this
+    mechanism, once a still-pending topic accumulates
+    ``message_threshold`` messages, or (always on, no config here)
+    TopicSummarizer's existing close-time pass, whichever comes first.
+
+    On by default: Mechanism A (close-time) alone leaves a still-open,
+    growing conversation showing its wrong first-message-guess label
+    for the topic's entire live duration — this is what actually fixes
+    that. Cost is bounded to at most one extra LLM call per topic, ever.
+    """
+
+    enabled: bool = True
+    message_threshold: int = 4  # ~2 exchanges — low enough to catch a
+    # drifting topic quickly (the whole point), high enough that a
+    # topic about to close anyway isn't relabeled for near-zero gain.
+
+
+@dataclass
 class DeploymentConfig:
     """Which core-as-a-service mode a caller (e.g. the Hermes adapter)
     runs in — see ROADMAP.md's "Core-as-a-service deployment mode".
@@ -227,6 +250,7 @@ class EidolonConfig:
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
     facts: FactsConfig = field(default_factory=FactsConfig)
     clustering: ClusteringConfig = field(default_factory=ClusteringConfig)
+    relabel: RelabelConfig = field(default_factory=RelabelConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
     maintenance: MaintenanceConfig = field(default_factory=MaintenanceConfig)
@@ -293,6 +317,10 @@ class EidolonConfig:
             "clustering": {
                 "enabled": self.clustering.enabled,
                 "shortlist_size": self.clustering.shortlist_size,
+            },
+            "relabel": {
+                "enabled": self.relabel.enabled,
+                "message_threshold": self.relabel.message_threshold,
             },
             "debug": {
                 "enabled": self.debug.enabled,

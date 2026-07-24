@@ -331,10 +331,12 @@ class TestEidolon:
             new_topic_label="Bello Features",
         )
 
-        # Should have created a topic
+        # Should have created a topic, pending (not yet given a real
+        # label) — see TopicRelabeler/TopicSummarizer for how it gets
+        # finalized.
         assert len(storage.topics) == 1
         topic = list(storage.topics.values())[0]
-        assert topic["label"] == "Bello Features"
+        assert topic["label"] == ""
 
     def test_store_turn_extracts_and_stores_items(self):
         storage = MockStorage()
@@ -431,6 +433,104 @@ class TestEidolon:
         eidolon = Eidolon(storage, llm, embedder)
 
         assert eidolon.get_active_topic("user") is None
+
+
+class TestMidConversationRelabel:
+    """Tests for store_turn's step 3b — a CONTINUE turn on a still-pending
+    topic (label == "") triggers TopicRelabeler once enough messages have
+    accumulated. See core/summarization/topic_relabeler.py."""
+
+    def _continue_turn(self, eidolon: Eidolon, old_topic_id: int) -> None:
+        eidolon.store_turn(
+            user_message="hi",
+            ai_response="hello",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            old_topic_id=old_topic_id,
+            new_topic_label=None,
+        )
+
+    def test_triggers_relabel_once_threshold_reached(self):
+        storage = MockStorage()
+        tid = storage.create_topic("", peer_id="user")
+        llm = MockLLM(extraction_response="[]", relabel_response="Buying a bike")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder, relabel_message_threshold=2)
+
+        self._continue_turn(eidolon, tid)  # this turn's 2 messages reach the threshold
+
+        assert storage.topics[tid]["label"] == "Buying a bike"
+
+    def test_does_not_trigger_below_threshold(self):
+        storage = MockStorage()
+        tid = storage.create_topic("", peer_id="user")
+        llm = MockLLM(extraction_response="[]", relabel_response="Buying a bike")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder, relabel_message_threshold=10)
+
+        self._continue_turn(eidolon, tid)
+
+        assert storage.topics[tid]["label"] == ""
+
+    def test_does_not_retrigger_already_labeled_topic(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Already Real", peer_id="user")
+        llm = MockLLM(extraction_response="[]", relabel_response="Different Label")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder, relabel_message_threshold=1)
+
+        self._continue_turn(eidolon, tid)
+
+        assert storage.topics[tid]["label"] == "Already Real"
+
+    def test_relabel_enabled_false_suppresses_trigger(self):
+        storage = MockStorage()
+        tid = storage.create_topic("", peer_id="user")
+        llm = MockLLM(extraction_response="[]", relabel_response="Buying a bike")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder, relabel_enabled=False, relabel_message_threshold=1)
+
+        self._continue_turn(eidolon, tid)
+
+        assert storage.topics[tid]["label"] == ""
+
+    def test_new_topic_turn_never_triggers_relabel(self):
+        """A NEW_TOPIC turn's just-created topic is nowhere near the
+        threshold yet — step 3b only runs on the CONTINUE branch."""
+        storage = MockStorage()
+        llm = MockLLM(extraction_response="[]", relabel_response="Buying a bike")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder, relabel_message_threshold=1)
+
+        eidolon.store_turn(
+            user_message="hi", ai_response="hello", peer_id="user",
+            environment=EnvironmentSnapshot(), new_topic_label="Bello Features",
+        )
+
+        tid = next(iter(storage.topics))
+        assert storage.topics[tid]["label"] == ""
+
+    def test_records_error_on_trigger_failure(self, caplog):
+        """A failure in step 3b's own storage reads (get_topic/
+        count_messages_by_topic) must not vanish silently or fail the
+        turn — matches the file's existing non-critical-failure pattern."""
+        class FailingStorage(MockStorage):
+            def count_messages_by_topic(self, topic_id):
+                raise RuntimeError("db unavailable")
+
+        storage = FailingStorage()
+        tid = storage.create_topic("", peer_id="user")
+        llm = MockLLM(extraction_response="[]")
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer, relabel_message_threshold=1)
+
+        with caplog.at_level("WARNING"):
+            self._continue_turn(eidolon, tid)  # must not raise
+
+        error_events = tracer.events_of_type("error")
+        assert any(e["payload"]["step"] == "topic_relabel_trigger" for e in error_events)
+        assert "topic_relabel_trigger failed" in caplog.text
 
 
 class TestEidolonTracing:
@@ -546,7 +646,11 @@ class TestEidolonTracing:
         assert len(request_ids) == 1
         assert None not in request_ids
 
-    def test_store_turn_records_topic_label_embedding_event(self):
+    def test_store_turn_does_not_embed_pending_topic_label(self):
+        """A new topic starts pending (label="") — there's nothing
+        meaningful to embed yet, so no "topic_label" embedding event
+        fires at creation anymore (the topic gets embedded later, once
+        TopicRelabeler or TopicSummarizer finalizes a real label/summary)."""
         storage = MockStorage()
         llm = MockLLM(extraction_response="[]")
         embedder = MockEmbedder()
@@ -563,7 +667,7 @@ class TestEidolonTracing:
 
         events = tracer.events_of_type("embedding")
         purposes = [e["payload"]["purpose"] for e in events]
-        assert "topic_label" in purposes
+        assert "topic_label" not in purposes
 
     def test_store_turn_records_memory_item_embedding_event(self):
         storage = MockStorage()
@@ -586,32 +690,6 @@ class TestEidolonTracing:
         item_events = [e for e in events if e["payload"]["purpose"] == "memory_item"]
         assert len(item_events) == 1
         assert item_events[0]["payload"]["text"] == "User likes hiking"
-
-    def test_store_turn_records_error_on_topic_embedding_failure(self, caplog):
-        """An embedding failure must not vanish silently — it should show
-        up as an `error` trace event even though store_turn still succeeds
-        (embedding failure is non-critical, per the existing except/pass),
-        AND as a logger.warning — visible even when debug tracing is off,
-        unlike the trace event."""
-        storage = MockStorage()
-        llm = MockLLM(extraction_response="[]")
-        embedder = MockEmbedder(should_fail=True)
-        tracer = SpyTracer()
-        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
-
-        with caplog.at_level("WARNING"):
-            new_topic_id = eidolon.store_turn(
-                user_message="Hi",
-                ai_response="Hello",
-                peer_id="user",
-                environment=EnvironmentSnapshot(),
-                new_topic_label="Bello Features",
-            )
-
-        assert new_topic_id is not None  # store_turn still succeeds
-        error_events = tracer.events_of_type("error")
-        assert any(e["payload"]["step"] == "topic_label_embedding" for e in error_events)
-        assert "topic_label_embedding failed" in caplog.text
 
     def test_store_turn_records_error_on_memory_item_embedding_failure(self, caplog):
         storage = MockStorage()

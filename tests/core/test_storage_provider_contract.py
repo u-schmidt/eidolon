@@ -154,6 +154,25 @@ class TestTopics:
         store.update_topic_tags(tid, ["fitness", "gym"])
         assert store.get_topic(tid)["tags"] == ["fitness", "gym"]
 
+    def test_update_topic_label_replaces_label(self, store: StorageProvider):
+        tid = store.create_topic("")
+        store.update_topic_label(tid, "Buying a bike")
+        assert store.get_topic(tid)["label"] == "Buying a bike"
+
+    def test_count_messages_by_topic_counts_only_that_topics_messages(self, store: StorageProvider):
+        tid_a = store.create_topic("Topic A", peer_id="user")
+        tid_b = store.create_topic("Topic B", peer_id="user")
+        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid_a)
+        store.store_message(turn_id=1, role="ai", content="hello", peer_id="ai", topic_id=tid_a)
+        store.store_message(turn_id=2, role="user", content="other", peer_id="user", topic_id=tid_b)
+
+        assert store.count_messages_by_topic(tid_a) == 2
+        assert store.count_messages_by_topic(tid_b) == 1
+
+    def test_count_messages_by_topic_zero_when_none(self, store: StorageProvider):
+        tid = store.create_topic("Fresh", peer_id="user")
+        assert store.count_messages_by_topic(tid) == 0
+
     def test_get_active_topic_returns_open_topic(self, store: StorageProvider):
         tid = store.create_topic("Ongoing", summary="", peer_id="user")
         assert store.get_active_topic("user") == tid

@@ -406,6 +406,20 @@ class SqliteStore:
         )
         self._conn.commit()
 
+    def update_topic_label(self, topic_id: int, label: str) -> None:
+        self._conn.execute(
+            "UPDATE topics SET label = ? WHERE id = ?",
+            (label, topic_id),
+        )
+        self._conn.commit()
+
+    def count_messages_by_topic(self, topic_id: int) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE topic_id = ?",
+            (topic_id,),
+        ).fetchone()
+        return row[0]
+
     def _semantic_similarity(
         self,
         semantic_lookup: dict[int, float] | None,

@@ -111,6 +111,8 @@ def main() -> None:
         facts_categories=config.facts.categories,
         clustering_enabled=config.clustering.enabled,
         clustering_shortlist_size=config.clustering.shortlist_size,
+        relabel_enabled=config.relabel.enabled,
+        relabel_message_threshold=config.relabel.message_threshold,
         tracer=tracer,
     )
 

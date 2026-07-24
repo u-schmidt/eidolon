@@ -134,6 +134,21 @@ class StorageProvider(Protocol):
         """Replace a topic's tags with the given list."""
         ...
 
+    def update_topic_label(self, topic_id: int, label: str) -> None:
+        """Replace a topic's label. Mirrors update_topic_tags."""
+        ...
+
+    def count_messages_by_topic(self, topic_id: int) -> int:
+        """Return how many messages a topic has accumulated so far.
+
+        Lightweight COUNT query — unlike get_messages_by_topic, doesn't
+        load message content. Drives the mid-conversation topic-relabel
+        threshold check in Eidolon.store_turn (see
+        core/summarization/topic_relabeler.py) without paying for a
+        full transcript load on every turn of every still-pending topic.
+        """
+        ...
+
     def search_topics(
         self,
         query_embedding: list[float] | None = None,

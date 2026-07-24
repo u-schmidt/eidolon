@@ -20,27 +20,35 @@ def _summarizer(storage, llm, embedder, tracer=None) -> TopicSummarizer:
 
 
 class TestParseSummaryResponse:
-    def test_parses_summary_and_tags(self):
-        summary, tags = _parse_summary_response(
-            "Summary: Crowded gym frustration\nTags: fitness, gym"
+    def test_parses_label_summary_and_tags(self):
+        label, summary, tags = _parse_summary_response(
+            "Label: Crowded Gym\nSummary: Crowded gym frustration\nTags: fitness, gym"
         )
+        assert label == "Crowded Gym"
         assert summary == "Crowded gym frustration"
         assert tags == ["fitness", "gym"]
 
     def test_case_insensitive_labels_and_lowercased_tags(self):
-        summary, tags = _parse_summary_response(
-            "SUMMARY: A thing\nTAGS: Alpha, BETA"
+        label, summary, tags = _parse_summary_response(
+            "LABEL: A Label\nSUMMARY: A thing\nTAGS: Alpha, BETA"
         )
+        assert label == "A Label"
         assert summary == "A thing"
         assert tags == ["alpha", "beta"]
 
     def test_missing_summary_yields_empty(self):
-        summary, tags = _parse_summary_response("Tags: only, tags")
+        label, summary, tags = _parse_summary_response("Tags: only, tags")
+        assert label == ""
         assert summary == ""
         assert tags == ["only", "tags"]
 
+    def test_missing_label_yields_empty(self):
+        label, summary, tags = _parse_summary_response("Summary: A thing\nTags: only")
+        assert label == ""
+        assert summary == "A thing"
+
     def test_blank_tags_yields_empty_list(self):
-        summary, tags = _parse_summary_response("Summary: A thing\nTags: ")
+        label, summary, tags = _parse_summary_response("Summary: A thing\nTags: ")
         assert summary == "A thing"
         assert tags == []
 
@@ -128,11 +136,40 @@ class TestSummarize:
 
         assert tid not in storage.topic_tags
 
+    def test_persists_label_when_topic_still_pending(self):
+        """A topic whose label was never finalized mid-conversation
+        (still "") gets the close-time pass's produced label — the
+        fallback for a topic that closes before TopicRelabeler ever
+        got a chance to run."""
+        storage = MockStorage()
+        tid = storage.create_topic("", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        llm = MockLLM(summary_response="Label: Crowded Gym\nSummary: Crowded gym frustration\nTags: fitness")
+        embedder = MockEmbedder()
+
+        _summarizer(storage, llm, embedder).summarize(tid)
+
+        assert storage.topics[tid]["label"] == "Crowded Gym"
+
+    def test_does_not_overwrite_label_topic_relabeler_already_set(self):
+        """A topic TopicRelabeler already finalized mid-conversation keeps
+        that label — the close-time pass never overwrites it, even if it
+        produces a different one."""
+        storage = MockStorage()
+        tid = storage.create_topic("Already Finalized", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        llm = MockLLM(summary_response="Label: Different Label\nSummary: Crowded gym frustration\nTags: fitness")
+        embedder = MockEmbedder()
+
+        _summarizer(storage, llm, embedder).summarize(tid)
+
+        assert storage.topics[tid]["label"] == "Already Finalized"
+
     def test_records_topic_summarization_event(self):
         storage = MockStorage()
-        tid = storage.create_topic("Bello Features", peer_id="user")
+        tid = storage.create_topic("", peer_id="user")
         storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
-        llm = MockLLM(summary_response="Summary: Crowded gym frustration\nTags: fitness, gym")
+        llm = MockLLM(summary_response="Label: Crowded Gym\nSummary: Crowded gym frustration\nTags: fitness, gym")
         embedder = MockEmbedder()
         tracer = SpyTracer()
 
@@ -147,6 +184,8 @@ class TestSummarize:
         assert event["session_id"] == "sess1"
         assert event["payload"]["topic_id"] == tid
         assert event["payload"]["message_count"] == 1
+        assert event["payload"]["label"] == "Crowded Gym"
+        assert event["payload"]["label_persisted"] is True
         assert event["payload"]["summary"] == "Crowded gym frustration"
         assert event["payload"]["tags"] == ["fitness", "gym"]
 

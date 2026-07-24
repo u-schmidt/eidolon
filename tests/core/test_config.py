@@ -16,6 +16,7 @@ from core.config import (
     EidolonConfig,
     MaintenanceConfig,
     ModelConfig,
+    RelabelConfig,
     RetrievalConfig,
     StorageConfig,
 )
@@ -104,6 +105,17 @@ class TestEidolonConfig:
         assert d["maintenance"]["interval_hours"] == 1.0
         assert d["maintenance"]["stale_after_hours"] == 24.0
         assert d["maintenance"]["peer_id"] == "udo"
+
+    def test_relabel_config_defaults(self):
+        relabel = RelabelConfig()
+        assert relabel.enabled is True
+        assert relabel.message_threshold == 4
+
+    def test_to_dict_includes_relabel(self):
+        config = EidolonConfig(relabel=RelabelConfig(enabled=False, message_threshold=6))
+        d = config.to_dict()
+        assert d["relabel"]["enabled"] is False
+        assert d["relabel"]["message_threshold"] == 6
 
     def test_custom_values(self):
         config = EidolonConfig(
@@ -647,6 +659,45 @@ maintenance:
         assert config.maintenance.interval_hours == 2.0
         assert config.maintenance.stale_after_hours == 12.0
         assert config.maintenance.peer_id == "udo"
+
+    def test_yaml_relabel_section(self):
+        yaml_content = """
+relabel:
+  enabled: false
+  message_threshold: 6
+"""
+        tmp = tempfile.mkdtemp()
+        yaml_path = str(Path(tmp) / "config.yaml")
+        with open(yaml_path, "w") as f:
+            f.write(yaml_content)
+
+        loader = ConfigLoader(config_path=yaml_path)
+        config = loader.load()
+
+        assert config.relabel.enabled is False
+        assert config.relabel.message_threshold == 6
+
+    def test_env_relabel_vars(self):
+        os.environ["EIDOLON_RELABEL_ENABLED"] = "false"
+        os.environ["EIDOLON_RELABEL_MESSAGE_THRESHOLD"] = "6"
+
+        loader = ConfigLoader()
+        config = loader.load()
+
+        assert config.relabel.enabled is False
+        assert config.relabel.message_threshold == 6
+
+        del os.environ["EIDOLON_RELABEL_ENABLED"]
+        del os.environ["EIDOLON_RELABEL_MESSAGE_THRESHOLD"]
+
+    def test_cli_relabel_args(self):
+        args = Namespace(relabel_enabled=False, relabel_message_threshold=6)
+
+        loader = ConfigLoader(cli_args=args)
+        config = loader.load()
+
+        assert config.relabel.enabled is False
+        assert config.relabel.message_threshold == 6
 
 
 class TestProviderFactory:

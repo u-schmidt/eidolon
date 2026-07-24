@@ -124,6 +124,8 @@ class ConfigLoader:
             "maintenance_interval_hours": ("maintenance", "interval_hours"),
             "maintenance_stale_after_hours": ("maintenance", "stale_after_hours"),
             "maintenance_peer_id": ("maintenance", "peer_id"),
+            "relabel_enabled": ("relabel", "enabled"),
+            "relabel_message_threshold": ("relabel", "message_threshold"),
             "language": ("language",),
             "timezone": ("timezone",),
         }
@@ -198,6 +200,8 @@ class ConfigLoader:
             "maintenance_interval_hours": ("maintenance", "interval_hours"),
             "maintenance_stale_after_hours": ("maintenance", "stale_after_hours"),
             "maintenance_peer_id": ("maintenance", "peer_id"),
+            "relabel_enabled": ("relabel", "enabled"),
+            "relabel_message_threshold": ("relabel", "message_threshold"),
             "language": ("language",),
             "timezone": ("timezone",),
         }
@@ -277,6 +281,8 @@ class ConfigLoader:
                 self._merge_into(config.deployment, value)
             elif key == "maintenance" and isinstance(value, dict):
                 self._merge_into(config.maintenance, value)
+            elif key == "relabel" and isinstance(value, dict):
+                self._merge_into(config.relabel, value)
             elif hasattr(config, key):
                 setattr(config, key, value)
 
