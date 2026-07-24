@@ -91,7 +91,11 @@ the last review. Decide what changes:
 - Assign each fact an importance: "high" (core identity, standing
   instructions on how to treat this person, anything that would be
   actively wrong to forget), "medium" (most stable facts), or "low"
-  (minor, nice-to-have detail).
+  (minor, nice-to-have detail). When genuinely unsure between "medium"
+  and "low", prefer "low" — the profile should stay small, and only
+  facts that are actually load-bearing should compete for "high"/
+  "medium". A specific possession, a one-off preference detail, or
+  anything you'd only mention if it came up is "low", not "medium".
 - Try to keep the total profile near {target_max} facts — if you're well
   over, consolidate overlapping entries or drop the least important
   ("low", then "medium") ones first.
