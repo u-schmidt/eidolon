@@ -30,7 +30,7 @@ from pgvector.psycopg import register_vector
 from psycopg.types.json import Jsonb
 
 from core.interfaces import Tracer
-from core.models import Fact, MemoryItem
+from core.models import Fact, MemoryItem, MemoryItemBudget
 from core.stores.postgres_migrations import migrate
 from core.stores.retrieval_scorer import RetrievalScorer
 
@@ -186,7 +186,7 @@ class PostgresStore:
             "SELECT id, content, item_type, source_peer, subject_peer, "
             "attribution_type, topic_id, message_id, created_at "
             "FROM memory_items "
-            "WHERE item_type = 'fact' AND subject_peer = %s AND id > %s "
+            "WHERE subject_peer = %s AND id > %s "
             "ORDER BY id ASC",
             (subject_peer, since_item_id),
         ).fetchall()
@@ -734,7 +734,7 @@ class PostgresStore:
         self,
         query_embedding: list[float] | None = None,
         peer_id: str | None = None,
-        limit: int = 5,
+        budget: MemoryItemBudget | None = None,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
         request_id: str | None = None,
@@ -743,18 +743,39 @@ class PostgresStore:
         """See StorageProvider.search_memory_items / SqliteStore's
         docstring — peer_id, when given, is a hard filter joined through
         messages (memory_items carry no peer_id of their own)."""
+        budget = budget or MemoryItemBudget()
         scorer = RetrievalScorer(weights, now)
 
         if query_embedding is not None and peer_id:
-            rows = self._conn.execute(
+            rows = list(self._conn.execute(
                 "SELECT mi.id, mi.content, mi.item_type, mi.source_peer, mi.subject_peer, "
                 "mi.attribution_type, mi.topic_id, mi.message_id, mi.created_at, "
                 "1 - (mi.embedding <=> %(q)s::vector) AS similarity "
                 "FROM memory_items mi JOIN messages m ON mi.message_id = m.id "
                 "WHERE m.peer_id = %(peer_id)s AND mi.embedding IS NOT NULL "
                 "ORDER BY mi.embedding <=> %(q)s::vector LIMIT %(k)s",
-                {"q": query_embedding, "peer_id": peer_id, "k": _knn_prefilter_k(limit)},
-            ).fetchall()
+                {"q": query_embedding, "peer_id": peer_id, "k": _knn_prefilter_k(budget.total)},
+            ).fetchall())
+            if budget.surprise > 0 or budget.feeling > 0:
+                # Rare-type bypass: surprise/feeling are uncommon enough
+                # that the KNN LIMIT above (embedding-similarity-only, no
+                # item_type awareness) could exclude every candidate of
+                # that type before type-aware selection ever runs. Fetch
+                # every surprise/feeling item for this peer directly
+                # instead — real similarity via the same SQL expression,
+                # just without the ORDER BY/LIMIT restriction — deduped
+                # against the KNN pool's own ids.
+                knn_ids = {r[0] for r in rows}
+                bypass_rows = self._conn.execute(
+                    "SELECT mi.id, mi.content, mi.item_type, mi.source_peer, mi.subject_peer, "
+                    "mi.attribution_type, mi.topic_id, mi.message_id, mi.created_at, "
+                    "1 - (mi.embedding <=> %(q)s::vector) AS similarity "
+                    "FROM memory_items mi JOIN messages m ON mi.message_id = m.id "
+                    "WHERE m.peer_id = %(peer_id)s AND mi.embedding IS NOT NULL "
+                    "AND mi.item_type IN ('surprise', 'feeling')",
+                    {"q": query_embedding, "peer_id": peer_id},
+                ).fetchall()
+                rows.extend(r for r in bypass_rows if r[0] not in knn_ids)
         elif peer_id:
             rows = [
                 (*r, 0.0)
@@ -790,9 +811,7 @@ class PostgresStore:
             )
             scored.append((score, item, breakdown))
 
-        return scorer.finalize(
-            scored=scored, candidate_type="memory_item", limit=limit, tracer=tracer, request_id=request_id,
-        )
+        return scorer.finalize_tiered(scored=scored, budget=budget, tracer=tracer, request_id=request_id)
 
     def get_memory_items_by_turn(self, turn_id: int) -> list[MemoryItem]:
         rows = self._conn.execute(
@@ -809,6 +828,25 @@ class PostgresStore:
                 embedding=_to_float_list(row[8]), timestamp=row[9],
             )
             for row in rows
+        ]
+
+    def get_memory_items_by_topic(self, topic_id: int) -> list[MemoryItem]:
+        """Return every memory item extracted for `topic_id`, oldest first.
+
+        No join needed — memory_items carries its own topic_id column.
+        """
+        rows = self._conn.execute(
+            "SELECT id, content, item_type, source_peer, subject_peer, "
+            "attribution_type, topic_id, message_id, created_at "
+            "FROM memory_items WHERE topic_id = %s ORDER BY id ASC",
+            (topic_id,),
+        ).fetchall()
+        return [
+            MemoryItem(
+                id=r[0], content=r[1], item_type=r[2], source_peer=r[3], subject_peer=r[4],
+                attribution_type=r[5], topic_id=r[6], message_id=r[7], timestamp=r[8],
+            )
+            for r in rows
         ]
 
     # ── Messages ───────────────────────────────────────────

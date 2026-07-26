@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from core.models import MemoryItem, MemoryItemBudget
 from core.stores.retrieval_scorer import _TRACE_TOP_K_PADDING, RetrievalScorer, _recency_score
 from tests.mocks import SpyTracer
 
@@ -172,6 +173,102 @@ class TestFinalize:
         payload = tracer.events_of_type("retrieval_scoring_summary")[0]["payload"]
         flags = {c["candidate_kind"]: c["included"] for c in payload["top_candidates"]}
         assert flags == {"cluster": True, "topic": False}
+
+
+class TestFinalizeTiered:
+    def _item(self, item_id: int, item_type: str) -> MemoryItem:
+        return MemoryItem(
+            id=item_id, content=f"item {item_id}", item_type=item_type,
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+        )
+
+    def _scored(self, *entries: tuple[float, int, str]) -> list[tuple[float, MemoryItem, dict]]:
+        """Build (score, MemoryItem, breakdown) triples from (score, id, item_type) entries."""
+        return [
+            (score, self._item(item_id, item_type),
+             {"candidate_type": "memory_item", "candidate_id": item_id, "final_score": score})
+            for score, item_id, item_type in entries
+        ]
+
+    def test_reserved_tier_wins_its_slot_even_when_a_free_candidate_scores_higher(self):
+        # A fact-typed item scores lower than an essence-typed item, but the
+        # fact tier still fills from its own bucket, not a global top-K —
+        # tiers aren't merged into one blind ranking.
+        scored = self._scored((0.1, 1, "fact"), (0.9, 2, "essence"))
+        budget = MemoryItemBudget(fact=1, surprise=0, feeling=0, free=1)
+
+        results = RetrievalScorer().finalize_tiered(
+            scored=scored, budget=budget, tracer=None, request_id=None,
+        )
+
+        assert {r.id for r in results} == {1, 2}
+
+    def test_unfilled_reserved_tier_rolls_into_free_pool(self):
+        # No surprise-type candidates exist — its reserved slot rolls over,
+        # so the free pool effectively gets 1 extra slot (2 total instead
+        # of the base 1), letting both essence candidates through.
+        scored = self._scored((0.9, 1, "essence"), (0.8, 2, "essence"))
+        budget = MemoryItemBudget(fact=0, surprise=1, feeling=0, free=1)
+
+        results = RetrievalScorer().finalize_tiered(
+            scored=scored, budget=budget, tracer=None, request_id=None,
+        )
+
+        assert {r.id for r in results} == {1, 2}
+
+    def test_final_order_is_tier_order_not_score_order(self):
+        scored = self._scored((0.1, 1, "fact"), (0.9, 2, "feeling"), (0.5, 3, "surprise"))
+        budget = MemoryItemBudget(fact=1, surprise=1, feeling=1, free=0)
+
+        results = RetrievalScorer().finalize_tiered(
+            scored=scored, budget=budget, tracer=None, request_id=None,
+        )
+
+        assert [r.id for r in results] == [1, 3, 2]  # fact, surprise, feeling
+
+    def test_excess_within_a_tier_falls_through_to_free_pool(self):
+        # Two fact candidates but only 1 reserved fact slot — the loser
+        # isn't dropped outright, it competes for the free pool like any
+        # other leftover candidate.
+        scored = self._scored((0.9, 1, "fact"), (0.8, 2, "fact"))
+        budget = MemoryItemBudget(fact=1, surprise=0, feeling=0, free=1)
+
+        results = RetrievalScorer().finalize_tiered(
+            scored=scored, budget=budget, tracer=None, request_id=None,
+        )
+
+        assert [r.id for r in results] == [1, 2]
+
+    def test_emits_one_event_with_tier_included_counts(self):
+        tracer = SpyTracer()
+        scored = self._scored((0.9, 1, "fact"), (0.8, 2, "essence"), (0.1, 3, "surprise"))
+        budget = MemoryItemBudget(fact=1, surprise=1, feeling=0, free=1)
+
+        RetrievalScorer().finalize_tiered(
+            scored=scored, budget=budget, tracer=tracer, request_id="req1",
+        )
+
+        events = tracer.events_of_type("retrieval_scoring_summary")
+        assert len(events) == 1
+        payload = events[0]["payload"]
+        assert events[0]["request_id"] == "req1"
+        assert payload["candidate_type"] == "memory_item"
+        assert payload["total_scored"] == 3
+        assert payload["included_count"] == 3
+        assert payload["tier_included_counts"] == {"fact": 1, "surprise": 1, "feeling": 0, "free": 1}
+
+    def test_included_flags_reflect_final_selection(self):
+        tracer = SpyTracer()
+        scored = self._scored((0.9, 1, "fact"), (0.8, 2, "fact"))
+        budget = MemoryItemBudget(fact=1, surprise=0, feeling=0, free=0)
+
+        RetrievalScorer().finalize_tiered(
+            scored=scored, budget=budget, tracer=tracer, request_id=None,
+        )
+
+        payload = tracer.events_of_type("retrieval_scoring_summary")[0]["payload"]
+        flags = {c["candidate_id"]: c["included"] for c in payload["top_candidates"]}
+        assert flags == {1: True, 2: False}
 
 
 class TestRecencyScore:

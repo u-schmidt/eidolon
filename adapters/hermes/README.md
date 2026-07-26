@@ -98,10 +98,11 @@ Each model role (`llm`, `embedder`, and any future role) is a **self-contained**
 | `retrieval.tag_overlap` | float | Tag overlap weight (0-1) |
 | `retrieval.person` | float | Same peer weight (0-1) |
 | `retrieval.temporal` | float | Temporal closeness weight (0-1) |
-| `retrieval.related_topics_new` | int | Related topics injected on a NEW_TOPIC turn (default 6) |
-| `retrieval.related_topics_continue` | int | Related topics injected on a CONTINUE turn (default 3) |
-| `retrieval.memory_items_new` | int | Memory items injected on a NEW_TOPIC turn (default 4) |
-| `retrieval.memory_items_continue` | int | Memory items injected on a CONTINUE turn (default 2) |
+| `retrieval.related_topics` | int | Related topics injected per turn (default 5) |
+| `retrieval.memory_items_fact` | int | Reserved memory-item slots for item_type=fact (default 4) |
+| `retrieval.memory_items_surprise` | int | Reserved memory-item slots for item_type=surprise (default 1) |
+| `retrieval.memory_items_feeling` | int | Reserved memory-item slots for item_type=feeling (default 1) |
+| `retrieval.memory_items_free` | int | Free memory-item slots open to any item_type (default 4) |
 | `facts.consolidation_interval` | int | Reconcile the durable-facts profile every N user turns (default 20) |
 | `facts.target_max` | int | Soft guidance to the LLM for the target profile size (default 100), not hard-enforced |
 | `facts.categories` | list of strings | Closed category list offered to the LLM — soft-enforced, see the main [README's Facts Consolidation section](../../README.md#facts-consolidation) |

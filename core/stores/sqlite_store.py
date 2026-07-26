@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from core.interfaces import Tracer
-from core.models import Fact, MemoryItem
+from core.models import Fact, MemoryItem, MemoryItemBudget
 from core.stores.migrations import migrate
 from core.stores.retrieval_scorer import RetrievalScorer, _cosine_similarity
 from core.stores.vec_index import VecIndex
@@ -209,7 +209,7 @@ class SqliteStore:
             "SELECT id, content, item_type, source_peer, subject_peer, "
             "attribution_type, topic_id, message_id, created_at "
             "FROM memory_items "
-            "WHERE item_type = 'fact' AND subject_peer = ? AND id > ? "
+            "WHERE subject_peer = ? AND id > ? "
             "ORDER BY id ASC",
             (subject_peer, since_item_id),
         ).fetchall()
@@ -936,7 +936,7 @@ class SqliteStore:
         self,
         query_embedding: list[float] | None = None,
         peer_id: str | None = None,
-        limit: int = 5,
+        budget: MemoryItemBudget | None = None,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
         request_id: str | None = None,
@@ -961,6 +961,15 @@ class SqliteStore:
         dimension anymore — the join makes it a hard prerequisite, not a
         ranking signal.
 
+        `budget` (defaults to `MemoryItemBudget()`) selects via a
+        per-item-type reserved budget instead of a flat result count — see
+        `RetrievalScorer.finalize_tiered`. The vector-index KNN prefilter
+        below is embedding-similarity-only, with no item_type awareness;
+        `surprise`/`feeling` are rare enough that it could exclude every
+        candidate of one of those types before type-aware selection ever
+        runs, so when the budget reserves either, a second, un-prefiltered
+        fetch scoped to just those two types supplements the KNN pool.
+
         `weights` overrides the semantic/temporal scoring weights when
         provided (see `RetrievalScorer`). `tag_overlap` doesn't apply
         (memory items carry no tags). The `temporal` term is a recency
@@ -970,8 +979,9 @@ class SqliteStore:
         (defaults to the current UTC time).
 
         When `tracer` is given, one `retrieval_scoring_summary` event is
-        recorded for the whole call — see `search_topics` for the shape.
+        recorded for the whole call — see `RetrievalScorer.finalize_tiered`.
         """
+        budget = budget or MemoryItemBudget()
         scorer = RetrievalScorer(weights, now)
         # Accelerated path (see search_topics for the full explanation):
         # pre-filter to the nearest-by-embedding candidates via the vector
@@ -980,18 +990,28 @@ class SqliteStore:
         # is enough here, no join needed.
         semantic_lookup: dict[int, float] | None = None
         if self.vec_index.available and query_embedding and peer_id:
-            knn_hits = self.vec_index.knn("vec_memory_items", peer_id, query_embedding, k=_knn_prefilter_k(limit))
+            knn_hits = self.vec_index.knn("vec_memory_items", peer_id, query_embedding, k=_knn_prefilter_k(budget.total))
             semantic_lookup = dict(knn_hits)
             if not semantic_lookup:
                 rows = []
             else:
                 placeholders = ",".join("?" * len(semantic_lookup))
-                rows = self._conn.execute(
+                rows = list(self._conn.execute(
                     f"SELECT id, content, item_type, source_peer, subject_peer, "
                     f"attribution_type, topic_id, message_id, embedding, created_at "
                     f"FROM memory_items WHERE id IN ({placeholders})",
                     tuple(semantic_lookup.keys()),
+                ).fetchall())
+            if budget.surprise > 0 or budget.feeling > 0:
+                knn_ids = set(semantic_lookup.keys())
+                bypass_rows = self._conn.execute(
+                    "SELECT mi.id, mi.content, mi.item_type, mi.source_peer, mi.subject_peer, "
+                    "mi.attribution_type, mi.topic_id, mi.message_id, mi.embedding, mi.created_at "
+                    "FROM memory_items mi JOIN messages m ON mi.message_id = m.id "
+                    "WHERE m.peer_id = ? AND mi.item_type IN ('surprise', 'feeling')",
+                    (peer_id,),
                 ).fetchall()
+                rows.extend(r for r in bypass_rows if r[0] not in knn_ids)
         elif peer_id:
             rows = self._conn.execute(
                 "SELECT mi.id, mi.content, mi.item_type, mi.source_peer, mi.subject_peer, "
@@ -1023,17 +1043,20 @@ class SqliteStore:
             # No tag_overlap (items carry no tags) and no person term (peer_id
             # is a hard SQL filter above). row[9] is the raw created_at string
             # (item.timestamp is typed datetime but carries this string at runtime).
+            # A rare-type bypass row (id not in semantic_lookup) must not
+            # reuse the shared lookup dict — .get(id, 0.0) would silently
+            # score it 0.0 instead of computing its real cosine similarity
+            # (see _semantic_similarity's docstring), defeating the bypass.
+            row_lookup = semantic_lookup if (semantic_lookup is not None and row[0] in semantic_lookup) else None
             score, breakdown = scorer.score(
                 candidate_type="memory_item",
                 candidate_id=row[0],
-                semantic_raw=self._semantic_similarity(semantic_lookup, row[0], query_embedding, row[8]),
+                semantic_raw=self._semantic_similarity(row_lookup, row[0], query_embedding, row[8]),
                 recency_timestamp=row[9],
             )
             scored.append((score, item, breakdown))
 
-        return scorer.finalize(
-            scored=scored, candidate_type="memory_item", limit=limit, tracer=tracer, request_id=request_id,
-        )
+        return scorer.finalize_tiered(scored=scored, budget=budget, tracer=tracer, request_id=request_id)
 
     def get_memory_items_by_turn(self, turn_id: int) -> list[MemoryItem]:
         """Return all memory items extracted from a given turn, oldest first.
@@ -1056,6 +1079,25 @@ class SqliteStore:
                 timestamp=row[9],
             )
             for row in rows
+        ]
+
+    def get_memory_items_by_topic(self, topic_id: int) -> list[MemoryItem]:
+        """Return every memory item extracted for `topic_id`, oldest first.
+
+        No join needed — memory_items carries its own topic_id column.
+        """
+        rows = self._conn.execute(
+            "SELECT id, content, item_type, source_peer, subject_peer, "
+            "attribution_type, topic_id, message_id, created_at "
+            "FROM memory_items WHERE topic_id = ? ORDER BY id ASC",
+            (topic_id,),
+        ).fetchall()
+        return [
+            MemoryItem(
+                id=r[0], content=r[1], item_type=r[2], source_peer=r[3], subject_peer=r[4],
+                attribution_type=r[5], topic_id=r[6], message_id=r[7], timestamp=r[8],
+            )
+            for r in rows
         ]
 
     # ── Messages ───────────────────────────────────────────

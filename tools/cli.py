@@ -41,7 +41,7 @@ from core.config import ConfigError
 from core.config_loader import ConfigLoader
 from core.context_formatter import ContextFormatter
 from core.interfaces import StorageProvider, Tracer
-from core.models import EnvironmentSnapshot
+from core.models import EnvironmentSnapshot, MemoryItemBudget
 from core.provider_factory import ProviderFactory
 from core.stores.sqlite_store import SqliteStore
 from core.trace.in_memory_tracer import InMemoryTracer
@@ -100,14 +100,16 @@ Examples:
     parser.add_argument("--retrieval-temporal", type=float, default=None, help="Temporal weight (0-1)")
 
     # Retrieval result-count limits
-    parser.add_argument("--related-topics-new", type=int, default=None, dest="retrieval_related_topics_new",
-                        help="Related topics to retrieve on a NEW_TOPIC turn")
-    parser.add_argument("--related-topics-continue", type=int, default=None, dest="retrieval_related_topics_continue",
-                        help="Related topics to retrieve on a CONTINUE turn")
-    parser.add_argument("--memory-items-new", type=int, default=None, dest="retrieval_memory_items_new",
-                        help="Memory items to retrieve on a NEW_TOPIC turn")
-    parser.add_argument("--memory-items-continue", type=int, default=None, dest="retrieval_memory_items_continue",
-                        help="Memory items to retrieve on a CONTINUE turn")
+    parser.add_argument("--related-topics", type=int, default=None, dest="retrieval_related_topics",
+                        help="Related topics to retrieve per turn")
+    parser.add_argument("--memory-items-fact", type=int, default=None, dest="retrieval_memory_items_fact",
+                        help="Reserved memory-item slots for item_type=fact")
+    parser.add_argument("--memory-items-surprise", type=int, default=None, dest="retrieval_memory_items_surprise",
+                        help="Reserved memory-item slots for item_type=surprise")
+    parser.add_argument("--memory-items-feeling", type=int, default=None, dest="retrieval_memory_items_feeling",
+                        help="Reserved memory-item slots for item_type=feeling")
+    parser.add_argument("--memory-items-free", type=int, default=None, dest="retrieval_memory_items_free",
+                        help="Free memory-item slots open to any item_type")
     parser.add_argument("--recent-topics", type=int, default=None, dest="retrieval_recent_topics",
                         help="Most-recently-discussed topics to inject, regardless of relevance")
     parser.add_argument("--cluster-summaries", type=int, default=None, dest="retrieval_cluster_summaries",
@@ -256,10 +258,11 @@ def main() -> None:
             "temporal": config.retrieval.temporal,
         },
         retrieval_limits={
-            "related_topics_new": config.retrieval.related_topics_new,
-            "related_topics_continue": config.retrieval.related_topics_continue,
-            "memory_items_new": config.retrieval.memory_items_new,
-            "memory_items_continue": config.retrieval.memory_items_continue,
+            "related_topics": config.retrieval.related_topics,
+            "memory_items_fact": config.retrieval.memory_items_fact,
+            "memory_items_surprise": config.retrieval.memory_items_surprise,
+            "memory_items_feeling": config.retrieval.memory_items_feeling,
+            "memory_items_free": config.retrieval.memory_items_free,
             "recent_topics": config.retrieval.recent_topics,
             "cluster_summaries": config.retrieval.cluster_summaries,
             "cluster_recent_topics": config.retrieval.cluster_recent_topics,
@@ -401,7 +404,8 @@ def main() -> None:
                     weights=weights, tracer=spy, request_id=request_id,
                 )
                 store.search_memory_items(
-                    query_embedding=query_embedding, peer_id="user", limit=100000,
+                    query_embedding=query_embedding, peer_id="user",
+                    budget=MemoryItemBudget(fact=100_000, surprise=100_000, feeling=100_000, free=100_000),
                     weights=weights, tracer=spy, request_id=request_id,
                 )
                 printer = TracePrinter()

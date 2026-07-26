@@ -23,12 +23,18 @@ from datetime import UTC, datetime
 from typing import TypeVar
 
 from core.interfaces import Tracer
+from core.models import MemoryItem, MemoryItemBudget
 
 # Fallback scoring weights when the caller doesn't supply an explicit
 # `weights` override (e.g. from EidolonConfig.retrieval). Matches
 # AssociativeRetriever's own defaults so a configured value means the same
 # thing everywhere.
 _DEFAULT_WEIGHTS = {"semantic": 0.4, "tag_overlap": 0.3, "person": 0.2, "temporal": 0.1}
+
+# finalize_tiered's reserved-slot fill order — "essence" deliberately has
+# no reserved tier (redundant with the always-shown topic summary), so it
+# only ever wins a free-pool slot.
+_TIER_ORDER: tuple[str, ...] = ("fact", "surprise", "feeling")
 
 # Recency half-life: a candidate's temporal score halves for every this-many
 # days of age (see `_recency_score`). The *shape* of the decay is fixed here;
@@ -206,3 +212,72 @@ class RetrievalScorer:
             )
 
         return [obj for _, obj, _ in top_results]
+
+    def finalize_tiered(
+        self,
+        *,
+        scored: list[tuple[float, MemoryItem, dict]],
+        budget: MemoryItemBudget,
+        tracer: Tracer | None,
+        request_id: str | None,
+    ) -> list[MemoryItem]:
+        """Like ``finalize``, but selects via a per-item-type reserved
+        budget instead of one flat top-K — see ``MemoryItemBudget``.
+
+        Reserved tiers (fact, surprise, feeling) fill first, each from its
+        own score-descending bucket. Any tier that can't fill its
+        reservation rolls the shortfall into the free pool, which is open
+        to any type (including essence and reserved-type overflow) and
+        takes what's left over from every not-yet-selected candidate,
+        still by score. Final order is tier order — fact, surprise,
+        feeling, free — each internally score-descending. Emits exactly
+        one ``retrieval_scoring_summary`` event, same shape ``finalize``
+        produces plus one additive ``tier_included_counts`` field.
+        """
+        scored.sort(key=lambda x: x[0], reverse=True)
+        positively_scored = [(s, obj, b) for s, obj, b in scored if s > 0]
+
+        buckets: dict[str, list[tuple[float, MemoryItem, dict]]] = {}
+        for triple in positively_scored:
+            buckets.setdefault(triple[1].item_type, []).append(triple)
+
+        tier_selected: dict[str, list[tuple[float, MemoryItem, dict]]] = {}
+        selected_candidate_ids: set[int] = set()
+        rollover = 0
+        for item_type in _TIER_ORDER:
+            quota = getattr(budget, item_type)
+            taken = buckets.get(item_type, [])[:quota]
+            tier_selected[item_type] = taken
+            selected_candidate_ids.update(b["candidate_id"] for _, _, b in taken)
+            rollover += max(0, quota - len(taken))
+
+        free_pool = [t for t in positively_scored if t[2]["candidate_id"] not in selected_candidate_ids]
+        free_selected = free_pool[: budget.free + rollover]
+
+        ordered = (
+            tier_selected["fact"] + tier_selected["surprise"] + tier_selected["feeling"] + free_selected
+        )
+
+        if tracer is not None:
+            included_candidate_ids = {b["candidate_id"] for _, _, b in ordered}
+            top = positively_scored[: budget.total + _TRACE_TOP_K_PADDING]
+            for _, _, breakdown in top:
+                breakdown["included"] = breakdown["candidate_id"] in included_candidate_ids
+            tracer.record(
+                "retrieval_scoring_summary",
+                {
+                    "candidate_type": "memory_item",
+                    "total_scored": len(positively_scored),
+                    "included_count": len(ordered),
+                    "tier_included_counts": {
+                        "fact": len(tier_selected["fact"]),
+                        "surprise": len(tier_selected["surprise"]),
+                        "feeling": len(tier_selected["feeling"]),
+                        "free": len(free_selected),
+                    },
+                    "top_candidates": [b for _, _, b in top],
+                },
+                request_id=request_id,
+            )
+
+        return [obj for _, obj, _ in ordered]

@@ -52,6 +52,9 @@ class MockEidolon:
         self.inspect_cluster_calls = 0
         self.last_inspect_cluster_id: int | None = None
         self.cluster_topics: list[dict] = []
+        self.inspect_topic_calls = 0
+        self.last_inspect_topic_id: int | None = None
+        self.topic_items: list[dict] = []
         self.close_stale_topics_calls = 0
         self.last_close_stale_topics_cutoff: datetime | None = None
         self.last_close_stale_topics_peer_id: str | None = None
@@ -194,6 +197,11 @@ class MockEidolon:
         self.inspect_cluster_calls += 1
         self.last_inspect_cluster_id = cluster_id
         return self.cluster_topics
+
+    def inspect_topic(self, topic_id: int) -> list[dict]:
+        self.inspect_topic_calls += 1
+        self.last_inspect_topic_id = topic_id
+        return self.topic_items
 
     def close_stale_topics(
         self,
@@ -447,11 +455,12 @@ class TestEidolonMemoryProvider:
 
     def test_get_tool_schemas(self, provider):
         schemas = provider.get_tool_schemas()
-        assert len(schemas) == 3
+        assert len(schemas) == 4
         names = [s["name"] for s in schemas]
         assert "eidolon_search" in names
         assert "eidolon_correct_fact" in names
         assert "eidolon_inspect_cluster" in names
+        assert "eidolon_inspect_topic" in names
         search_schema = next(s for s in schemas if s["name"] == "eidolon_search")
         assert "query" in search_schema["parameters"]["properties"]
         correct_schema = next(s for s in schemas if s["name"] == "eidolon_correct_fact")
@@ -459,6 +468,8 @@ class TestEidolonMemoryProvider:
         assert "value" in correct_schema["parameters"]["properties"]
         inspect_schema = next(s for s in schemas if s["name"] == "eidolon_inspect_cluster")
         assert inspect_schema["parameters"]["required"] == ["cluster_id"]
+        inspect_topic_schema = next(s for s in schemas if s["name"] == "eidolon_inspect_topic")
+        assert inspect_topic_schema["parameters"]["required"] == ["topic_id"]
 
     def test_handle_tool_call_search(self, provider):
         result = provider.handle_tool_call("eidolon_search", {"query": "test"})
@@ -540,6 +551,35 @@ class TestEidolonMemoryProvider:
         from adapters.hermes import EidolonMemoryProvider
         p = EidolonMemoryProvider()
         result = p.handle_tool_call("eidolon_inspect_cluster", {"cluster_id": 17})
+        assert "error" in json.loads(result)
+
+    def test_handle_inspect_topic_returns_memory_items(self, provider):
+        provider._eidolon.topic_items = [
+            {"content": "bike is blue", "item_type": "fact", "source_peer": "user", "subject_peer": "user"},
+            {"content": "user likes cycling", "item_type": "essence", "source_peer": "user", "subject_peer": "user"},
+        ]
+        result = provider.handle_tool_call("eidolon_inspect_topic", {"topic_id": 35})
+        assert provider._eidolon.inspect_topic_calls == 1
+        assert provider._eidolon.last_inspect_topic_id == 35
+        payload = json.loads(result)
+        assert payload["topic_id"] == 35
+        assert len(payload["memory_items"]) == 2
+        assert payload["memory_items"][0]["content"] == "bike is blue"
+
+    def test_handle_inspect_topic_missing_id_returns_error(self, provider):
+        result = provider.handle_tool_call("eidolon_inspect_topic", {})
+        assert provider._eidolon.inspect_topic_calls == 0
+        assert "error" in json.loads(result)
+
+    def test_handle_inspect_topic_non_integer_id_returns_error(self, provider):
+        result = provider.handle_tool_call("eidolon_inspect_topic", {"topic_id": "not-a-number"})
+        assert provider._eidolon.inspect_topic_calls == 0
+        assert "error" in json.loads(result)
+
+    def test_handle_inspect_topic_when_not_initialized(self):
+        from adapters.hermes import EidolonMemoryProvider
+        p = EidolonMemoryProvider()
+        result = p.handle_tool_call("eidolon_inspect_topic", {"topic_id": 35})
         assert "error" in json.loads(result)
 
     def test_on_session_switch_resets_topic(self, provider):

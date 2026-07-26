@@ -674,6 +674,23 @@ class Eidolon:
         """
         return self._storage.get_topics_by_cluster(cluster_id)
 
+    def inspect_topic(self, topic_id: int) -> list[dict]:
+        """Return every memory item extracted for `topic_id`, oldest first.
+
+        For explicit user-driven inspection (the `eidolon_inspect_topic`
+        tool) — mirrors `inspect_cluster`. A topic's injected summary is
+        deliberately compact; this gives the full memory-fragment
+        breakdown behind it on demand.
+        """
+        items = self._storage.get_memory_items_by_topic(topic_id)
+        return [
+            {
+                "content": i.content, "item_type": i.item_type,
+                "source_peer": i.source_peer, "subject_peer": i.subject_peer,
+            }
+            for i in items
+        ]
+
     # ── Internal Helpers ────────────────────────────────────
 
     def _get_topic_summary(self, topic_id: int | None) -> str | None:

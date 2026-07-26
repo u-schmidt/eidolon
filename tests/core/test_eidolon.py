@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from core import Eidolon
-from core.models import ContextBundle, EnvironmentSnapshot, Fact
+from core.models import ContextBundle, EnvironmentSnapshot, Fact, MemoryItem
 from tests.mocks import EidolonMockEmbedder as MockEmbedder
 from tests.mocks import EidolonMockLLM as MockLLM
 from tests.mocks import MockStorage, SpyTracer
@@ -67,8 +67,9 @@ class TestEidolon:
         eidolon = Eidolon(
             storage, llm, embedder,
             retrieval_limits={
-                "related_topics_new": 5, "related_topics_continue": 2,
-                "memory_items_new": 3, "memory_items_continue": 1,
+                "related_topics": 5,
+                "memory_items_fact": 3, "memory_items_surprise": 1,
+                "memory_items_feeling": 1, "memory_items_free": 2,
                 "recent_topics": 2, "cluster_summaries": 3, "cluster_recent_topics": 2,
                 "min_topic_messages": 2,
             },
@@ -95,8 +96,9 @@ class TestEidolon:
         eidolon = Eidolon(
             storage, llm, embedder,
             retrieval_limits={
-                "related_topics_new": 5, "related_topics_continue": 2,
-                "memory_items_new": 3, "memory_items_continue": 1,
+                "related_topics": 5,
+                "memory_items_fact": 3, "memory_items_surprise": 1,
+                "memory_items_feeling": 1, "memory_items_free": 1,
                 "recent_topics": 5, "cluster_summaries": 3, "cluster_recent_topics": 2,
                 "min_topic_messages": 2,
             },
@@ -999,3 +1001,28 @@ class TestInspectCluster:
         assert len(events) == 1
         assert events[0]["payload"]["action"] == "delete"
         assert events[0]["payload"]["value"] is None
+
+
+class TestInspectTopic:
+    def test_delegates_to_storage_get_memory_items_by_topic(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Bought a bike", peer_id="user")
+        storage.store_memory_item(MemoryItem(
+            content="bike is blue", item_type="fact",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            topic_id=tid,
+        ))
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        items = eidolon.inspect_topic(tid)
+
+        assert items == [{
+            "content": "bike is blue", "item_type": "fact",
+            "source_peer": "user", "subject_peer": "user",
+        }]
+
+    def test_empty_for_unknown_topic(self):
+        storage = MockStorage()
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        assert eidolon.inspect_topic(999) == []

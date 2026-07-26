@@ -6,7 +6,7 @@ but return deterministic/simulated responses. No external dependencies needed.
 
 from __future__ import annotations
 
-from core.models import Fact, MemoryItem
+from core.models import Fact, MemoryItem, MemoryItemBudget
 
 
 class MockLLM:
@@ -214,7 +214,7 @@ class MockStorage:
     def get_fact_items_since(self, subject_peer: str, since_item_id: int) -> list[MemoryItem]:
         return [
             item for item in self.stored_items
-            if item.item_type == "fact" and item.subject_peer == subject_peer
+            if item.subject_peer == subject_peer
             and item.id is not None and item.id > since_item_id
         ]
 
@@ -348,13 +348,17 @@ class MockStorage:
             "created_at": item.timestamp,
         }
 
-    def search_memory_items(self, query_embedding=None, peer_id=None, limit=5, weights=None,
+    def search_memory_items(self, query_embedding=None, peer_id=None, budget=None, weights=None,
                              tracer=None, request_id=None, now=None):
-        return self.memory_items[:limit]
+        budget = budget or MemoryItemBudget()
+        return self.memory_items[:budget.total]
 
     def get_memory_items_by_turn(self, turn_id: int) -> list[MemoryItem]:
         message_ids = {m["id"] for m in self.messages if m["turn_id"] == turn_id}
         return [item for item in self.stored_items if item.message_id in message_ids]
+
+    def get_memory_items_by_topic(self, topic_id: int) -> list[MemoryItem]:
+        return [item for item in self.stored_items if item.topic_id == topic_id]
 
     def store_message(self, turn_id, role, content, peer_id, topic_id=None, request_id=None):
         msg = {
@@ -426,8 +430,12 @@ class EidolonMockLLM:
         self.relabel_response = relabel_response
         self.consolidation_response = consolidation_response
         self.cluster_response = cluster_response
+        self.last_prompt: str | None = None
+        self.last_system: str | None = None
 
     def complete(self, prompt: str, system_prompt: str | None = None, max_tokens: int | None = None) -> str:
+        self.last_prompt = prompt
+        self.last_system = system_prompt
         sp = (system_prompt or "").lower()
         if "topic detection" in sp:
             return self.detection_response

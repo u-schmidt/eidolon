@@ -34,6 +34,13 @@ def _fact_item(content: str) -> MemoryItem:
     )
 
 
+def _essence_item(content: str) -> MemoryItem:
+    return MemoryItem(
+        content=content, item_type="essence",
+        source_peer="user", subject_peer="user", attribution_type="self_statement",
+    )
+
+
 class TestConsolidateNoOp:
     def test_no_llm_call_when_nothing_new(self, store: SqliteStore):
         class FailIfCalledLLM:
@@ -300,3 +307,15 @@ class TestConsolidatePrompt:
         FactConsolidator(store, llm).consolidate("user")
 
         assert "work: employer = Acme [user, importance=high]" in llm.last_prompt
+
+    def test_prompt_includes_non_fact_item_types(self, store: SqliteStore):
+        """item_type is unreliable at extraction time — a concrete fact is
+        often labeled "essence" instead (see get_fact_items_since's
+        docstring). Consolidation must see it anyway; its own LLM pass
+        judges durability, not the turn-level type label."""
+        store.store_memory_item(_essence_item("employer is a startup called Acme"))
+
+        llm = MockLLM('{"upserts": [], "deletes": []}')
+        FactConsolidator(store, llm).consolidate("user")
+
+        assert "employer is a startup called Acme" in llm.last_prompt

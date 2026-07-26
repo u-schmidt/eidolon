@@ -221,10 +221,11 @@ class EidolonMemoryProvider(MemoryProvider):
                     "temporal": config.retrieval.temporal,
                 },
                 retrieval_limits={
-                    "related_topics_new": config.retrieval.related_topics_new,
-                    "related_topics_continue": config.retrieval.related_topics_continue,
-                    "memory_items_new": config.retrieval.memory_items_new,
-                    "memory_items_continue": config.retrieval.memory_items_continue,
+                    "related_topics": config.retrieval.related_topics,
+                    "memory_items_fact": config.retrieval.memory_items_fact,
+                    "memory_items_surprise": config.retrieval.memory_items_surprise,
+                    "memory_items_feeling": config.retrieval.memory_items_feeling,
+                    "memory_items_free": config.retrieval.memory_items_free,
                     "recent_topics": config.retrieval.recent_topics,
                     "cluster_summaries": config.retrieval.cluster_summaries,
                     "cluster_recent_topics": config.retrieval.cluster_recent_topics,
@@ -494,6 +495,26 @@ class EidolonMemoryProvider(MemoryProvider):
                 },
             },
             {
+                "name": "eidolon_inspect_topic",
+                "description": (
+                    "Look inside a specific past topic (e.g. topic_id 35 from an "
+                    "eidolon_search result) to see every individual memory fragment "
+                    "extracted from it, not just the compact injected summary. Use "
+                    "this when the summary shown in memory context isn't detailed "
+                    "enough and you need the specific facts underneath."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "topic_id": {
+                            "type": "integer",
+                            "description": "The numeric topic id, e.g. from an eidolon_search result's related_topics.",
+                        },
+                    },
+                    "required": ["topic_id"],
+                },
+            },
+            {
                 "name": "eidolon_correct_fact",
                 "description": (
                     "Correct or remove one fact in the user's durable profile "
@@ -529,6 +550,8 @@ class EidolonMemoryProvider(MemoryProvider):
             return self._handle_search(args)
         if tool_name == "eidolon_inspect_cluster":
             return self._handle_inspect_cluster(args)
+        if tool_name == "eidolon_inspect_topic":
+            return self._handle_inspect_topic(args)
         if tool_name == "eidolon_correct_fact":
             return self._handle_correct_fact(args)
         raise NotImplementedError(
@@ -603,6 +626,35 @@ class EidolonMemoryProvider(MemoryProvider):
                             "closed_at": t.get("closed_at"),
                         }
                         for t in topics
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        except Exception as e:
+            return json.dumps({"error": f"Inspect failed: {e}"})
+
+    def _handle_inspect_topic(self, args: dict[str, Any]) -> str:
+        """Handle eidolon_inspect_topic tool call."""
+        if not self._eidolon or not self._initialized:
+            return json.dumps({"error": "Eidolon not initialized"})
+
+        topic_id = args.get("topic_id")
+        if not isinstance(topic_id, int):
+            return json.dumps({"error": "topic_id (integer) is required"})
+
+        try:
+            items = self._eidolon.inspect_topic(topic_id)
+            return json.dumps(
+                {
+                    "topic_id": topic_id,
+                    "memory_items": [
+                        {
+                            "content": i.get("content"),
+                            "item_type": i.get("item_type"),
+                            "source_peer": i.get("source_peer"),
+                            "subject_peer": i.get("subject_peer"),
+                        }
+                        for i in items
                     ],
                 },
                 ensure_ascii=False,

@@ -50,10 +50,11 @@ class TestEidolonConfig:
         assert config.models["llm"].provider == "simulated"
         assert config.models["embedder"].provider == "simulated"
         assert config.retrieval.semantic == 0.4
-        assert config.retrieval.related_topics_new == 6
-        assert config.retrieval.related_topics_continue == 3
-        assert config.retrieval.memory_items_new == 4
-        assert config.retrieval.memory_items_continue == 2
+        assert config.retrieval.related_topics == 5
+        assert config.retrieval.memory_items_fact == 4
+        assert config.retrieval.memory_items_surprise == 1
+        assert config.retrieval.memory_items_feeling == 1
+        assert config.retrieval.memory_items_free == 4
         assert config.retrieval.recent_topics == 5
         assert config.retrieval.cluster_summaries == 3
         assert config.retrieval.cluster_recent_topics == 2
@@ -129,8 +130,9 @@ class TestEidolonConfig:
             },
             retrieval=RetrievalConfig(
                 semantic=0.5, tag_overlap=0.3, person=0.1, temporal=0.1,
-                related_topics_new=9, related_topics_continue=4,
-                memory_items_new=5, memory_items_continue=3,
+                related_topics=9,
+                memory_items_fact=5, memory_items_surprise=2,
+                memory_items_feeling=2, memory_items_free=6,
             ),
             language="de",
             timezone="Europe/Berlin",
@@ -142,10 +144,11 @@ class TestEidolonConfig:
         assert config.models["embedder"].provider == "lm_studio"
         assert config.models["embedder"].model == "bge-m3"
         assert config.retrieval.semantic == 0.5
-        assert config.retrieval.related_topics_new == 9
-        assert config.retrieval.related_topics_continue == 4
-        assert config.retrieval.memory_items_new == 5
-        assert config.retrieval.memory_items_continue == 3
+        assert config.retrieval.related_topics == 9
+        assert config.retrieval.memory_items_fact == 5
+        assert config.retrieval.memory_items_surprise == 2
+        assert config.retrieval.memory_items_feeling == 2
+        assert config.retrieval.memory_items_free == 6
         assert config.language == "de"
         assert config.timezone == "Europe/Berlin"
 
@@ -198,8 +201,8 @@ models:
 retrieval:
   semantic: 0.5
   tag_overlap: 0.3
-  related_topics_new: 9
-  related_topics_continue: 4
+  related_topics: 9
+  memory_items_fact: 6
   min_topic_messages: 5
 language: de
 timezone: Europe/Berlin
@@ -220,8 +223,8 @@ timezone: Europe/Berlin
         assert config.models["embedder"].base_url == "http://10.0.0.5:1234"
         assert config.models["embedder"].model == "bge-m3"
         assert config.retrieval.semantic == 0.5
-        assert config.retrieval.related_topics_new == 9
-        assert config.retrieval.related_topics_continue == 4
+        assert config.retrieval.related_topics == 9
+        assert config.retrieval.memory_items_fact == 6
         assert config.retrieval.min_topic_messages == 5
         assert config.language == "de"
         assert config.timezone == "Europe/Berlin"
@@ -376,10 +379,11 @@ models:
         del os.environ["EIDOLON_RETRIEVAL_SEMANTIC"]
 
     def test_env_retrieval_limits(self):
-        os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_NEW"] = "9"
-        os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_CONTINUE"] = "4"
-        os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_NEW"] = "5"
-        os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_CONTINUE"] = "3"
+        os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS"] = "9"
+        os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_FACT"] = "5"
+        os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_SURPRISE"] = "2"
+        os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_FEELING"] = "2"
+        os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_FREE"] = "3"
         os.environ["EIDOLON_RETRIEVAL_RECENT_TOPICS"] = "1"
         os.environ["EIDOLON_RETRIEVAL_CLUSTER_SUMMARIES"] = "6"
         os.environ["EIDOLON_RETRIEVAL_CLUSTER_RECENT_TOPICS"] = "4"
@@ -387,19 +391,21 @@ models:
 
         config = ConfigLoader().load()
 
-        assert config.retrieval.related_topics_new == 9
-        assert config.retrieval.related_topics_continue == 4
-        assert config.retrieval.memory_items_new == 5
-        assert config.retrieval.memory_items_continue == 3
+        assert config.retrieval.related_topics == 9
+        assert config.retrieval.memory_items_fact == 5
+        assert config.retrieval.memory_items_surprise == 2
+        assert config.retrieval.memory_items_feeling == 2
+        assert config.retrieval.memory_items_free == 3
         assert config.retrieval.recent_topics == 1
         assert config.retrieval.cluster_summaries == 6
         assert config.retrieval.cluster_recent_topics == 4
         assert config.retrieval.min_topic_messages == 5
 
-        del os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_NEW"]
-        del os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS_CONTINUE"]
-        del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_NEW"]
-        del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_CONTINUE"]
+        del os.environ["EIDOLON_RETRIEVAL_RELATED_TOPICS"]
+        del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_FACT"]
+        del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_SURPRISE"]
+        del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_FEELING"]
+        del os.environ["EIDOLON_RETRIEVAL_MEMORY_ITEMS_FREE"]
         del os.environ["EIDOLON_RETRIEVAL_RECENT_TOPICS"]
         del os.environ["EIDOLON_RETRIEVAL_CLUSTER_SUMMARIES"]
         del os.environ["EIDOLON_RETRIEVAL_CLUSTER_RECENT_TOPICS"]
@@ -407,17 +413,19 @@ models:
 
     def test_cli_retrieval_limits(self):
         args = Namespace(
-            retrieval_related_topics_new=9, retrieval_related_topics_continue=4,
-            retrieval_memory_items_new=5, retrieval_memory_items_continue=3,
+            retrieval_related_topics=9,
+            retrieval_memory_items_fact=5, retrieval_memory_items_surprise=2,
+            retrieval_memory_items_feeling=2, retrieval_memory_items_free=3,
             retrieval_recent_topics=1, retrieval_cluster_summaries=6, retrieval_cluster_recent_topics=4,
             retrieval_min_topic_messages=5,
             storage_provider=None, storage_path=None,
         )
         config = ConfigLoader(cli_args=args).load()
-        assert config.retrieval.related_topics_new == 9
-        assert config.retrieval.related_topics_continue == 4
-        assert config.retrieval.memory_items_new == 5
-        assert config.retrieval.memory_items_continue == 3
+        assert config.retrieval.related_topics == 9
+        assert config.retrieval.memory_items_fact == 5
+        assert config.retrieval.memory_items_surprise == 2
+        assert config.retrieval.memory_items_feeling == 2
+        assert config.retrieval.memory_items_free == 3
         assert config.retrieval.recent_topics == 1
         assert config.retrieval.cluster_summaries == 6
         assert config.retrieval.cluster_recent_topics == 4

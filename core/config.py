@@ -114,10 +114,12 @@ class RetrievalConfig:
     tag_overlap: float = 0.3
     person: float = 0.2
     temporal: float = 0.1
-    related_topics_new: int = 6       # was hardcoded 5
-    related_topics_continue: int = 3  # was hardcoded 2
-    memory_items_new: int = 4         # was hardcoded 3
-    memory_items_continue: int = 2    # was hardcoded 1
+    related_topics: int = 5           # flat budget — no new/continue split (see
+                                       # AssociativeRetriever's docstring for why)
+    memory_items_fact: int = 4        # reserved memory-item slots per type — see
+    memory_items_surprise: int = 1    # MemoryItemBudget. "essence" gets no reserved
+    memory_items_feeling: int = 1     # tier (redundant with the always-shown topic
+    memory_items_free: int = 4        # summary); it only competes in the free pool.
     recent_topics: int = 5            # most-recently-closed topics, regardless of relevance —
                                        # NOT filtered by min_topic_messages below (see that field's
                                        # docstring): this surface is unconditional recency by design.
@@ -312,10 +314,11 @@ class EidolonConfig:
                 "tag_overlap": self.retrieval.tag_overlap,
                 "person": self.retrieval.person,
                 "temporal": self.retrieval.temporal,
-                "related_topics_new": self.retrieval.related_topics_new,
-                "related_topics_continue": self.retrieval.related_topics_continue,
-                "memory_items_new": self.retrieval.memory_items_new,
-                "memory_items_continue": self.retrieval.memory_items_continue,
+                "related_topics": self.retrieval.related_topics,
+                "memory_items_fact": self.retrieval.memory_items_fact,
+                "memory_items_surprise": self.retrieval.memory_items_surprise,
+                "memory_items_feeling": self.retrieval.memory_items_feeling,
+                "memory_items_free": self.retrieval.memory_items_free,
                 "recent_topics": self.retrieval.recent_topics,
                 "cluster_summaries": self.retrieval.cluster_summaries,
                 "cluster_recent_topics": self.retrieval.cluster_recent_topics,

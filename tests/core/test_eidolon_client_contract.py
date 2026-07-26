@@ -22,7 +22,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from core import Eidolon
-from core.models import EnvironmentSnapshot, Fact
+from core.models import EnvironmentSnapshot, Fact, MemoryItem
 from tests.mocks import EidolonMockEmbedder, EidolonMockLLM, MockStorage
 
 
@@ -198,3 +198,26 @@ class TestInspectCluster:
         eidolon, _ = _make_eidolon()
         client = make_eidolon_client(eidolon)
         assert client.inspect_cluster(999) == []
+
+
+class TestInspectTopic:
+    def test_returns_memory_items(self, make_eidolon_client):
+        eidolon, storage = _make_eidolon()
+        client = make_eidolon_client(eidolon)
+        tid = storage.create_topic("Considering a bike", peer_id="user")
+        storage.store_memory_item(MemoryItem(
+            content="bike is blue", item_type="fact",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            topic_id=tid,
+        ))
+
+        items = client.inspect_topic(tid)
+
+        assert len(items) == 1
+        assert items[0]["content"] == "bike is blue"
+        assert items[0]["item_type"] == "fact"
+
+    def test_empty_for_unknown_topic(self, make_eidolon_client):
+        eidolon, _ = _make_eidolon()
+        client = make_eidolon_client(eidolon)
+        assert client.inspect_topic(999) == []

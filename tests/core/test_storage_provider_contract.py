@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 import pytest
 
 from core.interfaces import StorageProvider
-from core.models import Fact, MemoryItem
+from core.models import Fact, MemoryItem, MemoryItemBudget
 from tests.mocks import SpyTracer
 
 
@@ -87,7 +87,7 @@ class TestFactsConsolidation:
         assert store.count_user_turns("user") == 2
         assert store.count_user_turns("someone_else") == 0
 
-    def test_get_fact_items_since_filters_by_type_subject_and_id(self, store: StorageProvider):
+    def test_get_fact_items_since_filters_by_subject_and_id_not_type(self, store: StorageProvider):
         fact_item = MemoryItem(
             content="likes cats", item_type="fact",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
@@ -101,14 +101,19 @@ class TestFactsConsolidation:
             source_peer="ai", subject_peer="ai", attribution_type="ai_about_self",
         )
         fact_id = store.store_memory_item(fact_item)
-        store.store_memory_item(essence_item)
+        essence_id = store.store_memory_item(essence_item)
         store.store_memory_item(other_subject_item)
 
+        # Every item_type comes back — only subject_peer/id gate. A concrete
+        # fact is often mislabeled "essence" at extraction time (see
+        # get_fact_items_since's docstring); filtering by type here would
+        # permanently exclude it from ever reaching fact consolidation.
         results = store.get_fact_items_since("user", 0)
-        assert [r.content for r in results] == ["likes cats"]
-        assert results[0].id == fact_id
+        assert [r.content for r in results] == ["likes cats", "chatted about weather"]
+        assert [r.id for r in results] == [fact_id, essence_id]
 
-        assert store.get_fact_items_since("user", fact_id) == []
+        assert [r.content for r in store.get_fact_items_since("user", fact_id)] == ["chatted about weather"]
+        assert store.get_fact_items_since("user", essence_id) == []
 
     def test_consolidation_checkpoint_defaults_to_zero(self, store: StorageProvider):
         assert store.get_consolidation_checkpoint("user") == 0
@@ -910,7 +915,9 @@ class TestMemoryItems:
 
         tracer = SpyTracer()
         results = store.search_memory_items(
-            peer_id="user", query_embedding=[1.0, 0.0, 0.0], limit=1, tracer=tracer, request_id="req1"
+            peer_id="user", query_embedding=[1.0, 0.0, 0.0],
+            budget=MemoryItemBudget(fact=0, surprise=0, feeling=0, free=1),
+            tracer=tracer, request_id="req1",
         )
 
         assert len(results) == 1
@@ -934,6 +941,72 @@ class TestMemoryItems:
         ))
         results = store.search_memory_items(peer_id="user", query_embedding=[1.0, 0.0, 0.0])
         assert len(results) == 1
+
+
+class TestSearchMemoryItemsTieredBudget:
+    def test_reserved_type_wins_over_higher_scored_free_candidate(self, store: StorageProvider):
+        """A fact-typed candidate with a much lower score than an
+        essence-typed one still gets its reserved slot — tiers aren't a
+        single blind top-K across all types."""
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        fact_id = store.store_memory_item(MemoryItem(
+            content="fact", item_type="fact", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", message_id=msg_id, embedding=[0.1, 1.0, 0.0],
+        ))
+        essence_id = store.store_memory_item(MemoryItem(
+            content="essence", item_type="essence", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", message_id=msg_id, embedding=[1.0, 0.0, 0.0],
+        ))
+
+        results = store.search_memory_items(
+            peer_id="user", query_embedding=[1.0, 0.0, 0.0],
+            budget=MemoryItemBudget(fact=1, surprise=0, feeling=0, free=1),
+        )
+
+        assert {item.id for item in results} == {fact_id, essence_id}
+
+    def test_exhausted_reservation_rolls_into_free_pool_not_dropped(self, store: StorageProvider):
+        """No surprise-type items exist for this peer — that reserved slot
+        must not just vanish; the total returned count stays the same,
+        with an extra essence item filling the rolled-over free slot."""
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        first_id = store.store_memory_item(MemoryItem(
+            content="essence one", item_type="essence", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", message_id=msg_id, embedding=[1.0, 0.0, 0.0],
+        ))
+        second_id = store.store_memory_item(MemoryItem(
+            content="essence two", item_type="essence", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", message_id=msg_id, embedding=[0.9, 0.1, 0.0],
+        ))
+
+        results = store.search_memory_items(
+            peer_id="user", query_embedding=[1.0, 0.0, 0.0],
+            budget=MemoryItemBudget(fact=0, surprise=1, feeling=0, free=1),
+        )
+
+        assert {item.id for item in results} == {first_id, second_id}
+
+    def test_rare_type_item_far_from_query_still_included_when_reserved(self, store: StorageProvider):
+        """A surprise-typed item semantically distant from the query must
+        still surface when the budget reserves a slot for it, even with
+        many closer fact/essence candidates competing for attention."""
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        for i in range(10):
+            store.store_memory_item(MemoryItem(
+                content=f"near fact {i}", item_type="fact", source_peer="user", subject_peer="user",
+                attribution_type="self_statement", message_id=msg_id, embedding=[1.0, 0.0, 0.0],
+            ))
+        surprise_id = store.store_memory_item(MemoryItem(
+            content="far surprise", item_type="surprise", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", message_id=msg_id, embedding=[0.05, 1.0, 0.0],
+        ))
+
+        results = store.search_memory_items(
+            peer_id="user", query_embedding=[1.0, 0.0, 0.0],
+            budget=MemoryItemBudget(fact=0, surprise=1, feeling=0, free=0),
+        )
+
+        assert [item.id for item in results] == [surprise_id]
 
 
 class TestMemoryItemsByTurn:
@@ -1005,6 +1078,53 @@ class TestMemoryItemsByTurn:
         results = store.get_memory_items_by_turn(1)
 
         assert results[0].embedding is None
+
+
+class TestMemoryItemsByTopic:
+    def test_returns_only_items_from_the_given_topic(self, store: StorageProvider):
+        t1 = store.create_topic("First", summary="", peer_id="user")
+        t2 = store.create_topic("Second", summary="", peer_id="user")
+
+        first = MemoryItem(
+            content="fact about topic 1", item_type="fact",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            topic_id=t1,
+        )
+        second = MemoryItem(
+            content="essence of topic 1", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            topic_id=t1,
+        )
+        other_topic = MemoryItem(
+            content="fact about topic 2", item_type="fact",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            topic_id=t2,
+        )
+        store.store_memory_item(first)
+        store.store_memory_item(second)
+        store.store_memory_item(other_topic)
+
+        results = store.get_memory_items_by_topic(t1)
+
+        assert [item.content for item in results] == ["fact about topic 1", "essence of topic 1"]
+
+    def test_ordered_oldest_first(self, store: StorageProvider):
+        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        for content in ("third", "first", "second"):
+            store.store_memory_item(MemoryItem(
+                content=content, item_type="essence",
+                source_peer="user", subject_peer="user", attribution_type="self_statement",
+                topic_id=topic_id,
+            ))
+
+        results = store.get_memory_items_by_topic(topic_id)
+
+        assert [item.content for item in results] == ["third", "first", "second"]
+        assert results[0].id < results[1].id < results[2].id
+
+    def test_empty_when_topic_has_no_items(self, store: StorageProvider):
+        topic_id = store.create_topic("Empty", summary="", peer_id="user")
+        assert store.get_memory_items_by_topic(topic_id) == []
 
 
 class TestScoreBreakdownCharacterization:

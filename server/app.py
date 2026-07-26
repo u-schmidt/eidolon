@@ -170,6 +170,10 @@ def create_app(
     def inspect_cluster(cluster_id: int = Body(..., embed=True)) -> list[dict]:
         return eidolon.inspect_cluster(cluster_id)
 
+    @rpc.post("/inspect-topic", response_model=list[dict])
+    def inspect_topic(topic_id: int = Body(..., embed=True)) -> list[dict]:
+        return eidolon.inspect_topic(topic_id)
+
     app.include_router(rpc)
 
     if turn_reader is not None and performance_reader is not None:

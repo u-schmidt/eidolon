@@ -115,19 +115,23 @@ models:
 # ── Retrieval Weights + Result Counts ───────────────────────
 # Weights: how much each dimension contributes to associative search
 # scores. Values should sum to 1.0 for predictable behavior.
-# Limits: how many related topics / memory items to inject per turn —
-# "new" applies on a NEW_TOPIC turn (more context to catch up), "continue"
-# applies on a CONTINUE turn. Summaries are short/dense, so a modest
-# increase is cheap in tokens.
+# Limits: how many related topics / memory items to inject per turn.
+# Memory items use a per-item-type reserved budget instead of a flat count
+# (see MemoryItemBudget) — "fact"/"surprise"/"feeling" each get their own
+# guaranteed slots, plus a "free" pool open to any type (including
+# "essence", which gets no reserved tier since it's redundant with the
+# topic summary already shown for free). Summaries are short/dense, so a
+# modest increase is cheap in tokens.
 retrieval:
   semantic: 0.4              # Embedding vector similarity weight
   tag_overlap: 0.3           # Shared topic tags weight
   person: 0.2                # Same peer/speaker weight
   temporal: 0.1              # Temporal closeness weight
-  related_topics_new: 6      # Related topics injected on a NEW_TOPIC turn
-  related_topics_continue: 3 # Related topics injected on a CONTINUE turn
-  memory_items_new: 4        # Memory items injected on a NEW_TOPIC turn
-  memory_items_continue: 2   # Memory items injected on a CONTINUE turn
+  related_topics: 5          # Related topics injected per turn
+  memory_items_fact: 4       # Reserved memory-item slots for item_type=fact
+  memory_items_surprise: 1   # Reserved memory-item slots for item_type=surprise
+  memory_items_feeling: 1    # Reserved memory-item slots for item_type=feeling
+  memory_items_free: 4       # Free memory-item slots open to any item_type
   recent_topics: 5           # Most-recently-closed topics injected regardless of relevance,
                               # excluding anything already surfaced above as a related topic —
                               # never filtered by min_topic_messages below (unconditional recency)

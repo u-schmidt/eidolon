@@ -7,6 +7,7 @@ storage/LLM/embedder behavior the Eidolon facade sees.
 
 from __future__ import annotations
 
+from core.models import MemoryItem
 from core.summarization.topic_summarizer import (
     TopicSummarizer,
     _parse_summary_response,
@@ -246,3 +247,64 @@ class TestSummarize:
         assert metrics.embedding_calls[0]["succeeded"] is True
         assert metrics.embedding_calls[0]["entity_type"] == "topic"
         assert metrics.embedding_calls[0]["entity_id"] == str(tid)
+
+
+class TestSummaryPromptSources:
+    """memory_items are the primary summarization source (full, untruncated
+    — items are already short fragments); the raw transcript is a secondary
+    fallback, capped, present specifically to catch turns extraction
+    produced nothing for."""
+
+    def test_long_memory_item_content_is_not_truncated(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Story", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="short message", peer_id="user", topic_id=tid)
+        long_content = "A" * 800  # longer than any message-preview cap
+        storage.store_memory_item(MemoryItem(
+            content=long_content, item_type="fact",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            topic_id=tid,
+        ))
+        llm = MockLLM(summary_response="Summary: x\nTags: y")
+        embedder = MockEmbedder()
+
+        _summarizer(storage, llm, embedder).summarize(tid)
+
+        assert long_content in llm.last_prompt
+
+    def test_message_with_no_extracted_items_still_contributes_raw_content(self):
+        """A turn extraction produced nothing for (0 items — e.g. a failed
+        extraction call) must still be represented via the raw-transcript
+        fallback, not silently absent from the summary entirely."""
+        storage = MockStorage()
+        tid = storage.create_topic("Story", peer_id="user")
+        storage.store_message(
+            turn_id=1, role="user", content="a message with no extracted fragments",
+            peer_id="user", topic_id=tid,
+        )
+        # No memory_item stored for this topic at all.
+        llm = MockLLM(summary_response="Summary: x\nTags: y")
+        embedder = MockEmbedder()
+
+        _summarizer(storage, llm, embedder).summarize(tid)
+
+        assert "a message with no extracted fragments" in llm.last_prompt
+
+    def test_prompt_contains_both_blocks_primary_before_secondary(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Story", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="raw message text", peer_id="user", topic_id=tid)
+        storage.store_memory_item(MemoryItem(
+            content="extracted fragment text", item_type="fact",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+            topic_id=tid,
+        ))
+        llm = MockLLM(summary_response="Summary: x\nTags: y")
+        embedder = MockEmbedder()
+
+        _summarizer(storage, llm, embedder).summarize(tid)
+
+        prompt = llm.last_prompt
+        assert "extracted fragment text" in prompt
+        assert "raw message text" in prompt
+        assert prompt.index("extracted fragment text") < prompt.index("raw message text")

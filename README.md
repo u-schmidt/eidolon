@@ -275,12 +275,13 @@ models:
     model: text-embedding-bge-m3
 
 retrieval:
-  related_topics_new: 6       # Related topics injected on a NEW_TOPIC turn (default: 6)
-  related_topics_continue: 3  # Related topics injected on a CONTINUE turn (default: 3)
-  memory_items_new: 4         # Memory items injected on a NEW_TOPIC turn (default: 4)
-  memory_items_continue: 2    # Memory items injected on a CONTINUE turn (default: 2)
+  related_topics: 5           # Related topics injected per turn (default: 5)
+  memory_items_fact: 4        # Reserved memory-item slots for item_type=fact (default: 4)
+  memory_items_surprise: 1    # Reserved memory-item slots for item_type=surprise (default: 1)
+  memory_items_feeling: 1     # Reserved memory-item slots for item_type=feeling (default: 1)
+  memory_items_free: 4        # Free memory-item slots open to any item_type (default: 4)
   recent_topics: 5            # Most-recently-closed topics injected regardless of relevance,
-                              # excluding duplicates of related_topics_* above (default: 5) — never
+                              # excluding duplicates of related_topics above (default: 5) — never
                               # filtered by min_topic_messages below, by design
   min_topic_messages: 3       # Soft-hide topics at/below this message count from related-topic
                               # search only, not recent_topics — "mini-topics" like one-off asides

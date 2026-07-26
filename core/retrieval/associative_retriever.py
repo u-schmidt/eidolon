@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 from core.interfaces import EmbedderProvider, MetricsRecorder, StorageProvider, Tracer
 from core.metrics.null_metrics_recorder import NullMetricsRecorder
-from core.models import ClusterSummary, ContextBundle, EnvironmentSnapshot, RelatedTopic
+from core.models import ClusterSummary, ContextBundle, EnvironmentSnapshot, MemoryItemBudget, RelatedTopic
 from core.stop_words import get_stop_words
 from core.trace.null_tracer import NullTracer
 
@@ -39,11 +39,12 @@ class AssociativeRetriever:
         Language code for stop word filtering (default: "en").
         Prompts to the LLM are always in English regardless of this setting.
     limits : dict | None
-        Optional result-count overrides, keyed by "related_topics_new",
-        "related_topics_continue", "memory_items_new", "memory_items_continue",
-        "recent_topics", "cluster_summaries", "cluster_recent_topics",
-        "min_topic_messages". Defaults: 5/2 for topics, 3/1 for items
-        (new-topic/continue), 5 for recent_topics, 3 for
+        Optional result-count overrides, keyed by "related_topics",
+        "memory_items_fact", "memory_items_surprise", "memory_items_feeling",
+        "memory_items_free", "recent_topics", "cluster_summaries",
+        "cluster_recent_topics", "min_topic_messages". Defaults: 5 for
+        topics, 4/1/1/4 for the memory-item tiers (fact/surprise/feeling/
+        free — see `MemoryItemBudget`), 5 for recent_topics, 3 for
         cluster_summaries, 2 for cluster_recent_topics, -1 (no
         filtering) for min_topic_messages. A caller passing its own
         dict here should include this key explicitly (see
@@ -52,6 +53,10 @@ class AssociativeRetriever:
         ``min_topic_messages`` is applied to the relevance-scored
         related-topics search only, never to ``recent_topics`` — that
         surface is unconditional recency by design (see step 4b below).
+        Unlike the older `_new`/`_continue` split this replaced, a single
+        flat budget is used regardless of whether the turn is a new topic
+        or a continuation — most of what's surfaced comes from other
+        topics/history either way, so the distinction bought little.
     tracer : Tracer | None
         Debug tracer recording the retrieval summary and (when the storage
         backend supports it) per-candidate score breakdowns. Defaults to a
@@ -80,10 +85,11 @@ class AssociativeRetriever:
             "temporal": 0.1,
         }
         self._limits = limits or {
-            "related_topics_new": 5,
-            "related_topics_continue": 2,
-            "memory_items_new": 3,
-            "memory_items_continue": 1,
+            "related_topics": 5,
+            "memory_items_fact": 4,
+            "memory_items_surprise": 1,
+            "memory_items_feeling": 1,
+            "memory_items_free": 4,
             "recent_topics": 5,
             "cluster_summaries": 3,
             "cluster_recent_topics": 2,
@@ -172,9 +178,7 @@ class AssociativeRetriever:
         now = environment.time or datetime.now(UTC)
 
         # 4. Search topics
-        topic_limit = (
-            self._limits["related_topics_new"] if is_new_topic else self._limits["related_topics_continue"]
-        )
+        topic_limit = self._limits.get("related_topics", 5)
         topic_results = self._storage.search_topics(
             query_embedding=query_embedding,
             tags=tags,
@@ -225,13 +229,16 @@ class AssociativeRetriever:
         ][:recent_limit]
 
         # 5. Search memory items
-        memory_limit = (
-            self._limits["memory_items_new"] if is_new_topic else self._limits["memory_items_continue"]
+        memory_budget = MemoryItemBudget(
+            fact=self._limits.get("memory_items_fact", 4),
+            surprise=self._limits.get("memory_items_surprise", 1),
+            feeling=self._limits.get("memory_items_feeling", 1),
+            free=self._limits.get("memory_items_free", 4),
         )
         memory_items = self._storage.search_memory_items(
             query_embedding=query_embedding,
             peer_id=peer_id,
-            limit=memory_limit,
+            budget=memory_budget,
             weights=self._weights,
             tracer=self._tracer,
             request_id=request_id,

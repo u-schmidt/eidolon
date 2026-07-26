@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from core.models import Fact, MemoryItem
+from core.models import Fact, MemoryItem, MemoryItemBudget
 
 
 class StorageProvider(Protocol):
@@ -65,11 +65,18 @@ class StorageProvider(Protocol):
         ...
 
     def get_fact_items_since(self, subject_peer: str, since_item_id: int) -> list[MemoryItem]:
-        """Return fact-type memory items about ``subject_peer`` with
-        id > ``since_item_id``, ordered oldest-first.
+        """Return every memory item about ``subject_peer`` (any item_type)
+        with id > ``since_item_id``, ordered oldest-first.
 
         Bounds the window for the next facts-consolidation pass — see
-        ``core/consolidation/fact_consolidator.py``.
+        ``core/consolidation/fact_consolidator.py``. Deliberately not
+        filtered to item_type == "fact": that turn-level label is decided
+        per-turn with no cross-turn context and is empirically unreliable
+        (a concrete fact is often labeled "essence" instead), so filtering
+        on it here would permanently exclude mislabeled facts from ever
+        reaching the profile. FactConsolidator's own LLM pass already
+        judges durability from each item's content, so it doesn't need
+        item_type to have already done that filtering for it.
         """
         ...
 
@@ -350,7 +357,7 @@ class StorageProvider(Protocol):
         self,
         query_embedding: list[float] | None = None,
         peer_id: str | None = None,
-        limit: int = 5,
+        budget: MemoryItemBudget | None = None,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
         request_id: str | None = None,
@@ -365,6 +372,17 @@ class StorageProvider(Protocol):
         scoring dimension here (unlike ``search_topics``) — peer-scoping
         is a hard prerequisite via the join, not a ranking signal.
 
+        ``budget`` (defaults to ``MemoryItemBudget()``) replaces a flat
+        result-count limit with a per-item-type reserved budget — see
+        ``MemoryItemBudget`` and ``RetrievalScorer.finalize_tiered``.
+        ``fact``/``surprise``/``feeling`` each fill from their own
+        embedding-similarity-ranked candidate pool; ``surprise``/
+        ``feeling`` additionally get an un-prefiltered fetch scoped to
+        just those two types (bypassing the vector-index KNN prefilter),
+        since they're rare enough that a flat top-K-by-similarity prefilter
+        could otherwise exclude every candidate of that type before
+        type-aware selection ever runs.
+
         ``weights`` overrides the per-dimension scoring weights when
         provided. ``tag_overlap`` has no effect (memory items carry no
         tags); ``temporal`` is a recency *re-ranking* signal over already-
@@ -372,7 +390,7 @@ class StorageProvider(Protocol):
         time for the decay (defaults to the current UTC time).
 
         When ``tracer`` is given, one ``retrieval_scoring_summary`` event
-        is recorded for the whole call — see ``search_topics``.
+        is recorded for the whole call — see ``RetrievalScorer.finalize_tiered``.
         """
         ...
 
@@ -384,6 +402,15 @@ class StorageProvider(Protocol):
         ``embedding`` is populated from storage, so callers that need it
         (e.g. comparing against a freshly embedded query) don't have to
         re-embed the content themselves.
+        """
+        ...
+
+    def get_memory_items_by_topic(self, topic_id: int) -> list[MemoryItem]:
+        """Return every memory item extracted for ``topic_id``, oldest first.
+
+        No join needed — memory items carry their own ``topic_id`` column,
+        set at extraction time. Feeds both ``TopicSummarizer``'s primary
+        summarization input and the ``eidolon_inspect_topic`` tool.
         """
         ...
 

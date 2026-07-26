@@ -7,6 +7,7 @@ from core.models import (
     EnvironmentSnapshot,
     Fact,
     MemoryItem,
+    MemoryItemBudget,
 )
 from core.retrieval.associative_retriever import AssociativeRetriever
 from tests.mocks import SpyMetricsRecorder, SpyTracer
@@ -110,7 +111,7 @@ class MockStorage:
         self,
         query_embedding: list[float] | None = None,
         peer_id: str | None = None,
-        limit: int = 5,
+        budget: MemoryItemBudget | None = None,
         weights: dict[str, float] | None = None,
         tracer=None,
         request_id: str | None = None,
@@ -120,7 +121,9 @@ class MockStorage:
         self.last_tracer = tracer
         self.last_request_id = request_id
         self.last_now = now
-        return self.memory_items[:limit]
+        self.last_memory_budget = budget
+        budget = budget or MemoryItemBudget()
+        return self.memory_items[:budget.total]
 
 
 class MockEmbedder:
@@ -170,7 +173,8 @@ class TestAssociativeRetriever:
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder)
 
-        # NEW_TOPIC: should request up to related_topics_new (default 6)
+        # Fewer candidates than the flat related_topics default (5) —
+        # all of them come back regardless of is_new_topic.
         bundle = retriever.retrieve(
             message="Lass uns über Bello sprechen",
             peer_id="user",
@@ -197,32 +201,11 @@ class TestAssociativeRetriever:
         )
         assert bundle.related_topics[0].label == "Bello"
 
-    def test_retrieve_continue_returns_fewer_results(self):
-        storage = MockStorage()
-        storage.topics = [
-            {"id": 1, "label": "Bello", "summary": "About Bello", "tags": ["bello", "fitness"]},
-            {"id": 2, "label": "Mampfi", "summary": "About Mampfi", "tags": ["mampfi", "shopping"]},
-            {"id": 3, "label": "Fitness", "summary": "Fitness talk", "tags": ["fitness", "health"]},
-        ]
-        embedder = MockEmbedder()
-        retriever = AssociativeRetriever(storage, embedder)
-
-        # CONTINUE: AssociativeRetriever's own built-in default (unrelated
-        # to RetrievalConfig's higher default) stays at 2 for backward
-        # compatibility with callers that construct it without `limits=`.
-        bundle = retriever.retrieve(
-            message="jep, mach weiter",
-            peer_id="user",
-            environment=EnvironmentSnapshot(),
-            topic_label=None,
-            is_new_topic=False,
-        )
-        assert len(bundle.related_topics) == 2  # limited to 2
-
-    def test_retrieve_continue_limit_actually_applied(self):
-        """With more candidates than the built-in CONTINUE limit, the limit
-        must actually cut the result count — not just happen to match the
-        candidate count, which the test above alone wouldn't catch."""
+    def test_retrieve_related_topics_limit_same_regardless_of_new_topic(self):
+        """The old related_topics_new/_continue split is gone — a single
+        flat budget applies whether or not this is a NEW_TOPIC turn (see
+        AssociativeRetriever's docstring for why: most of what's surfaced
+        comes from other topics/history either way)."""
         storage = MockStorage()
         storage.topics = [
             {"id": i, "label": f"Topic {i}", "summary": f"Summary {i}", "tags": []}
@@ -231,14 +214,16 @@ class TestAssociativeRetriever:
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder)
 
-        bundle = retriever.retrieve(
-            message="jep, mach weiter",
-            peer_id="user",
-            environment=EnvironmentSnapshot(),
-            topic_label=None,
-            is_new_topic=False,
+        new_bundle = retriever.retrieve(
+            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
         )
-        assert len(bundle.related_topics) == 2  # built-in default related_topics_continue
+        continue_bundle = retriever.retrieve(
+            message="jep, mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            topic_label=None, is_new_topic=False,
+        )
+        assert len(new_bundle.related_topics) == 5  # built-in default related_topics
+        assert len(continue_bundle.related_topics) == 5
 
     def test_custom_limits_override_related_topics(self):
         storage = MockStorage()
@@ -248,8 +233,9 @@ class TestAssociativeRetriever:
         ]
         embedder = MockEmbedder()
         limits = {
-            "related_topics_new": 8, "related_topics_continue": 4,
-            "memory_items_new": 3, "memory_items_continue": 1,
+            "related_topics": 8,
+            "memory_items_fact": 1, "memory_items_surprise": 0,
+            "memory_items_feeling": 0, "memory_items_free": 2,
         }
         retriever = AssociativeRetriever(storage, embedder, limits=limits)
 
@@ -263,7 +249,7 @@ class TestAssociativeRetriever:
             message="hi", peer_id="user", environment=EnvironmentSnapshot(),
             topic_label=None, is_new_topic=False,
         )
-        assert len(continue_bundle.related_topics) == 4
+        assert len(continue_bundle.related_topics) == 8  # same flat budget either way
 
     def test_custom_limits_override_memory_items(self):
         storage = MockStorage()
@@ -274,22 +260,20 @@ class TestAssociativeRetriever:
         ]
         embedder = MockEmbedder()
         limits = {
-            "related_topics_new": 5, "related_topics_continue": 2,
-            "memory_items_new": 7, "memory_items_continue": 5,
+            "related_topics": 5,
+            "memory_items_fact": 4, "memory_items_surprise": 1,
+            "memory_items_feeling": 1, "memory_items_free": 3,
         }
         retriever = AssociativeRetriever(storage, embedder, limits=limits)
 
-        new_bundle = retriever.retrieve(
+        bundle = retriever.retrieve(
             message="hi", peer_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
-        assert len(new_bundle.memory_items) == 7
-
-        continue_bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
-            topic_label=None, is_new_topic=False,
-        )
-        assert len(continue_bundle.memory_items) == 5
+        # total budget (4+1+1+3=9) threads through into a MemoryItemBudget
+        # passed to search_memory_items, same regardless of is_new_topic.
+        assert len(bundle.memory_items) == 9
+        assert storage.last_memory_budget == MemoryItemBudget(fact=4, surprise=1, feeling=1, free=3)
 
     def test_retrieve_with_memory_items(self):
         storage = MockStorage()
@@ -633,8 +617,9 @@ class TestAssociativeRetrieverMinTopicMessages:
         storage = MockStorage()
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder, limits={
-            "related_topics_new": 5, "related_topics_continue": 2,
-            "memory_items_new": 3, "memory_items_continue": 1,
+            "related_topics": 5,
+            "memory_items_fact": 3, "memory_items_surprise": 1,
+            "memory_items_feeling": 1, "memory_items_free": 1,
             "recent_topics": 2, "cluster_summaries": 3, "cluster_recent_topics": 2,
             "min_topic_messages": 4,
         })
@@ -654,8 +639,9 @@ class TestAssociativeRetrieverMinTopicMessages:
         storage = MockStorage()
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder, limits={
-            "related_topics_new": 5, "related_topics_continue": 2,
-            "memory_items_new": 3, "memory_items_continue": 1,
+            "related_topics": 5,
+            "memory_items_fact": 3, "memory_items_surprise": 1,
+            "memory_items_feeling": 1, "memory_items_free": 1,
             "recent_topics": 2, "cluster_summaries": 3, "cluster_recent_topics": 2,
         })
 
@@ -714,8 +700,9 @@ class TestAssociativeRetrieverRecentTopics:
         ]
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder, limits={
-            "related_topics_new": 5, "related_topics_continue": 2,
-            "memory_items_new": 3, "memory_items_continue": 1,
+            "related_topics": 5,
+            "memory_items_fact": 3, "memory_items_surprise": 1,
+            "memory_items_feeling": 1, "memory_items_free": 1,
             "recent_topics": 2,
         })
 
@@ -736,8 +723,9 @@ class TestAssociativeRetrieverRecentTopics:
         ]
         embedder = MockEmbedder()
         limits = {
-            "related_topics_new": 5, "related_topics_continue": 2,
-            "memory_items_new": 3, "memory_items_continue": 1,
+            "related_topics": 5,
+            "memory_items_fact": 3, "memory_items_surprise": 1,
+            "memory_items_feeling": 1, "memory_items_free": 1,
         }
         retriever = AssociativeRetriever(storage, embedder, limits=limits)
 
@@ -823,8 +811,9 @@ class TestAssociativeRetrieverClusters:
         ]
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder, limits={
-            "related_topics_new": 5, "related_topics_continue": 2,
-            "memory_items_new": 3, "memory_items_continue": 1,
+            "related_topics": 5,
+            "memory_items_fact": 3, "memory_items_surprise": 1,
+            "memory_items_feeling": 1, "memory_items_free": 1,
             "recent_topics": 2, "cluster_summaries": 2, "cluster_recent_topics": 2,
         })
 
@@ -843,8 +832,9 @@ class TestAssociativeRetrieverClusters:
         ]
         embedder = MockEmbedder()
         limits = {
-            "related_topics_new": 5, "related_topics_continue": 2,
-            "memory_items_new": 3, "memory_items_continue": 1,
+            "related_topics": 5,
+            "memory_items_fact": 3, "memory_items_surprise": 1,
+            "memory_items_feeling": 1, "memory_items_free": 1,
         }
         retriever = AssociativeRetriever(storage, embedder, limits=limits)
 

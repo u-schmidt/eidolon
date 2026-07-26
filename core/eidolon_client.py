@@ -121,3 +121,7 @@ class EidolonClient(Protocol):
     def inspect_cluster(self, cluster_id: int) -> list[dict]:
         """Return every topic assigned to `cluster_id`, oldest first."""
         ...
+
+    def inspect_topic(self, topic_id: int) -> list[dict]:
+        """Return every memory item extracted for `topic_id`, oldest first."""
+        ...

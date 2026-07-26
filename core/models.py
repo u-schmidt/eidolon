@@ -56,6 +56,28 @@ class MemoryItem:
 
 
 @dataclass
+class MemoryItemBudget:
+    """Per-item-type slot budget for one ``search_memory_items`` call.
+
+    Reserved slots per type, plus a free pool open to any type (including
+    types with no reservation, e.g. "essence" — it's redundant with the
+    always-shown topic summary, so it only competes for free slots). An
+    empty/exhausted reserved tier's leftover capacity rolls into the free
+    pool rather than going unused — see
+    ``RetrievalScorer.finalize_tiered``.
+    """
+
+    fact: int = 4
+    surprise: int = 1
+    feeling: int = 1
+    free: int = 4
+
+    @property
+    def total(self) -> int:
+        return self.fact + self.surprise + self.feeling + self.free
+
+
+@dataclass
 class RelatedTopic:
     """A past topic related to the current conversation."""
 

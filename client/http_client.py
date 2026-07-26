@@ -166,3 +166,6 @@ class EidolonHttpClient:
 
     def inspect_cluster(self, cluster_id: int) -> list[dict]:
         return self._call("/inspect-cluster", {"cluster_id": cluster_id})
+
+    def inspect_topic(self, topic_id: int) -> list[dict]:
+        return self._call("/inspect-topic", {"topic_id": topic_id})

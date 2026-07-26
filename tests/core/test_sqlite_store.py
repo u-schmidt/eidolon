@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from core.models import MemoryItem
+from core.models import MemoryItem, MemoryItemBudget
 from core.stores.sqlite_store import SqliteStore
 
 
@@ -121,6 +121,33 @@ class TestVecIndexAcceleratedSearch:
         results = accel_store.search_memory_items(peer_id="telegram:12345", query_embedding=[1.0, 0.0, 0.0])
 
         assert [item.id for item in results] == [item_id]
+
+    def test_search_memory_items_rare_type_survives_knn_prefilter(self, accel_store: SqliteStore):
+        """The KNN prefilter ranks by embedding similarity only, with no
+        item_type awareness — a reserved surprise/feeling slot could
+        otherwise go unfillable if the type's only candidate isn't
+        semantically close enough to survive the prefilter cutoff. A
+        small budget (total=1) keeps _knn_prefilter_k at its floor (50),
+        so 55 much-closer fact candidates reliably push the far surprise
+        item outside a naive top-50 scan — it must still come back via
+        the dedicated bypass fetch."""
+        msg_id = accel_store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        for i in range(55):
+            accel_store.store_memory_item(MemoryItem(
+                content=f"near fact {i}", item_type="fact", source_peer="user", subject_peer="user",
+                attribution_type="self_statement", message_id=msg_id, embedding=[1.0, 0.0, 0.0],
+            ))
+        surprise_id = accel_store.store_memory_item(MemoryItem(
+            content="far surprise", item_type="surprise", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", message_id=msg_id, embedding=[0.05, 1.0, 0.0],
+        ))
+
+        results = accel_store.search_memory_items(
+            peer_id="user", query_embedding=[1.0, 0.0, 0.0],
+            budget=MemoryItemBudget(fact=0, surprise=1, feeling=0, free=0),
+        )
+
+        assert [item.id for item in results] == [surprise_id]
 
     def test_search_clusters_accelerated_path_is_peer_isolated(self, accel_store: SqliteStore):
         mine = accel_store.create_cluster("user", "Mine", "summary", embedding=[1.0, 0.0, 0.0])

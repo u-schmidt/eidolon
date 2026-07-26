@@ -19,6 +19,7 @@ import time
 
 from core.interfaces import EmbedderProvider, LLMProvider, MetricsRecorder, StorageProvider, Tracer
 from core.metrics.null_metrics_recorder import NullMetricsRecorder
+from core.models import MemoryItem
 from core.trace.null_tracer import NullTracer
 
 logger = logging.getLogger(__name__)
@@ -28,13 +29,27 @@ _SUMMARY_SYSTEM_PROMPT = (
     "Output a concise summary and relevant tags only."
 )
 
-# Only the first N characters of each message go into the transcript —
-# enough to capture what a topic was about without sending whole turns.
-_MESSAGE_PREVIEW_CHARS = 200
+# Secondary/fallback source only (see _build_summary_prompt) — the primary
+# source is the topic's memory_items, which are already short and go in
+# untruncated. This cap just bounds the raw transcript's size; it exists to
+# catch turns where extraction produced nothing (an LLM/parse failure, or a
+# turn the model judged not worth extracting), not to carry the summary's
+# real content.
+_MESSAGE_PREVIEW_CHARS = 500
 
 
-def _build_summary_prompt(messages: list[dict]) -> str:
-    """Build the summarization prompt from a topic's messages.
+def _build_summary_prompt(messages: list[dict], memory_items: list[MemoryItem]) -> str:
+    """Build the summarization prompt from a topic's memory_items (primary)
+    and its raw messages (secondary fallback).
+
+    memory_items are already short, extracted fragments — included in full,
+    no truncation. The raw transcript is included too, capped per message,
+    specifically as a safety net: extraction can fail outright on a turn
+    (LLM/parse error) or produce nothing, and that turn's content would
+    otherwise be completely absent from the summary. Built unconditionally
+    from every message regardless of that turn's item count, so a
+    failed-extraction turn is covered without needing to cross-reference
+    messages to items.
 
     Always asks for a label alongside the summary/tags — cheap (a few
     extra output tokens on a call already happening), even when the
@@ -43,6 +58,10 @@ def _build_summary_prompt(messages: list[dict]) -> str:
     caller. Simpler than branching the prompt shape on whether a label
     is still needed.
     """
+    items_block = "\n".join(
+        f"- [{mi.item_type}] ({mi.source_peer} about {mi.subject_peer}): {mi.content}"
+        for mi in memory_items
+    ) or "(none extracted)"
     transcript = "\n".join(
         f"{m['role']}: {m['content'][:_MESSAGE_PREVIEW_CHARS]}"
         for m in messages
@@ -51,6 +70,11 @@ def _build_summary_prompt(messages: list[dict]) -> str:
         f"Summarize this conversation topic in 1-2 sentences, "
         f"give it a short 2-5 word label, "
         f"and extract 3-5 key tags (comma-separated, lowercase).\n\n"
+        f"Extracted memory fragments (primary source):\n"
+        f"{items_block}\n\n"
+        f"Raw transcript (secondary — some content above may already be "
+        f"covered; use this mainly to catch messages that produced no "
+        f"extracted fragments):\n"
         f"{transcript}\n\n"
         f"Format:\n"
         f"Label: <2-5 word label>\n"
@@ -153,6 +177,7 @@ class TopicSummarizer:
             messages = self._storage.get_messages_by_topic(topic_id)
             if not messages:
                 return False
+            memory_items = self._storage.get_memory_items_by_topic(topic_id)
 
             # Fetched before the LLM call so persistence below only ever
             # checks a value nothing else in this method has touched yet —
@@ -161,7 +186,7 @@ class TopicSummarizer:
             topic = self._storage.get_topic(topic_id)
             label_pending = topic is not None and topic["label"] == ""
 
-            prompt = _build_summary_prompt(messages)
+            prompt = _build_summary_prompt(messages, memory_items)
             response = self._llm.complete(
                 prompt=prompt,
                 system_prompt=_SUMMARY_SYSTEM_PROMPT,
@@ -191,6 +216,7 @@ class TopicSummarizer:
                 {
                     "topic_id": topic_id,
                     "message_count": len(messages),
+                    "memory_item_count": len(memory_items),
                     "transcript_preview": prompt[:500],
                     "response": response,
                     "label": label,
