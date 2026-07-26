@@ -48,7 +48,7 @@
       background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid var(--accent);
       border-radius: 6px; padding: 0.6rem 0.9rem; margin-bottom: 1rem; font-size: 0.85rem;
     }
-    input[type=text] {
+    input[type=text], select {
       background: var(--card); color: var(--fg); border: 1px solid var(--border);
       border-radius: 6px; padding: 0.35rem 0.6rem;
     }
@@ -85,6 +85,7 @@
     <strong>Eidolon Dashboard</strong>
     <a class="nav-link" href="{{ url_for('dashboard_index') }}">Overview</a>
     <a class="nav-link" href="{{ url_for('dashboard_turns_list') }}">Turns</a>
+    <a class="nav-link" href="{{ url_for('dashboard_performance') }}">Performance</a>
   </nav>
   {% block content %}{% endblock %}
 </body>

@@ -32,6 +32,15 @@ class FakeMetricsReader:
     def embedding_calls_for_request(self, request_id: str) -> list[dict]:
         return self.embedding_calls.get(request_id, [])
 
+    def events_since(self, since):
+        return []
+
+    def llm_calls_since(self, since):
+        return []
+
+    def embedding_calls_since(self, since):
+        return []
+
 
 class FakeTraceReader:
     def __init__(self) -> None:

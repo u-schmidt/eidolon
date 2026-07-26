@@ -18,21 +18,33 @@ composing it decides how to gate it (``server/auth.py``'s
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from tools.dashboard.performance_reader import PerformanceReader
 from tools.dashboard.turn_reader import TurnReader
 
 _DASHBOARD_DIR = Path(__file__).parent
 DASHBOARD_STATIC_DIR = _DASHBOARD_DIR / "static"
 _templates = Jinja2Templates(directory=str(_DASHBOARD_DIR / "templates"))
 
+# Fixed allow-list rather than free-form duration parsing — keeps the
+# window <select> control trivial and avoids validating arbitrary
+# duration strings from a query param.
+_WINDOW_CUTOFFS: dict[str, timedelta] = {
+    "1h": timedelta(hours=1),
+    "24h": timedelta(hours=24),
+    "7d": timedelta(days=7),
+}
+_DEFAULT_WINDOW = "24h"
 
-def create_dashboard_router(turn_reader: TurnReader) -> APIRouter:
-    """Build the dashboard's routes wrapping an already-constructed ``TurnReader``."""
+
+def create_dashboard_router(turn_reader: TurnReader, performance_reader: PerformanceReader) -> APIRouter:
+    """Build the dashboard's routes wrapping already-constructed readers."""
     router = APIRouter()
 
     @router.get("/", response_class=HTMLResponse, name="dashboard_index")
@@ -56,6 +68,17 @@ def create_dashboard_router(turn_reader: TurnReader) -> APIRouter:
             raise HTTPException(status_code=404, detail=f"No turn found for request_id={request_id!r}")
         return _templates.TemplateResponse(
             request, "turn_detail.html", {"detail": detail},
+        )
+
+    @router.get("/performance", response_class=HTMLResponse, name="dashboard_performance")
+    def performance(request: Request, window: str = _DEFAULT_WINDOW) -> HTMLResponse:
+        if window not in _WINDOW_CUTOFFS:
+            raise HTTPException(status_code=400, detail=f"Unknown window {window!r} — use one of {list(_WINDOW_CUTOFFS)}")
+        since = datetime.now(UTC) - _WINDOW_CUTOFFS[window]
+        summary = performance_reader.summary(since)
+        return _templates.TemplateResponse(
+            request, "performance.html",
+            {"summary": summary, "window": window, "windows": list(_WINDOW_CUTOFFS)},
         )
 
     return router

@@ -636,3 +636,20 @@ class MetricsReader(Protocol):
     def embedding_calls_for_request(self, request_id: str) -> list[dict]:
         """Return every ``embedding_calls`` row for ``request_id``, oldest first."""
         ...
+
+    def events_since(self, since: datetime) -> list[dict]:
+        """Return every ``events`` row with ``created_at >= since``, oldest first.
+
+        Bulk/time-windowed counterpart to ``events_for_request`` — the
+        data-access layer behind aggregate dashboard views (error rates,
+        top error sources) rather than a single turn's replay.
+        """
+        ...
+
+    def llm_calls_since(self, since: datetime) -> list[dict]:
+        """Return every ``llm_calls`` row with ``created_at >= since``, oldest first."""
+        ...
+
+    def embedding_calls_since(self, since: datetime) -> list[dict]:
+        """Return every ``embedding_calls`` row with ``created_at >= since``, oldest first."""
+        ...

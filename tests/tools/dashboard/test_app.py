@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from tests.mocks import MockStorage
 from tools.dashboard.app import DASHBOARD_STATIC_DIR, create_dashboard_router
+from tools.dashboard.performance_reader import PerformanceReader
 from tools.dashboard.turn_reader import TurnReader
 
 
@@ -37,6 +38,15 @@ class _FakeMetricsReader:
     def embedding_calls_for_request(self, request_id: str) -> list[dict]:
         return []
 
+    def events_since(self, since):
+        return []
+
+    def llm_calls_since(self, since):
+        return []
+
+    def embedding_calls_since(self, since):
+        return []
+
 
 class _FakeTraceReader:
     def __init__(self, events: dict[str, list[dict]] | None = None) -> None:
@@ -52,9 +62,10 @@ class _FakeTraceReader:
         return self._events.get(request_id, [])
 
 
-def _wrap(turn_reader: TurnReader) -> FastAPI:
+def _wrap(turn_reader: TurnReader, metrics_reader: object | None = None) -> FastAPI:
     app = FastAPI()
-    app.include_router(create_dashboard_router(turn_reader))
+    performance_reader = PerformanceReader(metrics_reader or _FakeMetricsReader())
+    app.include_router(create_dashboard_router(turn_reader, performance_reader))
     app.mount("/static", StaticFiles(directory=str(DASHBOARD_STATIC_DIR)), name="dashboard-static")
     return app
 
@@ -170,3 +181,56 @@ class TestTurnDetail:
         response = client.get("/turns/req1")
         assert response.status_code == 200
         assert "Bello Features" in response.text
+
+
+class _MetricsReaderWithData(_FakeMetricsReader):
+    def __init__(self, llm_calls: list[dict] | None = None, events: list[dict] | None = None) -> None:
+        self._llm_calls = llm_calls or []
+        self._events = events or []
+
+    def llm_calls_since(self, since):
+        return self._llm_calls
+
+    def events_since(self, since):
+        return self._events
+
+
+class TestPerformance:
+    def test_renders_with_no_data(self, client: TestClient):
+        response = client.get("/performance")
+        assert response.status_code == 200
+        assert "No LLM calls in this window" in response.text
+
+    def test_renders_call_type_stats(self, storage: MockStorage):
+        metrics = _MetricsReaderWithData(llm_calls=[
+            {"call_type": "topic_detection", "duration_ms": 12.5, "succeeded": True,
+             "peer_id": "u1", "session_id": None, "created_at": "2026-07-26T18:00:00+00:00"},
+        ])
+        turn_reader = TurnReader(storage, metrics, _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, metrics_reader=metrics))
+
+        response = client.get("/performance")
+        assert response.status_code == 200
+        assert "topic_detection" in response.text
+
+    def test_renders_top_error_sources(self, storage: MockStorage):
+        metrics = _MetricsReaderWithData(events=[
+            {"severity": "error", "step": "extraction", "message": "boom",
+             "peer_id": "u1", "session_id": "s1", "created_at": "2026-07-26T18:00:00+00:00"},
+        ])
+        turn_reader = TurnReader(storage, metrics, _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, metrics_reader=metrics))
+
+        response = client.get("/performance")
+        assert response.status_code == 200
+        assert "u1" in response.text
+        assert "s1" in response.text
+
+    def test_window_select_reflects_query_param(self, client: TestClient):
+        response = client.get("/performance", params={"window": "1h"})
+        assert response.status_code == 200
+        assert 'value="1h" selected' in response.text
+
+    def test_unknown_window_returns_400(self, client: TestClient):
+        response = client.get("/performance", params={"window": "3y"})
+        assert response.status_code == 400

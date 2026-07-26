@@ -43,20 +43,27 @@ from core.eidolon_client import EidolonClient
 from core.models import ContextBundle, EnvironmentSnapshot, PrefetchResult, TopicChange
 from server.auth import require_dashboard_password, require_token
 from tools.dashboard.app import DASHBOARD_STATIC_DIR, create_dashboard_router
+from tools.dashboard.performance_reader import PerformanceReader
 from tools.dashboard.turn_reader import TurnReader
 
 
-def create_app(eidolon: EidolonClient, turn_reader: TurnReader | None = None) -> FastAPI:
+def create_app(
+    eidolon: EidolonClient,
+    turn_reader: TurnReader | None = None,
+    performance_reader: PerformanceReader | None = None,
+) -> FastAPI:
     """Build the FastAPI app wrapping an already-constructed ``EidolonClient``.
 
     ``eidolon`` is a real ``core.Eidolon``, built once at startup by
     ``tools/serve.py`` the same way ``tools/cli.py`` builds one — this
     app contains no core logic itself, only HTTP<->facade translation.
 
-    ``turn_reader`` is optional: when given, the turn-detail dashboard
-    is mounted under ``/dashboard``; when omitted (the default — e.g.
-    tests that only care about the RPC contract), the app is exactly
-    the RPC API and nothing else.
+    ``turn_reader``/``performance_reader`` are optional together: when
+    given, the dashboard is mounted under ``/dashboard``; when omitted
+    (the default — e.g. tests that only care about the RPC contract),
+    the app is exactly the RPC API and nothing else. A ``turn_reader``
+    given without a ``performance_reader`` (or vice versa) is a caller
+    bug, not a state worth validating for.
     """
     app = FastAPI(title="Eidolon")
 
@@ -165,9 +172,9 @@ def create_app(eidolon: EidolonClient, turn_reader: TurnReader | None = None) ->
 
     app.include_router(rpc)
 
-    if turn_reader is not None:
+    if turn_reader is not None and performance_reader is not None:
         app.include_router(
-            create_dashboard_router(turn_reader),
+            create_dashboard_router(turn_reader, performance_reader),
             prefix="/dashboard",
             dependencies=[Depends(require_dashboard_password)],
         )

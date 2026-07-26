@@ -11,6 +11,8 @@ covers) — end-to-end round trip, not a raw-SQL check.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from core.interfaces import MetricsReader, MetricsRecorder
 
 
@@ -86,3 +88,53 @@ class TestOrdering:
 
         rows = metrics_reader.llm_calls_for_request("req1")
         assert [r["call_type"] for r in rows] == ["topic_detection", "extraction"]
+
+
+class TestEventsSince:
+    def test_reads_back_written_rows(self, metrics_recorder: MetricsRecorder, metrics_reader: MetricsReader):
+        metrics_recorder.record_event(
+            "error", "fact_consolidation", "boom",
+            peer_id="user", request_id="req1", session_id="sess1",
+        )
+
+        rows = metrics_reader.events_since(datetime.now(UTC) - timedelta(hours=1))
+        assert len(rows) == 1
+        assert rows[0]["severity"] == "error"
+        assert rows[0]["step"] == "fact_consolidation"
+
+    def test_excludes_rows_before_cutoff(self, metrics_recorder: MetricsRecorder, metrics_reader: MetricsReader):
+        metrics_recorder.record_event("error", "extraction", "boom", request_id="req1")
+
+        rows = metrics_reader.events_since(datetime.now(UTC) + timedelta(hours=1))
+        assert rows == []
+
+
+class TestLlmCallsSince:
+    def test_reads_back_written_rows(self, metrics_recorder: MetricsRecorder, metrics_reader: MetricsReader):
+        metrics_recorder.record_llm_call("topic_detection", 42.0, True, request_id="req1")
+
+        rows = metrics_reader.llm_calls_since(datetime.now(UTC) - timedelta(hours=1))
+        assert len(rows) == 1
+        assert rows[0]["call_type"] == "topic_detection"
+        assert rows[0]["duration_ms"] == 42.0
+
+    def test_excludes_rows_before_cutoff(self, metrics_recorder: MetricsRecorder, metrics_reader: MetricsReader):
+        metrics_recorder.record_llm_call("topic_detection", 42.0, True, request_id="req1")
+
+        rows = metrics_reader.llm_calls_since(datetime.now(UTC) + timedelta(hours=1))
+        assert rows == []
+
+
+class TestEmbeddingCallsSince:
+    def test_reads_back_written_rows(self, metrics_recorder: MetricsRecorder, metrics_reader: MetricsReader):
+        metrics_recorder.record_embedding_call("memory_item", 5.1, 768, True, request_id="req1")
+
+        rows = metrics_reader.embedding_calls_since(datetime.now(UTC) - timedelta(hours=1))
+        assert len(rows) == 1
+        assert rows[0]["purpose"] == "memory_item"
+
+    def test_excludes_rows_before_cutoff(self, metrics_recorder: MetricsRecorder, metrics_reader: MetricsReader):
+        metrics_recorder.record_embedding_call("memory_item", 5.1, 768, True, request_id="req1")
+
+        rows = metrics_reader.embedding_calls_since(datetime.now(UTC) + timedelta(hours=1))
+        assert rows == []

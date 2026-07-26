@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Eidolon — Performance{% endblock %}
+{% block content %}
+  <h1>Performance &amp; Reliability</h1>
+  <p class="muted">Always-on — sourced from <code>events</code>/<code>llm_calls</code>/<code>embedding_calls</code>, no debug tracing needed.</p>
+
+  <form method="get" action="{{ url_for('dashboard_performance') }}" class="row" style="margin-bottom: 1.5rem; align-items: center;">
+    <label for="window" class="muted">Window</label>
+    <select name="window" id="window" onchange="this.form.submit()">
+      {% for w in windows %}
+      <option value="{{ w }}"{{ ' selected' if w == window }}>{{ w }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  <h2>Latency by call type</h2>
+  {% if not summary.call_type_stats %}
+    <p class="muted">No LLM calls in this window.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>Call type</th><th>Count</th><th>Error rate</th><th>p50</th><th>p95</th><th>p99</th></tr>
+      </thead>
+      <tbody>
+        {% for s in summary.call_type_stats %}
+        <tr>
+          <td>{{ s.call_type }}</td>
+          <td>{{ s.count }}</td>
+          <td>
+            {% if s.error_count %}
+              <span class="badge err">{{ "%.1f"|format(100 * s.error_count / s.count) }}%</span>
+            {% else %}
+              <span class="badge ok">0%</span>
+            {% endif %}
+          </td>
+          <td>{{ "%.1f"|format(s.p50_ms) }}ms</td>
+          <td>{{ "%.1f"|format(s.p95_ms) }}ms</td>
+          <td>{{ "%.1f"|format(s.p99_ms) }}ms</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <h2>Embedding latency by purpose</h2>
+  {% if not summary.embedding_stats %}
+    <p class="muted">No embedding calls in this window.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>Purpose</th><th>Count</th><th>Error rate</th><th>p50</th><th>p95</th></tr>
+      </thead>
+      <tbody>
+        {% for s in summary.embedding_stats %}
+        <tr>
+          <td>{{ s.purpose }}</td>
+          <td>{{ s.count }}</td>
+          <td>
+            {% if s.error_count %}
+              <span class="badge err">{{ "%.1f"|format(100 * s.error_count / s.count) }}%</span>
+            {% else %}
+              <span class="badge ok">0%</span>
+            {% endif %}
+          </td>
+          <td>{{ "%.1f"|format(s.p50_ms) }}ms</td>
+          <td>{{ "%.1f"|format(s.p95_ms) }}ms</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <h2>Throughput</h2>
+  {% if not summary.hourly_throughput %}
+    <p class="muted">No LLM calls in this window.</p>
+  {% else %}
+    <table>
+      <thead><tr><th>Hour</th><th>LLM calls</th></tr></thead>
+      <tbody>
+        {% for b in summary.hourly_throughput %}
+        <tr><td class="muted">{{ b.hour }}</td><td>{{ b.llm_call_count }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <div class="row">
+    <div style="flex: 1; min-width: 240px;">
+      <h2>Top error peers</h2>
+      {% if not summary.top_error_peers %}
+        <p class="muted">No errors in this window.</p>
+      {% else %}
+        <table>
+          <thead><tr><th>Peer</th><th>Errors</th></tr></thead>
+          <tbody>
+            {% for s in summary.top_error_peers %}
+            <tr><td>{{ s.key }}</td><td>{{ s.error_count }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </div>
+    <div style="flex: 1; min-width: 240px;">
+      <h2>Top error sessions</h2>
+      {% if not summary.top_error_sessions %}
+        <p class="muted">No errors in this window.</p>
+      {% else %}
+        <table>
+          <thead><tr><th>Session</th><th>Errors</th></tr></thead>
+          <tbody>
+            {% for s in summary.top_error_sessions %}
+            <tr><td>{{ s.key }}</td><td>{{ s.error_count }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}
