@@ -359,6 +359,30 @@ python tools/simulate_injection.py --db ~/.eidolon/trace.db --request-id <reques
 
 It replays the turn's recorded `context_retrieval` event through `core/context_formatter.py`'s `ContextFormatter` — the same formatter `prefetch()` itself calls — so the output can never drift from what actually happened.
 
+## Turn Detail Dashboard
+
+A small read-only web page (server-rendered Jinja2 + [htmx](https://htmx.org), vendored locally — no build step, no CDN dependency) that shows *everything* that happened during one turn, for the "why didn't this work as expected" case: which topic was active before/after, the user message and AI response, then a step-by-step account of what fired — topic detection, extraction, every embedding call, retrieval + scoring, and, conditionally, whatever the turn triggered (fact consolidation, topic close/summarize, relabel, cluster consolidation).
+
+It works at two levels, degrading gracefully rather than requiring debug mode:
+
+- **Skeleton** (always available): real message text and topic linkage (`messages.request_id`, always-on — see [Operational Metrics](#operational-metrics)), plus which steps ran with their timing/success from `events`/`llm_calls`/`embedding_calls`. No `debug.enabled` required.
+- **Rich** (only for turns that ran while `debug.enabled: true`): the full [Debug Tracing](#debug-tracing) payload per step — prompts, responses, retrieval score breakdowns — shown instead of the skeleton whenever it exists for that turn.
+
+`request_id` is the single correlation key across both tiers and every table — minted once per turn (`core/__init__.py`'s `store_turn`) and threaded into everything it triggers, so a step's mere presence or absence for that id already answers "did this happen."
+
+Run it:
+
+```bash
+uv sync --extra dashboard
+uv run python tools/dashboard.py --config eidolon.yaml --host 127.0.0.1 --port 8421
+```
+
+Optional HTTP Basic auth (skipped entirely if unset — same "binds to localhost by default" threat model as `tools/serve.py`):
+
+```bash
+EIDOLON_DASHBOARD_PASSWORD=... uv run python tools/dashboard.py
+```
+
 ## Development
 
 ### Running Tests

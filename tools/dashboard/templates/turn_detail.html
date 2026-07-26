@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Turn {{ detail.header.request_id }}{% endblock %}
+{% block content %}
+  <p><a href="/">&larr; back to recent turns</a></p>
+
+  <div class="card">
+    <div class="row">
+      <div class="field"><span class="label">Request</span>{{ detail.header.request_id }}</div>
+      <div class="field"><span class="label">Peer</span>{{ detail.header.peer_id or "—" }}</div>
+      <div class="field"><span class="label">Session</span>{{ detail.header.session_id or "—" }}</div>
+      <div class="field"><span class="label">When</span>{{ detail.header.created_at }}</div>
+    </div>
+    {% if detail.header.topic %}
+    <div class="field">
+      <span class="label">Topic</span>
+      #{{ detail.header.topic.id }} — {{ detail.header.topic.label }}
+      {% if detail.header.topic.summary %}<div class="muted">{{ detail.header.topic.summary }}</div>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if detail.header.user_message %}
+  <div class="card">
+    <div class="field"><span class="label">User</span></div>
+    {{ detail.header.user_message }}
+  </div>
+  {% endif %}
+  {% if detail.header.ai_response %}
+  <div class="card">
+    <div class="field"><span class="label">AI</span></div>
+    {{ detail.header.ai_response }}
+  </div>
+  {% endif %}
+
+  <h2>Steps</h2>
+
+  {% if detail.rich_available %}
+    {% for step in detail.trace_steps %}
+      <div class="card">
+        <div class="row" style="justify-content: space-between;">
+          <strong>{{ step.event_type }}</strong>
+          <span class="muted">
+            {{ "%.1f"|format(step.duration_ms) + "ms — " if step.duration_ms is not none else "" }}{{ step.created_at }}
+          </span>
+        </div>
+        {% if step.event_type == "retrieval_scoring_summary" %}
+          {% include "_retrieval_scoring_summary.html" %}
+        {% else %}
+          <pre>{{ step.payload | tojson(indent=2) }}</pre>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="banner">
+      No rich trace data for this turn — either <code>debug.enabled</code> was off when it ran, or it ran
+      before debug tracing was ever turned on. Showing the always-on timing/success skeleton instead.
+    </div>
+    {% if not detail.skeleton_steps %}
+      <p class="muted">No metrics rows found for this turn either.</p>
+    {% else %}
+      <table>
+        <thead><tr><th>Kind</th><th>Step</th><th>Duration</th><th>Result</th><th>When</th></tr></thead>
+        <tbody>
+          {% for step in detail.skeleton_steps %}
+          <tr>
+            <td class="muted">{{ step.kind }}</td>
+            <td>{{ step.label }}</td>
+            <td>{{ "%.1f"|format(step.duration_ms) + "ms" if step.duration_ms is not none else "—" }}</td>
+            <td>
+              {% if step.kind == "event" %}
+                <span class="badge err">error</span>
+              {% elif step.succeeded %}
+                <span class="badge ok">ok</span>
+              {% else %}
+                <span class="badge err">failed</span>
+              {% endif %}
+            </td>
+            <td class="muted">{{ step.created_at }}</td>
+          </tr>
+          {% if step.detail %}
+          <tr><td></td><td colspan="4" class="muted">{{ step.detail }}</td></tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  {% endif %}
+{% endblock %}

@@ -13,12 +13,22 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from core.config import ConfigError, EidolonConfig, ModelConfig, StorageConfig
-from core.interfaces import EmbedderProvider, LLMProvider, MetricsRecorder, StorageProvider, Tracer
+from core.interfaces import (
+    EmbedderProvider,
+    LLMProvider,
+    MetricsReader,
+    MetricsRecorder,
+    StorageProvider,
+    Tracer,
+    TraceReader,
+)
 from core.metrics.safe_metrics_recorder import SafeMetricsRecorder
+from core.metrics.sqlite_metrics_reader import SqliteMetricsReader
 from core.metrics.sqlite_metrics_recorder import SqliteMetricsRecorder
 from core.stores.sqlite_store import SqliteStore
 from core.trace.null_tracer import NullTracer
 from core.trace.safe_tracer import SafeTracer
+from core.trace.sqlite_trace_reader import SqliteTraceReader
 from core.trace.sqlite_tracer import SqliteTracer
 
 if TYPE_CHECKING:
@@ -147,6 +157,52 @@ class ProviderFactory:
             recorder = SafeMetricsRecorder(SqliteMetricsRecorder(self._config.storage.path))
         recorder.connect()
         return recorder
+
+    # ── Readers (turn-detail dashboard, tools/dashboard/) ───
+
+    def create_metrics_reader(self) -> MetricsReader:
+        """Create a read-only handle onto the operational-metrics
+        tables. Unconditional, like ``create_metrics_recorder()`` — no
+        ``debug.enabled`` gate, since these tables are always populated.
+        Not wrapped in a ``Safe*`` decorator: a failed read should
+        surface as a visible error on the dashboard page, not be
+        silently swallowed the way a failed *write* from a hot
+        extraction/detection path should be.
+        """
+        if self._config.storage.provider == "postgres":
+            from core.metrics.postgres_metrics_reader import PostgresMetricsReader
+
+            cfg = self._config.storage
+            self._require_postgres_password(cfg)
+            reader: MetricsReader = PostgresMetricsReader(
+                host=cfg.host, port=cfg.port, dbname=cfg.dbname,
+                user=cfg.user, password=cfg.password,
+            )
+        else:
+            reader = SqliteMetricsReader(self._config.storage.path)
+        reader.connect()
+        return reader
+
+    def create_trace_reader(self) -> TraceReader:
+        """Create a read-only handle onto the debug trace backend.
+        Unconditional, unlike ``create_tracer()`` — historical trace
+        rows may exist from a period when ``debug.enabled`` was on even
+        if it's off now, and reading is always safe. Backend follows
+        ``storage.provider``, same branch as ``create_tracer()``.
+        """
+        if self._config.storage.provider == "postgres":
+            from core.trace.postgres_trace_reader import PostgresTraceReader
+
+            cfg = self._config.storage
+            self._require_postgres_password(cfg)
+            trace_reader: TraceReader = PostgresTraceReader(
+                host=cfg.host, port=cfg.port, dbname=cfg.dbname,
+                user=cfg.user, password=cfg.password,
+            )
+        else:
+            trace_reader = SqliteTraceReader(self._config.debug.trace_db_path)
+        trace_reader.connect()
+        return trace_reader
 
     # ── LLM ────────────────────────────────────────────────
 

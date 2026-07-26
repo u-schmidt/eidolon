@@ -74,6 +74,13 @@ POSTGRES_MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS idx_embedding_calls_purpose ON embedding_calls(purpose);
     """,
+    # Lets a turn's own messages be looked up by request_id — see
+    # core/stores/migrations.py's version 10 for the full rationale
+    # (mirrors it exactly).
+    4: """
+    ALTER TABLE messages ADD COLUMN request_id TEXT;
+    CREATE INDEX IF NOT EXISTS idx_messages_request ON messages(request_id);
+    """,
 }
 
 

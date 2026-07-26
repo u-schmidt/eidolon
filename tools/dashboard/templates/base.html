@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}Eidolon — Turn Detail{% endblock %}</title>
+  <script src="/static/htmx.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff; --fg: #1a1a1a; --muted: #6b7280; --border: #e5e7eb;
+      --card: #f9fafb; --accent: #2563eb; --ok: #16a34a; --err: #dc2626;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #14161a; --fg: #e5e7eb; --muted: #9ca3af; --border: #2a2d34; --card: #1c1f26; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg); color: var(--fg); margin: 0; padding: 1.5rem;
+      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1, h2, h3 { font-weight: 600; margin: 0 0 0.5rem; }
+    h1 { font-size: 1.25rem; }
+    h2 { font-size: 1.05rem; margin-top: 1.5rem; }
+    .muted { color: var(--muted); }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; font-size: 0.8rem; text-transform: uppercase; }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.9rem 1rem; margin-bottom: 0.75rem;
+    }
+    .row { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+    .field { margin-bottom: 0.4rem; }
+    .field .label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; margin-right: 0.4rem; }
+    .badge {
+      display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    }
+    .badge.ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+    .badge.err { background: color-mix(in srgb, var(--err) 18%, transparent); color: var(--err); }
+    .badge.neutral { background: var(--border); color: var(--muted); }
+    pre {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem;
+      overflow-x: auto; font-size: 0.8rem; margin: 0.4rem 0 0;
+    }
+    .banner {
+      background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid var(--accent);
+      border-radius: 6px; padding: 0.6rem 0.9rem; margin-bottom: 1rem; font-size: 0.85rem;
+    }
+    input[type=text] {
+      background: var(--card); color: var(--fg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.35rem 0.6rem;
+    }
+    button {
+      background: var(--accent); color: white; border: none; border-radius: 6px;
+      padding: 0.35rem 0.8rem; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="row" style="justify-content: space-between; align-items: baseline; margin-bottom: 1rem;">
+    <h1><a href="/">Eidolon — Turn Detail</a></h1>
+  </div>
+  {% block content %}{% endblock %}
+</body>
+</html>

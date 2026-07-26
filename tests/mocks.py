@@ -341,7 +341,7 @@ class MockStorage:
         message_ids = {m["id"] for m in self.messages if m["turn_id"] == turn_id}
         return [item for item in self.stored_items if item.message_id in message_ids]
 
-    def store_message(self, turn_id, role, content, peer_id, topic_id=None):
+    def store_message(self, turn_id, role, content, peer_id, topic_id=None, request_id=None):
         msg = {
             "id": len(self.messages) + 1,
             "turn_id": turn_id,
@@ -349,6 +349,7 @@ class MockStorage:
             "content": content,
             "peer_id": peer_id,
             "topic_id": topic_id,
+            "request_id": request_id,
         }
         self.messages.append(msg)
         return msg["id"]
@@ -359,6 +360,23 @@ class MockStorage:
     def get_recent_messages_by_topic(self, topic_id: int, limit: int) -> list[dict]:
         matching = [m for m in self.messages if m["topic_id"] == topic_id]
         return matching[-limit:]
+
+    def get_messages_by_request_id(self, request_id: str) -> list[dict]:
+        return [m for m in self.messages if m["request_id"] == request_id]
+
+    def get_recent_turns(self, limit: int, peer_id: str | None = None) -> list[dict]:
+        matching = [
+            m for m in self.messages
+            if m["role"] == "user" and m["request_id"] is not None
+            and (peer_id is None or m["peer_id"] == peer_id)
+        ]
+        return [
+            {
+                "request_id": m["request_id"], "peer_id": m["peer_id"],
+                "topic_id": m["topic_id"], "content": m["content"], "created_at": None,
+            }
+            for m in reversed(matching[-limit:])
+        ]
 
     def get_stale_active_topics(self, cutoff, peer_id: str | None = None) -> list[dict]:
         # Staleness itself is exercised against the real SqliteStore

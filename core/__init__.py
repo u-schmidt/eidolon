@@ -447,11 +447,11 @@ class Eidolon:
 
         user_msg_id = self._storage.store_message(
             turn_id=tid, role="user", content=user_message,
-            peer_id=peer_id, topic_id=resolved_topic_id,
+            peer_id=peer_id, topic_id=resolved_topic_id, request_id=request_id,
         )
         ai_msg_id = self._storage.store_message(
             turn_id=tid, role="ai", content=ai_response,
-            peer_id="ai", topic_id=resolved_topic_id,
+            peer_id="ai", topic_id=resolved_topic_id, request_id=request_id,
         )
 
         # 3b. Mid-conversation relabel — a still-pending topic (never yet

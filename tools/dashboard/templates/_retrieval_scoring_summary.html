@@ -1,0 +1,40 @@
+{# Included via turn_detail.html for event_type == "retrieval_scoring_summary" — see
+   core/stores/retrieval_scorer.py's RetrievalScorer.score()/finalize() for the payload shape. #}
+<div class="field">
+  <span class="label">Candidate type</span>{{ step.payload.candidate_type }}
+  &nbsp;<span class="label">Scored</span>{{ step.payload.total_scored }}
+  &nbsp;<span class="label">Included</span>{{ step.payload.included_count }}
+</div>
+{% if step.payload.top_candidates %}
+<table>
+  <thead>
+    <tr>
+      <th>Candidate</th><th>Included</th><th>Final</th>
+      <th>Semantic</th><th>Tags</th><th>Person</th><th>Temporal</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in step.payload.top_candidates %}
+    <tr>
+      <td>{{ (c.candidate_kind ~ " " if c.candidate_kind) }}#{{ c.candidate_id }}</td>
+      <td>
+        {% if c.included %}<span class="badge ok">yes</span>{% else %}<span class="badge neutral">no</span>{% endif %}
+      </td>
+      <td>{{ "%.3f"|format(c.final_score) }}</td>
+      <td>{{ "%.3f"|format(c.semantic_weighted) }} <span class="muted">({{ "%.2f"|format(c.semantic_raw) }})</span></td>
+      <td>
+        {% if c.get('tag_overlap_weighted') is not none %}
+          {{ "%.3f"|format(c.tag_overlap_weighted) }}
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        {% if c.get('person_weighted') is not none %}
+          {{ "%.3f"|format(c.person_weighted) }}
+        {% else %}—{% endif %}
+      </td>
+      <td>{{ "%.3f"|format(c.temporal_weighted) }} <span class="muted">({{ "%.2f"|format(c.temporal_raw) }})</span></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

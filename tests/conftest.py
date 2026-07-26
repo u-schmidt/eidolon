@@ -147,6 +147,49 @@ def metrics_recorder(store_backend: SqliteBackend | PostgresBackend):
     recorder.close()
 
 
+@pytest.fixture
+def metrics_reader(store_backend: SqliteBackend | PostgresBackend):
+    """A connected MetricsReader pointed at the same database as
+    ``store_backend`` — read-side counterpart to ``metrics_recorder``
+    above, same reasoning."""
+    if isinstance(store_backend, SqliteBackend):
+        from core.metrics.sqlite_metrics_reader import SqliteMetricsReader
+
+        reader = SqliteMetricsReader(str(store_backend.store._path))
+    else:
+        from core.metrics.postgres_metrics_reader import PostgresMetricsReader
+
+        s = store_backend.store
+        reader = PostgresMetricsReader(
+            host=s._host, port=s._port, dbname=s._dbname, user=s._user, password=s._password,
+        )
+    reader.connect()
+    yield reader
+    reader.close()
+
+
+@pytest.fixture
+def trace_reader(store_backend: SqliteBackend | PostgresBackend, tmp_path):
+    """A connected TraceReader — sqlite points at a fresh, empty trace
+    file path (tests write to it via a real ``SqliteTracer`` first, same
+    as production); postgres points at ``store_backend``'s own database,
+    same as ``PostgresTraceReader`` always does in production."""
+    if isinstance(store_backend, SqliteBackend):
+        from core.trace.sqlite_trace_reader import SqliteTraceReader
+
+        reader = SqliteTraceReader(str(tmp_path / "trace.db"))
+    else:
+        from core.trace.postgres_trace_reader import PostgresTraceReader
+
+        s = store_backend.store
+        reader = PostgresTraceReader(
+            host=s._host, port=s._port, dbname=s._dbname, user=s._user, password=s._password,
+        )
+    reader.connect()
+    yield reader
+    reader.close()
+
+
 @pytest.fixture(params=["embedded", "http"])
 def make_eidolon_client(request):
     """Factory fixture: hand it an already-built ``Eidolon`` (backed by

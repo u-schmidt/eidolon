@@ -387,8 +387,16 @@ class StorageProvider(Protocol):
         content: str,
         peer_id: str,
         topic_id: int | None = None,
+        request_id: str | None = None,
     ) -> int:
-        """Store a single message and return its id."""
+        """Store a single message and return its id.
+
+        ``request_id`` correlates this message back to the turn that
+        produced it — the same id threaded through every step of
+        ``Eidolon.store_turn`` (see core/__init__.py) — so a turn's
+        actual message text can be looked up without the debug-gated
+        trace (see ``get_messages_by_request_id``).
+        """
         ...
 
     def get_messages_by_topic(self, topic_id: int) -> list[dict]:
@@ -397,6 +405,19 @@ class StorageProvider(Protocol):
 
     def get_recent_messages_by_topic(self, topic_id: int, limit: int) -> list[dict]:
         """Return the most recent `limit` messages for a topic, oldest first."""
+        ...
+
+    def get_messages_by_request_id(self, request_id: str) -> list[dict]:
+        """Return every message stored with this ``request_id`` (typically
+        the user + AI message pair from one turn), ordered by id."""
+        ...
+
+    def get_recent_turns(self, limit: int, peer_id: str | None = None) -> list[dict]:
+        """Return up to ``limit`` recent turns, most recent first — one
+        row per ``role='user'`` message that has a ``request_id``, with
+        its ``content`` as a preview. Always-on (no debug trace needed):
+        the data source for the turn-detail dashboard's picker list
+        (``tools/dashboard/turn_reader.py``)."""
         ...
 
 
@@ -472,6 +493,37 @@ class Tracer(Protocol):
         ...
 
 
+class TraceReader(Protocol):
+    """Read-only counterpart to ``Tracer`` — fetches back rich trace
+    events previously written by a ``Tracer`` implementation, keyed by
+    ``request_id``.
+
+    Kept separate from ``Tracer`` itself (rather than adding read
+    methods to it) so the write-side interface — on the hot path of
+    every instrumented class — stays single-purpose. Reading is always
+    safe regardless of ``debug.enabled``: historical rows may exist from
+    a period when debug tracing was on even if it's off now.
+    Implementations: ``core/trace/``.
+    """
+
+    def connect(self) -> None:
+        """Open any resources needed to read events."""
+        ...
+
+    def close(self) -> None:
+        """Release resources opened by ``connect()``."""
+        ...
+
+    def events_for_request(self, request_id: str) -> list[dict]:
+        """Return every trace event recorded for ``request_id``, oldest
+        first. Each dict has ``event_type``/``payload``/``duration_ms``/
+        ``session_id``/``created_at`` keys. Returns ``[]`` if no rich
+        trace data exists for this request (e.g. debug was off, or the
+        backing store has never been created) — never raises for that
+        reason."""
+        ...
+
+
 class MetricsRecorder(Protocol):
     """Abstract always-on operational-metrics backend.
 
@@ -544,4 +596,34 @@ class MetricsRecorder(Protocol):
         ``cluster_summary``. ``entity_type``/``entity_id`` identify what
         got embedded (e.g. ``"topic"``/``42``) — nullable and polymorphic,
         not a hard foreign key, since the id space varies by purpose."""
+        ...
+
+
+class MetricsReader(Protocol):
+    """Read-only counterpart to ``MetricsRecorder`` — fetches back
+    ``events``/``llm_calls``/``embedding_calls`` rows, keyed by
+    ``request_id``, or listed by recency for a picker UI. Kept separate
+    from ``MetricsRecorder`` for the same reason ``TraceReader`` is kept
+    separate from ``Tracer`` — the write side stays single-purpose.
+    Implementations: ``core/metrics/``.
+    """
+
+    def connect(self) -> None:
+        """Open any resources needed to read metrics."""
+        ...
+
+    def close(self) -> None:
+        """Release resources opened by ``connect()``."""
+        ...
+
+    def events_for_request(self, request_id: str) -> list[dict]:
+        """Return every ``events`` row for ``request_id``, oldest first."""
+        ...
+
+    def llm_calls_for_request(self, request_id: str) -> list[dict]:
+        """Return every ``llm_calls`` row for ``request_id``, oldest first."""
+        ...
+
+    def embedding_calls_for_request(self, request_id: str) -> list[dict]:
+        """Return every ``embedding_calls`` row for ``request_id``, oldest first."""
         ...

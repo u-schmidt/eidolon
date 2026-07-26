@@ -745,6 +745,69 @@ class TestRecentMessagesByTopic:
         assert [m["content"] for m in recent] == ["about first"]
 
 
+class TestGetMessagesByRequestId:
+    def test_returns_both_messages_from_one_turn(self, store: StorageProvider):
+        tid = store.create_topic("Bello", summary="")
+        store.store_message(
+            turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid, request_id="req1",
+        )
+        store.store_message(
+            turn_id=1, role="ai", content="hello", peer_id="ai", topic_id=tid, request_id="req1",
+        )
+
+        messages = store.get_messages_by_request_id("req1")
+        assert [m["role"] for m in messages] == ["user", "ai"]
+        assert [m["content"] for m in messages] == ["hi", "hello"]
+        assert all(m["topic_id"] == tid for m in messages)
+
+    def test_empty_for_unknown_request_id(self, store: StorageProvider):
+        assert store.get_messages_by_request_id("nope") == []
+
+    def test_does_not_include_messages_from_other_requests(self, store: StorageProvider):
+        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", request_id="req1")
+        store.store_message(turn_id=2, role="user", content="bye", peer_id="user", request_id="req2")
+
+        messages = store.get_messages_by_request_id("req1")
+        assert [m["content"] for m in messages] == ["hi"]
+
+    def test_messages_without_request_id_are_not_returned(self, store: StorageProvider):
+        store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        assert store.get_messages_by_request_id("") == []
+
+
+class TestGetRecentTurns:
+    def test_lists_user_messages_with_request_id_most_recent_first(self, store: StorageProvider):
+        tid = store.create_topic("Bello", summary="")
+        store.store_message(turn_id=1, role="user", content="first", peer_id="user", topic_id=tid, request_id="req1")
+        store.store_message(turn_id=1, role="ai", content="first reply", peer_id="ai", topic_id=tid, request_id="req1")
+        store.store_message(turn_id=2, role="user", content="second", peer_id="user", topic_id=tid, request_id="req2")
+
+        turns = store.get_recent_turns(10)
+        assert [t["request_id"] for t in turns] == ["req2", "req1"]
+        assert turns[0]["content"] == "second"
+
+    def test_excludes_messages_without_request_id(self, store: StorageProvider):
+        store.store_message(turn_id=1, role="user", content="untracked", peer_id="user")
+        assert store.get_recent_turns(10) == []
+
+    def test_excludes_ai_role_messages(self, store: StorageProvider):
+        store.store_message(turn_id=1, role="ai", content="reply", peer_id="ai", request_id="req1")
+        assert store.get_recent_turns(10) == []
+
+    def test_respects_limit(self, store: StorageProvider):
+        for i in range(3):
+            store.store_message(turn_id=i, role="user", content=f"msg {i}", peer_id="user", request_id=f"req{i}")
+
+        assert len(store.get_recent_turns(2)) == 2
+
+    def test_filters_by_peer_id(self, store: StorageProvider):
+        store.store_message(turn_id=1, role="user", content="mine", peer_id="user", request_id="req1")
+        store.store_message(turn_id=2, role="user", content="theirs", peer_id="telegram:999", request_id="req2")
+
+        turns = store.get_recent_turns(10, peer_id="user")
+        assert [t["request_id"] for t in turns] == ["req1"]
+
+
 class TestMemoryItems:
     def test_store_and_search(self, store: StorageProvider):
         item = MemoryItem(

@@ -175,6 +175,17 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS idx_embedding_calls_purpose ON embedding_calls(purpose);
     """,
+    10: """
+    -- Lets a turn's own messages be looked up by request_id — the
+    -- correlation key already threaded through every step of a turn
+    -- (see core/__init__.py's store_turn). Without this, the turn-detail
+    -- dashboard (tools/dashboard/) could only show real message text for
+    -- turns captured by the debug-gated trace; with it, message content
+    -- is always available regardless of debug.enabled, same as the
+    -- events/llm_calls/embedding_calls tables above.
+    ALTER TABLE messages ADD COLUMN request_id TEXT;
+    CREATE INDEX IF NOT EXISTS idx_messages_request ON messages(request_id);
+    """,
 }
 
 

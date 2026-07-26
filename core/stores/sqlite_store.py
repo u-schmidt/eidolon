@@ -1048,11 +1048,12 @@ class SqliteStore:
         content: str,
         peer_id: str,
         topic_id: int | None = None,
+        request_id: str | None = None,
     ) -> int:
         cur = self._conn.execute(
-            "INSERT INTO messages (turn_id, role, content, peer_id, topic_id) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (turn_id, role, content, peer_id, topic_id),
+            "INSERT INTO messages (turn_id, role, content, peer_id, topic_id, request_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (turn_id, role, content, peer_id, topic_id, request_id),
         )
         if topic_id is not None:
             self._conn.execute(
@@ -1096,4 +1097,43 @@ class SqliteStore:
                 "created_at": r[5],
             }
             for r in reversed(rows)
+        ]
+
+    def get_messages_by_request_id(self, request_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, turn_id, role, content, peer_id, topic_id, created_at "
+            "FROM messages WHERE request_id = ? ORDER BY id",
+            (request_id,),
+        ).fetchall()
+        return [
+            {
+                "id": r[0],
+                "turn_id": r[1],
+                "role": r[2],
+                "content": r[3],
+                "peer_id": r[4],
+                "topic_id": r[5],
+                "created_at": r[6],
+            }
+            for r in rows
+        ]
+
+    def get_recent_turns(self, limit: int, peer_id: str | None = None) -> list[dict]:
+        if peer_id is not None:
+            rows = self._conn.execute(
+                "SELECT request_id, peer_id, topic_id, content, created_at FROM messages "
+                "WHERE role = 'user' AND request_id IS NOT NULL AND peer_id = ? "
+                "ORDER BY id DESC LIMIT ?",
+                (peer_id, limit),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT request_id, peer_id, topic_id, content, created_at FROM messages "
+                "WHERE role = 'user' AND request_id IS NOT NULL "
+                "ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            {"request_id": r[0], "peer_id": r[1], "topic_id": r[2], "content": r[3], "created_at": r[4]}
+            for r in rows
         ]

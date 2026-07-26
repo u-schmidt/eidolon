@@ -29,6 +29,13 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+# Ensure the project root is on sys.path for direct execution
+_project_root = str(Path(__file__).resolve().parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+from core.trace.sqlite_trace_reader import SqliteTraceReader
+
 _MAX_FIELD_CHARS = 500
 
 
@@ -67,9 +74,17 @@ class TraceReader:
                 f"Run with debug.enabled: true in eidolon.yaml first."
             )
         self._conn = sqlite3.connect(str(self._path))
+        # events_for_request delegates to the shared core implementation
+        # (core/trace/sqlite_trace_reader.py) instead of duplicating its
+        # query — recent_request_ids/recent_turns below stay here since
+        # they're CLI/TUI-specific, not needed by the core TraceReader
+        # Protocol.
+        self._reader = SqliteTraceReader(db_path)
+        self._reader.connect()
 
     def close(self) -> None:
         self._conn.close()
+        self._reader.close()
 
     def recent_request_ids(self, session_id: str | None, limit: int) -> list[str]:
         """Return up to `limit` request_ids, most recent first."""
@@ -90,21 +105,7 @@ class TraceReader:
         return [r[0] for r in rows]
 
     def events_for_request(self, request_id: str) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT event_type, payload, duration_ms, session_id, created_at "
-            "FROM events WHERE request_id = ? ORDER BY id ASC",
-            (request_id,),
-        ).fetchall()
-        return [
-            {
-                "event_type": r[0],
-                "payload": json.loads(r[1]),
-                "duration_ms": r[2],
-                "session_id": r[3],
-                "created_at": r[4],
-            }
-            for r in rows
-        ]
+        return self._reader.events_for_request(request_id)
 
     def recent_turns(self, limit: int = 20, session_id: str | None = None) -> list[TurnSummary]:
         """Return up to `limit` turns (one per request_id), most recent
