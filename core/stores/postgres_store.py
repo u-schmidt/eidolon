@@ -103,6 +103,19 @@ class PostgresStore:
         Migrations must run first: register_vector() looks up the
         `vector` type's OID in the database, which doesn't exist until
         migration 1's `CREATE EXTENSION IF NOT EXISTS vector` has run.
+
+        Connects with ``autocommit=False`` only for this setup sequence
+        — ``migrate()`` needs each migration's schema change and its
+        version-bookkeeping insert to commit together atomically (see
+        ``core/stores/postgres_migrations.py``). Every real operation
+        after this method returns runs with autocommit on instead (see
+        below): a long-lived connection like this one previously left
+        every read-only method (no trailing ``.commit()``, unlike the
+        write methods) sitting "idle in transaction" indefinitely once
+        called — confirmed live, blocking a later schema migration that
+        needed an ACCESS EXCLUSIVE lock on `messages`, and more broadly
+        able to block autovacuum on frequently-written tables the
+        longer it went unnoticed.
         """
         self._db = psycopg.connect(
             host=self._host,
@@ -114,6 +127,8 @@ class PostgresStore:
         )
         migrate(self._db, self._embedding_dim)
         register_vector(self._db)
+        self._db.commit()  # close out register_vector()'s own implicit transaction
+        self._db.autocommit = True
 
     def close(self) -> None:
         if self._db is not None:
@@ -150,14 +165,12 @@ class PostgresStore:
             "value=excluded.value, source=excluded.source, importance=excluded.importance",
             (peer_id, category, key, value, source, importance),
         )
-        self._conn.commit()
 
     def delete_fact(self, peer_id: str, category: str, key: str) -> None:
         self._conn.execute(
             "DELETE FROM facts WHERE peer_id = %s AND category = %s AND key = %s",
             (peer_id, category, key),
         )
-        self._conn.commit()
 
     # ── Facts Consolidation ────────────────────────────────
 
@@ -199,7 +212,6 @@ class PostgresStore:
             "ON CONFLICT (peer_id) DO UPDATE SET last_item_id=excluded.last_item_id, last_run_at=excluded.last_run_at",
             (peer_id, last_item_id),
         )
-        self._conn.commit()
 
     # ── Topics ─────────────────────────────────────────────
 
@@ -217,7 +229,6 @@ class PostgresStore:
             "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
             (label, summary, Jsonb(tags or []), embedding, peer_id, session_id),
         ).fetchone()
-        self._conn.commit()
         assert row is not None  # RETURNING id always yields a row on successful INSERT
         return row[0]
 
@@ -246,7 +257,6 @@ class PostgresStore:
             "UPDATE topics SET status='closed', summary=%s, closed_at=now() WHERE id=%s",
             (summary, topic_id),
         )
-        self._conn.commit()
 
     def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
         """See StorageProvider.get_active_topic / SqliteStore's docstring
@@ -318,15 +328,12 @@ class PostgresStore:
 
     def update_topic_embedding(self, topic_id: int, embedding: list[float]) -> None:
         self._conn.execute("UPDATE topics SET embedding = %s WHERE id = %s", (embedding, topic_id))
-        self._conn.commit()
 
     def update_topic_tags(self, topic_id: int, tags: list[str]) -> None:
         self._conn.execute("UPDATE topics SET tags = %s WHERE id = %s", (Jsonb(tags), topic_id))
-        self._conn.commit()
 
     def update_topic_label(self, topic_id: int, label: str) -> None:
         self._conn.execute("UPDATE topics SET label = %s WHERE id = %s", (label, topic_id))
-        self._conn.commit()
 
     def count_messages_by_topic(self, topic_id: int) -> int:
         row = self._conn.execute(
@@ -469,7 +476,6 @@ class PostgresStore:
             "VALUES (%s, %s, %s, %s, %s) RETURNING id",
             (peer_id, label, summary, Jsonb(tags or []), embedding),
         ).fetchone()
-        self._conn.commit()
         assert row is not None  # RETURNING id always yields a row on successful INSERT
         return row[0]
 
@@ -513,18 +519,20 @@ class PostgresStore:
             params.append(embedding)
         params.append(cluster_id)
         self._conn.execute(f"UPDATE topic_clusters SET {', '.join(sets)} WHERE id = %s", params)
-        self._conn.commit()
 
     def assign_topic_to_cluster(self, topic_id: int, cluster_id: int) -> None:
-        """Real transaction here (both statements share one commit) —
+        """Real transaction here (both statements committed together) —
         SqliteStore's equivalent commits each statement separately, a
         known non-atomic gap. Free to fix on this backend since Postgres
-        makes it trivial; not backported to SQLite in this change."""
-        self._conn.execute("UPDATE topics SET cluster_id = %s WHERE id = %s", (cluster_id, topic_id))
-        self._conn.execute(
-            "UPDATE topic_clusters SET topic_count = topic_count + 1 WHERE id = %s", (cluster_id,)
-        )
-        self._conn.commit()
+        makes it trivial; not backported to SQLite in this change.
+        Explicit ``with conn.transaction()`` since the connection itself
+        runs autocommit (see ``connect()``) — psycopg3's documented
+        pattern for a real multi-statement transaction in that mode."""
+        with self._conn.transaction():
+            self._conn.execute("UPDATE topics SET cluster_id = %s WHERE id = %s", (cluster_id, topic_id))
+            self._conn.execute(
+                "UPDATE topic_clusters SET topic_count = topic_count + 1 WHERE id = %s", (cluster_id,)
+            )
 
     def get_topics_by_cluster(self, cluster_id: int) -> list[dict]:
         rows = self._conn.execute(
@@ -700,7 +708,6 @@ class PostgresStore:
             (item.content, item.item_type, item.source_peer, item.subject_peer,
              item.attribution_type, item.topic_id, item.message_id, item.embedding),
         ).fetchone()
-        self._conn.commit()
         assert row is not None  # RETURNING id always yields a row on successful INSERT
         return row[0]
 
@@ -791,17 +798,19 @@ class PostgresStore:
         self, turn_id: int, role: str, content: str, peer_id: str, topic_id: int | None = None,
         request_id: str | None = None,
     ) -> int:
-        row = self._conn.execute(
-            "INSERT INTO messages (turn_id, role, content, peer_id, topic_id, request_id) "
-            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-            (turn_id, role, content, peer_id, topic_id, request_id),
-        ).fetchone()
-        if topic_id is not None:
-            self._conn.execute(
-                "UPDATE topics SET message_count = message_count + 1 WHERE id = %s",
-                (topic_id,),
-            )
-        self._conn.commit()
+        # with conn.transaction(): see assign_topic_to_cluster's docstring
+        # — the INSERT and topics.message_count UPDATE commit together.
+        with self._conn.transaction():
+            row = self._conn.execute(
+                "INSERT INTO messages (turn_id, role, content, peer_id, topic_id, request_id) "
+                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                (turn_id, role, content, peer_id, topic_id, request_id),
+            ).fetchone()
+            if topic_id is not None:
+                self._conn.execute(
+                    "UPDATE topics SET message_count = message_count + 1 WHERE id = %s",
+                    (topic_id,),
+                )
         assert row is not None  # RETURNING id always yields a row on successful INSERT
         return row[0]
 
