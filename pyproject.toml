@@ -43,10 +43,9 @@ postgres = [
 server = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
-]
-dashboard = [
-    "fastapi>=0.115",
-    "uvicorn>=0.30",
+    # jinja2: the turn-detail dashboard (tools/dashboard/), mounted onto
+    # this same server under /dashboard — not a separate deployment, so
+    # not a separate extra.
     "jinja2>=3.1",
 ]
 
@@ -82,7 +81,6 @@ ignore = [
 "tools/migrate_sqlite_to_postgres.py" = ["E402"]
 "tools/serve.py" = ["E402"]
 "tools/trace.py" = ["E402"]
-"tools/dashboard.py" = ["E402"]
 # FastAPI's dependency-injection idiom requires Body(...)/Depends(...)
 # as argument defaults — not the mutable-default-argument bug B008
 # otherwise guards against.

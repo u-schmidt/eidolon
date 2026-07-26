@@ -269,11 +269,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-dashboard = [
-    { name = "fastapi" },
-    { name = "jinja2" },
-    { name = "uvicorn" },
-]
 dev = [
     { name = "httpx" },
     { name = "mypy" },
@@ -293,6 +288,7 @@ sentence-transformers = [
 ]
 server = [
     { name = "fastapi" },
+    { name = "jinja2" },
     { name = "uvicorn" },
 ]
 tui = [
@@ -304,10 +300,9 @@ vec = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", marker = "extra == 'dashboard'", specifier = ">=0.115" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
-    { name = "jinja2", marker = "extra == 'dashboard'", specifier = ">=3.1" },
+    { name = "jinja2", marker = "extra == 'server'", specifier = ">=3.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "pgvector", marker = "extra == 'dev'", specifier = ">=0.3" },
     { name = "pgvector", marker = "extra == 'postgres'", specifier = ">=0.3" },
@@ -323,10 +318,9 @@ requires-dist = [
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.60" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
-    { name = "uvicorn", marker = "extra == 'dashboard'", specifier = ">=0.30" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.30" },
 ]
-provides-extras = ["dev", "sentence-transformers", "tui", "vec", "postgres", "server", "dashboard"]
+provides-extras = ["dev", "sentence-transformers", "tui", "vec", "postgres", "server"]
 
 [[package]]
 name = "fastapi"

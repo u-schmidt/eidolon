@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-  <form method="get" action="/" class="row" style="margin-bottom: 1rem; align-items: center;">
+  <form method="get" action="{{ url_for('dashboard_index') }}" class="row" style="margin-bottom: 1rem; align-items: center;">
     <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
     <button type="submit">Filter</button>
   </form>
@@ -17,7 +17,7 @@
         <tr>
           <td class="muted">{{ t.created_at }}</td>
           <td>{{ t.peer_id or "—" }}</td>
-          <td><a href="/turns/{{ t.request_id }}">{{ t.preview }}</a></td>
+          <td><a href="{{ url_for('dashboard_turn_detail', request_id=t.request_id) }}">{{ t.preview }}</a></td>
           <td class="muted">{{ t.topic_id if t.topic_id is not none else "—" }}</td>
         </tr>
         {% endfor %}

@@ -1,7 +1,12 @@
-"""Bearer-token auth dependency for the Eidolon HTTP server.
+"""Auth dependencies for the Eidolon HTTP server.
 
-Checked against ``EIDOLON_DEPLOYMENT_TOKEN`` (env var, not YAML — same
-precedent as ``EIDOLON_STORAGE_PASSWORD``, see core/config.py). A
+Two independent schemes for two independently-mounted routers on the
+same app (see server/app.py's create_app): ``require_token`` gates the
+machine RPC API (bearer token, checked against
+``EIDOLON_DEPLOYMENT_TOKEN`` — env var, not YAML, same precedent as
+``EIDOLON_STORAGE_PASSWORD``, see core/config.py); ``require_dashboard_password``
+gates the human-facing turn-detail dashboard (HTTP Basic — a browser
+can prompt for that natively, unlike a bearer header). A
 network-exposed core needs an auth boundary an in-process call never
 did; see ROADMAP.md's "Core-as-a-service deployment mode" entry.
 """
@@ -9,8 +14,11 @@ did; see ROADMAP.md's "Core-as-a-service deployment mode" entry.
 from __future__ import annotations
 
 import os
+import secrets
+from typing import Annotated
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 
 def require_token(authorization: str = Header(default="")) -> None:
@@ -29,3 +37,27 @@ def require_token(authorization: str = Header(default="")) -> None:
         )
     if authorization != f"Bearer {expected}":
         raise HTTPException(status_code=401, detail="Invalid or missing bearer token.")
+
+
+_dashboard_basic_auth = HTTPBasic(auto_error=False)
+
+
+def require_dashboard_password(
+    credentials: Annotated[HTTPBasicCredentials | None, Depends(_dashboard_basic_auth)],
+) -> None:
+    """FastAPI dependency: optional HTTP Basic auth for the dashboard router.
+
+    Skipped entirely if EIDOLON_DASHBOARD_PASSWORD is unset — matches
+    the "binds to 127.0.0.1 by default" localhost threat model this
+    server already uses for its own default host, fine for a page
+    that's typically reached over SSH tunnel or directly on the host.
+    """
+    expected = os.environ.get("EIDOLON_DASHBOARD_PASSWORD", "")
+    if not expected:
+        return
+    valid = credentials is not None and secrets.compare_digest(credentials.password, expected)
+    if not valid:
+        raise HTTPException(
+            status_code=401, detail="Invalid or missing credentials.",
+            headers={"WWW-Authenticate": "Basic"},
+        )

@@ -1,16 +1,23 @@
-"""FastAPI TestClient smoke tests for the turn-detail dashboard app —
-confirms both routes render for a rich-mode and a skeleton-mode turn,
-and that the optional HTTP Basic auth gate behaves correctly."""
+"""FastAPI TestClient smoke tests for the turn-detail dashboard router —
+confirms both routes render for a rich-mode and a skeleton-mode turn.
+
+Wraps ``create_dashboard_router`` in a bare test app (mounting the real
+static dir under the same name production uses, so ``url_for()``
+resolves in templates) rather than going through ``server/app.py`` —
+keeps these tests focused on rendering, independent of auth/RPC
+concerns. Auth and the merged-app wiring are covered by
+tests/server/test_app.py instead.
+"""
 
 from __future__ import annotations
 
-import base64
-
 import pytest
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
 from tests.mocks import MockStorage
-from tools.dashboard.app import create_dashboard_app
+from tools.dashboard.app import DASHBOARD_STATIC_DIR, create_dashboard_router
 from tools.dashboard.turn_reader import TurnReader
 
 
@@ -45,6 +52,13 @@ class _FakeTraceReader:
         return self._events.get(request_id, [])
 
 
+def _wrap(turn_reader: TurnReader) -> FastAPI:
+    app = FastAPI()
+    app.include_router(create_dashboard_router(turn_reader))
+    app.mount("/static", StaticFiles(directory=str(DASHBOARD_STATIC_DIR)), name="dashboard-static")
+    return app
+
+
 @pytest.fixture
 def storage() -> MockStorage:
     return MockStorage()
@@ -53,8 +67,7 @@ def storage() -> MockStorage:
 @pytest.fixture
 def client(storage: MockStorage) -> TestClient:
     turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
-    app = create_dashboard_app(turn_reader)
-    return TestClient(app)
+    return TestClient(_wrap(turn_reader))
 
 
 class TestIndex:
@@ -91,7 +104,7 @@ class TestTurnDetail:
             ],
         })
         turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
-        client = TestClient(create_dashboard_app(turn_reader))
+        client = TestClient(_wrap(turn_reader))
 
         response = client.get("/turns/req1")
         assert response.status_code == 200
@@ -100,27 +113,3 @@ class TestTurnDetail:
     def test_unknown_request_id_returns_404(self, client: TestClient):
         response = client.get("/turns/nope")
         assert response.status_code == 404
-
-
-class TestAuth:
-    def test_no_auth_required_when_password_unset(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.delenv("EIDOLON_DASHBOARD_PASSWORD", raising=False)
-        assert client.get("/").status_code == 200
-
-    def test_rejects_missing_credentials_when_password_set(
-        self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
-    ):
-        monkeypatch.setenv("EIDOLON_DASHBOARD_PASSWORD", "secret")
-        assert client.get("/").status_code == 401
-
-    def test_accepts_correct_password(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("EIDOLON_DASHBOARD_PASSWORD", "secret")
-        creds = base64.b64encode(b"eidolon:secret").decode()
-        response = client.get("/", headers={"Authorization": f"Basic {creds}"})
-        assert response.status_code == 200
-
-    def test_rejects_wrong_password(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("EIDOLON_DASHBOARD_PASSWORD", "secret")
-        creds = base64.b64encode(b"eidolon:wrong").decode()
-        response = client.get("/", headers={"Authorization": f"Basic {creds}"})
-        assert response.status_code == 401

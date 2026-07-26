@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>{% block title %}Eidolon — Turn Detail{% endblock %}</title>
-  <script src="/static/htmx.min.js"></script>
+  <script src="{{ url_for('dashboard-static', path='htmx.min.js') }}"></script>
   <style>
     :root {
       color-scheme: light dark;
@@ -60,7 +60,7 @@
 </head>
 <body>
   <div class="row" style="justify-content: space-between; align-items: baseline; margin-bottom: 1rem;">
-    <h1><a href="/">Eidolon — Turn Detail</a></h1>
+    <h1><a href="{{ url_for('dashboard_index') }}">Eidolon — Turn Detail</a></h1>
   </div>
   {% block content %}{% endblock %}
 </body>

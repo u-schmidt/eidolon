@@ -370,17 +370,12 @@ It works at two levels, degrading gracefully rather than requiring debug mode:
 
 `request_id` is the single correlation key across both tiers and every table — minted once per turn (`core/__init__.py`'s `store_turn`) and threaded into everything it triggers, so a step's mere presence or absence for that id already answers "did this happen."
 
-Run it:
+Part of `eidolon-server` (see [Deployment Modes](#deployment-modes)) rather than a separate process or container: it's mounted under `/dashboard` on the same `tools/serve.py`, sharing that one process's `Eidolon`/storage instance instead of opening a second, independent connection to the database. That's deliberate — the moment write actions land here (correcting a fact, closing a topic on demand), they need to go through core's real orchestration (`TopicSummarizer`, `ClusterConsolidator`, ...), not a raw database write, and the only way to guarantee that without a second live writer racing the first is to have exactly one process ever touch the database through core. Read-only for now, `server`-deployment-mode only (there's no separately-addressable core process to mount it on in `embedded` mode).
+
+Reachable at `http://<server-host>:8420/dashboard/` once `eidolon-server` is running — nothing extra to start. Gated by its own optional HTTP Basic auth, independent of the RPC API's bearer token (skipped entirely if unset — same "binds to localhost by default" threat model `tools/serve.py` already uses for its own default host):
 
 ```bash
-uv sync --extra dashboard
-uv run python tools/dashboard.py --config eidolon.yaml --host 127.0.0.1 --port 8421
-```
-
-Optional HTTP Basic auth (skipped entirely if unset — same "binds to localhost by default" threat model as `tools/serve.py`):
-
-```bash
-EIDOLON_DASHBOARD_PASSWORD=... uv run python tools/dashboard.py
+EIDOLON_DASHBOARD_PASSWORD=... uv run python tools/serve.py --config eidolon.yaml
 ```
 
 ## Development

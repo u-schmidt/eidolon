@@ -8,6 +8,12 @@
 # deployment preset — the "running this for real" counterpart to the
 # default "embedded + sqlite-vec" try-it-in-five-minutes path.
 #
+# Also serves the turn-detail dashboard (tools/dashboard/), mounted
+# under /dashboard by server/app.py's create_app() — one process, one
+# Eidolon instance, rather than a second standalone container with its
+# own direct database connection. See README.md's "Turn Detail
+# Dashboard" section.
+#
 # Build from the repo root (the compose file does this automatically):
 #   docker build -f deploy/server/Dockerfile -t eidolon-server .
 
@@ -25,13 +31,15 @@ COPY core/ core/
 COPY server/ server/
 COPY client/ client/
 COPY tools/serve.py tools/
+COPY tools/dashboard/ tools/dashboard/
 
-# server: fastapi/uvicorn, needed to run tools/serve.py at all.
-# postgres: psycopg/pgvector — this image is built for the "server +
-# pgvector" preset specifically. LLM/embedder providers are all
-# HTTP-based (ollama, lm_studio, openai_compatible, ...) and need no
-# extra package beyond the base `requests` dependency; a local
-# sentence_transformers embedder would need that extra added separately.
+# server: fastapi/uvicorn/jinja2 — needed to run tools/serve.py and the
+# dashboard it now mounts. postgres: psycopg/pgvector — this image is
+# built for the "server + pgvector" preset specifically. LLM/embedder
+# providers are all HTTP-based (ollama, lm_studio, openai_compatible,
+# ...) and need no extra package beyond the base `requests` dependency;
+# a local sentence_transformers embedder would need that extra added
+# separately.
 RUN uv sync --extra server --extra postgres --no-dev --no-install-project
 
 EXPOSE 8420

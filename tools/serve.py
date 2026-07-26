@@ -37,6 +37,7 @@ from core.config import ConfigError
 from core.config_loader import ConfigLoader
 from core.provider_factory import ProviderFactory
 from server.app import create_app
+from tools.dashboard.turn_reader import TurnReader
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -84,6 +85,9 @@ def main() -> None:
         sys.exit(1)
     tracer = factory.create_tracer()
     metrics = factory.create_metrics_recorder()
+    metrics_reader = factory.create_metrics_reader()
+    trace_reader = factory.create_trace_reader()
+    turn_reader = TurnReader(store, metrics_reader, trace_reader)
 
     # Initialize Eidolon core — identical construction to tools/cli.py's,
     # just wrapped in an HTTP server instead of a REPL.
@@ -119,8 +123,8 @@ def main() -> None:
         metrics=metrics,
     )
 
-    app = create_app(eidolon)
-    print(f"  Starting Eidolon server on {args.host}:{args.port}\n")
+    app = create_app(eidolon, turn_reader)
+    print(f"  Starting Eidolon server on {args.host}:{args.port} (dashboard at /dashboard)\n")
     uvicorn.run(app, host=args.host, port=args.port)
 
 

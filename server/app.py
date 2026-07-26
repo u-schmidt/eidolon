@@ -1,4 +1,5 @@
-"""FastAPI app exposing Eidolon's core facade over HTTP.
+"""FastAPI app exposing Eidolon's core facade over HTTP, plus (optionally)
+the turn-detail dashboard.
 
 One route per ``EidolonClient`` method (core/eidolon_client.py) — a
 thin translation layer, not a second implementation of core's logic.
@@ -9,46 +10,66 @@ FastAPI's routing idiom is function-based, and these handlers only
 translate an HTTP request into a call on a real ``core.Eidolon``
 instance, never containing business logic themselves.
 
-Every route is a POST with a single flat JSON object body (including
-routes with only one field, via ``embed=True``) — a deliberate, uniform
-choice, not REST resource semantics: ``EidolonClient`` is method-shaped,
-not resource-shaped, so the wire format follows suit. Scalar parameters
-are annotated with ``Body(...)`` so they land in that JSON body instead
-of being inferred as query parameters (which would otherwise put the
-full user message in a URL for the ``environment``-carrying routes).
-Request/response bodies reuse ``core.models`` dataclasses directly —
-FastAPI converts plain stdlib dataclasses via pydantic internally, with
-no parallel DTO layer needed.
+Every RPC route is a POST with a single flat JSON object body
+(including routes with only one field, via ``embed=True``) — a
+deliberate, uniform choice, not REST resource semantics:
+``EidolonClient`` is method-shaped, not resource-shaped, so the wire
+format follows suit. Scalar parameters are annotated with ``Body(...)``
+so they land in that JSON body instead of being inferred as query
+parameters (which would otherwise put the full user message in a URL
+for the ``environment``-carrying routes). Request/response bodies reuse
+``core.models`` dataclasses directly — FastAPI converts plain stdlib
+dataclasses via pydantic internally, with no parallel DTO layer needed.
+
+The RPC routes and the dashboard routes are two ``APIRouter``s on one
+``FastAPI`` app, not two separate apps — same ``Eidolon``/storage
+instance underneath either way, but each router carries its own auth
+scheme (bearer token vs. HTTP Basic — see server/auth.py) since they
+serve different audiences (a machine caller vs. a human in a browser).
+Kept as one process rather than a second standalone dashboard
+container so there's exactly one thing ever writing to the database
+through core's real orchestration — see README.md's "Turn Detail
+Dashboard" section for the fuller rationale.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import Body, Depends, FastAPI
+from fastapi import APIRouter, Body, Depends, FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from core.eidolon_client import EidolonClient
 from core.models import ContextBundle, EnvironmentSnapshot, PrefetchResult, TopicChange
-from server.auth import require_token
+from server.auth import require_dashboard_password, require_token
+from tools.dashboard.app import DASHBOARD_STATIC_DIR, create_dashboard_router
+from tools.dashboard.turn_reader import TurnReader
 
 
-def create_app(eidolon: EidolonClient) -> FastAPI:
+def create_app(eidolon: EidolonClient, turn_reader: TurnReader | None = None) -> FastAPI:
     """Build the FastAPI app wrapping an already-constructed ``EidolonClient``.
 
     ``eidolon`` is a real ``core.Eidolon``, built once at startup by
     ``tools/serve.py`` the same way ``tools/cli.py`` builds one — this
     app contains no core logic itself, only HTTP<->facade translation.
-    """
-    app = FastAPI(title="Eidolon", dependencies=[Depends(require_token)])
 
-    @app.post("/active-topic", response_model=int | None)
+    ``turn_reader`` is optional: when given, the turn-detail dashboard
+    is mounted under ``/dashboard``; when omitted (the default — e.g.
+    tests that only care about the RPC contract), the app is exactly
+    the RPC API and nothing else.
+    """
+    app = FastAPI(title="Eidolon")
+
+    rpc = APIRouter(dependencies=[Depends(require_token)])
+
+    @rpc.post("/active-topic", response_model=int | None)
     def get_active_topic(
         peer_id: str = Body(...),
         session_id: str | None = Body(None),
     ) -> int | None:
         return eidolon.get_active_topic(peer_id, session_id)
 
-    @app.post("/prepare-context", response_model=PrefetchResult)
+    @rpc.post("/prepare-context", response_model=PrefetchResult)
     def prepare_context(
         message: str = Body(...),
         peer_id: str = Body(...),
@@ -62,7 +83,7 @@ def create_app(eidolon: EidolonClient) -> FastAPI:
             session_id=session_id, request_id=request_id,
         )
 
-    @app.post("/detect-topic", response_model=TopicChange)
+    @rpc.post("/detect-topic", response_model=TopicChange)
     def detect_topic(
         message: str = Body(...),
         active_topic_id: int | None = Body(None),
@@ -73,7 +94,7 @@ def create_app(eidolon: EidolonClient) -> FastAPI:
             message, active_topic_id, session_id=session_id, request_id=request_id,
         )
 
-    @app.post("/retrieve-context", response_model=ContextBundle)
+    @rpc.post("/retrieve-context", response_model=ContextBundle)
     def retrieve_context(
         message: str = Body(...),
         peer_id: str = Body(...),
@@ -89,7 +110,7 @@ def create_app(eidolon: EidolonClient) -> FastAPI:
             session_id=session_id, request_id=request_id,
         )
 
-    @app.post("/store-turn", response_model=int | None)
+    @rpc.post("/store-turn", response_model=int | None)
     def store_turn(
         user_message: str = Body(...),
         ai_response: str = Body(...),
@@ -106,7 +127,7 @@ def create_app(eidolon: EidolonClient) -> FastAPI:
             old_topic_id, new_topic_label, session_id=session_id, request_id=request_id,
         )
 
-    @app.post("/consolidate-facts", status_code=204)
+    @rpc.post("/consolidate-facts", status_code=204)
     def consolidate_facts(
         peer_id: str = Body(...),
         request_id: str | None = Body(None),
@@ -114,7 +135,7 @@ def create_app(eidolon: EidolonClient) -> FastAPI:
     ) -> None:
         eidolon.consolidate_facts(peer_id, request_id=request_id, session_id=session_id)
 
-    @app.post("/close-stale-topics", response_model=list[int])
+    @rpc.post("/close-stale-topics", response_model=list[int])
     def close_stale_topics(
         cutoff: datetime = Body(...),
         peer_id: str | None = Body(None),
@@ -125,7 +146,7 @@ def create_app(eidolon: EidolonClient) -> FastAPI:
             cutoff, peer_id, request_id=request_id, session_id=session_id,
         )
 
-    @app.post("/correct-fact", status_code=204)
+    @rpc.post("/correct-fact", status_code=204)
     def correct_fact(
         peer_id: str = Body(...),
         category: str = Body(...),
@@ -138,8 +159,22 @@ def create_app(eidolon: EidolonClient) -> FastAPI:
             peer_id, category, key, value, request_id=request_id, session_id=session_id,
         )
 
-    @app.post("/inspect-cluster", response_model=list[dict])
+    @rpc.post("/inspect-cluster", response_model=list[dict])
     def inspect_cluster(cluster_id: int = Body(..., embed=True)) -> list[dict]:
         return eidolon.inspect_cluster(cluster_id)
+
+    app.include_router(rpc)
+
+    if turn_reader is not None:
+        app.include_router(
+            create_dashboard_router(turn_reader),
+            prefix="/dashboard",
+            dependencies=[Depends(require_dashboard_password)],
+        )
+        app.mount(
+            "/dashboard/static",
+            StaticFiles(directory=str(DASHBOARD_STATIC_DIR)),
+            name="dashboard-static",
+        )
 
     return app
