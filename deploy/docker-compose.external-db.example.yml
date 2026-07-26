@@ -34,6 +34,16 @@ services:
       # (e.g. the Hermes container) reaches this host over a LAN/VPN
       # rather than localhost.
       - "127.0.0.1:8420:8420"
+    healthcheck:
+      # python, not curl/wget: the base image (python:3.12-slim) has
+      # neither installed, and adding one just for this would be an
+      # unnecessary extra package (see server/app.py's /healthz for the
+      # unauthenticated liveness endpoint this hits).
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8420/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     environment:
       - EIDOLON_DEPLOYMENT_TOKEN=${EIDOLON_DEPLOYMENT_TOKEN:?set a real token}
       - EIDOLON_STORAGE_PROVIDER=postgres

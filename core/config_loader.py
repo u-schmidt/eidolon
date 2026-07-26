@@ -10,12 +10,15 @@ Each source overrides the previous one, so CLI args always win.
 
 from __future__ import annotations
 
+import logging
 import os
 from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
 from core.config import EidolonConfig, ModelConfig
+
+logger = logging.getLogger(__name__)
 
 # Environment variable prefix
 _ENV_PREFIX = "EIDOLON_"
@@ -289,6 +292,8 @@ class ConfigLoader:
                 self._merge_into(config.relabel, value)
             elif hasattr(config, key):
                 setattr(config, key, value)
+            else:
+                logger.warning("Unknown config key %r at YAML root — ignored (typo?)", key)
 
     def _merge_models_yaml(self, config: EidolonConfig, data: dict[str, Any]) -> None:
         """Merge the ``models:`` YAML block.
@@ -301,7 +306,12 @@ class ConfigLoader:
         for role, role_data in data.items():
             if not isinstance(role_data, dict):
                 continue
-            fields = {k: v for k, v in role_data.items() if k in _MODEL_ROLE_FIELDS}
+            fields = {}
+            for key, value in role_data.items():
+                if key in _MODEL_ROLE_FIELDS:
+                    fields[key] = value
+                else:
+                    logger.warning("Unknown config key %r under models.%s — ignored (typo?)", key, role)
             config.models[role] = ModelConfig(**fields)
 
     @staticmethod
@@ -310,3 +320,7 @@ class ConfigLoader:
         for key, value in data.items():
             if hasattr(obj, key):
                 setattr(obj, key, value)
+            else:
+                logger.warning(
+                    "Unknown config key %r under %r — ignored (typo?)", key, type(obj).__name__
+                )

@@ -59,6 +59,7 @@ class MockEidolon:
         self.last_close_stale_topics_cutoff: datetime | None = None
         self.last_close_stale_topics_peer_id: str | None = None
         self.close_stale_topics_raises: Exception | None = None
+        self.prepare_context_raises: Exception | None = None
 
     def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
         self.get_active_topic_calls += 1
@@ -83,6 +84,8 @@ class MockEidolon:
         # one call, one request_id recorded, matching the real fused
         # Eidolon.prepare_context().
         self.prepare_context_calls += 1
+        if self.prepare_context_raises is not None:
+            raise self.prepare_context_raises
         self.last_message = message
         self.last_active_topic_id = active_topic_id
         self.last_retrieve_context_active_topic_id = active_topic_id
@@ -267,6 +270,16 @@ class TestEidolonMemoryProvider:
         p = EidolonMemoryProvider()
         result = p.prefetch("hello", session_id="sess_1")
         assert result == ""
+
+    def test_prefetch_failure_is_caught_and_logged_at_warning(self, provider, caplog):
+        # warning, not debug: a prefetch failure means no memory context
+        # gets injected for this turn at all — same visibility level as
+        # sync_turn()'s/the maintenance sweep's own failure handling.
+        provider._eidolon.prepare_context_raises = RuntimeError("backend unreachable")
+        with caplog.at_level("WARNING"):
+            result = provider.prefetch("hello", session_id="sess_1")  # must not raise
+        assert result == ""
+        assert "Eidolon prefetch failed" in caplog.text
 
     def test_prefetch_detects_topic_and_retrieves_context(self, provider):
         # Fused into one prepare_context() call — see core.models.PrefetchResult.
@@ -695,7 +708,7 @@ class TestEidolonMemoryProvider:
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
+             patch("adapters.hermes.eidolon_client_builder.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -725,7 +738,7 @@ class TestEidolonMemoryProvider:
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
+             patch("adapters.hermes.eidolon_client_builder.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -779,7 +792,7 @@ class TestEidolonMemoryProvider:
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
+             patch("adapters.hermes.eidolon_client_builder.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -807,7 +820,7 @@ class TestEidolonMemoryProvider:
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
+             patch("adapters.hermes.eidolon_client_builder.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -837,7 +850,7 @@ class TestEidolonMemoryProvider:
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
+             patch("adapters.hermes.eidolon_client_builder.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -874,7 +887,7 @@ class TestEidolonMemoryProvider:
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon):
+             patch("adapters.hermes.eidolon_client_builder.Eidolon", return_value=mock_eidolon):
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()
@@ -907,7 +920,7 @@ class TestEidolonMemoryProvider:
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
-             patch("adapters.hermes.memory_provider.Eidolon", return_value=mock_eidolon) as MockEidolonClass:
+             patch("adapters.hermes.eidolon_client_builder.Eidolon", return_value=mock_eidolon) as MockEidolonClass:
             MockConfigLoader.return_value.load.return_value = mock_config
             factory = MockProviderFactory.return_value
             factory.create_storage.return_value = MockStore()

@@ -26,6 +26,10 @@ dev = [
     # (starlette) for the fast in-process "http" contract-test branch —
     # TestClient needs httpx, which isn't bundled with fastapi itself.
     "httpx>=0.27",
+    # tests/tools/tui/ imports textual unconditionally (no skip guard) —
+    # same reasoning as the postgres deps above: dev-required so a plain
+    # `uv sync --extra dev` can run the full suite, not just the `tui` extra.
+    "textual>=0.60",
 ]
 sentence-transformers = [
     "sentence-transformers>=3",

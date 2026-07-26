@@ -107,6 +107,24 @@ def _rpc_call(client: TestClient, token: str | None):
     return client.post("/active-topic", json={"peer_id": "u1"}, headers=headers)
 
 
+class TestHealthz:
+    """/healthz is the container-orchestration liveness probe — must work
+    with no bearer token and regardless of whether the dashboard is
+    mounted, since Docker/Compose healthchecks can't supply auth."""
+
+    def test_healthz_requires_no_token(self):
+        client = TestClient(create_app(_FakeEidolonClient()))
+        response = client.get("/healthz")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+    def test_healthz_available_with_dashboard_mounted(
+        self, turn_reader: TurnReader, performance_reader: PerformanceReader,
+    ):
+        client = TestClient(create_app(_FakeEidolonClient(), turn_reader, performance_reader))
+        assert client.get("/healthz").status_code == 200
+
+
 class TestRpcAuthUnaffectedByDashboard:
     def test_rpc_requires_token_with_no_dashboard_mounted(self):
         client = TestClient(create_app(_FakeEidolonClient()))

@@ -229,6 +229,59 @@ timezone: Europe/Berlin
         assert config.language == "de"
         assert config.timezone == "Europe/Berlin"
 
+    def test_yaml_unknown_top_level_key_is_warned_not_raised(self, caplog):
+        # A typo'd top-level key (e.g. "retrievall") must not silently
+        # vanish with no trace — but it also must not crash config
+        # loading, since a warning is enough for a user to notice and fix.
+        tmp = tempfile.mkdtemp()
+        yaml_path = str(Path(tmp) / "config.yaml")
+        with open(yaml_path, "w") as f:
+            f.write("retrievall:\n  semantic: 0.9\nlanguage: de\n")
+
+        with caplog.at_level("WARNING"):
+            config = ConfigLoader(config_path=yaml_path).load()
+
+        assert config.language == "de"
+        assert "retrievall" in caplog.text
+        assert "Unknown config key" in caplog.text
+
+    def test_yaml_unknown_nested_key_is_warned(self, caplog):
+        tmp = tempfile.mkdtemp()
+        yaml_path = str(Path(tmp) / "config.yaml")
+        with open(yaml_path, "w") as f:
+            f.write("retrieval:\n  semanticc: 0.9\n")
+
+        with caplog.at_level("WARNING"):
+            ConfigLoader(config_path=yaml_path).load()
+
+        assert "semanticc" in caplog.text
+        assert "Unknown config key" in caplog.text
+
+    def test_yaml_unknown_model_role_field_is_warned(self, caplog):
+        tmp = tempfile.mkdtemp()
+        yaml_path = str(Path(tmp) / "config.yaml")
+        with open(yaml_path, "w") as f:
+            f.write("models:\n  llm:\n    provider: ollama\n    modle: llama3.2\n")
+
+        with caplog.at_level("WARNING"):
+            config = ConfigLoader(config_path=yaml_path).load()
+
+        assert config.models["llm"].provider == "ollama"
+        assert "modle" in caplog.text
+        assert "Unknown config key" in caplog.text
+
+    def test_yaml_known_keys_produce_no_warnings(self, caplog):
+        # Sanity check the fix isn't just noisy for every load.
+        tmp = tempfile.mkdtemp()
+        yaml_path = str(Path(tmp) / "config.yaml")
+        with open(yaml_path, "w") as f:
+            f.write("retrieval:\n  semantic: 0.5\nlanguage: de\n")
+
+        with caplog.at_level("WARNING"):
+            ConfigLoader(config_path=yaml_path).load()
+
+        assert "Unknown config key" not in caplog.text
+
     def test_yaml_models_block_replaces_zero_config_default(self):
         """A YAML llm: block must fully replace the zero-config `simulated`
         default, not merge into it and leave stale fields behind."""

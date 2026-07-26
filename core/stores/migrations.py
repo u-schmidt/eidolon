@@ -193,10 +193,24 @@ def migrate(db: sqlite3.Connection) -> None:
     """Run all pending migrations on the given database connection.
 
     Safe to call on every startup — only unapplied versions are executed.
+
+    Each version's script (plus its own ``PRAGMA user_version`` bump) is
+    wrapped in one explicit ``BEGIN``/``COMMIT`` and, on failure, rolled
+    back — ``executescript`` on its own performs no implicit transaction
+    control, and DDL statements passed to it run under SQLite's own
+    per-statement autocommit, so a mid-script failure would otherwise
+    leave earlier statements in that version already durably committed
+    while ``user_version`` stays at the prior number (verified directly:
+    without the explicit wrapping, a failing 3rd statement in a 4-statement
+    script left the first two committed on disk).
     """
     version = db.execute("PRAGMA user_version").fetchone()[0]
 
     for v in range(version + 1, max(MIGRATIONS) + 1):
-        if v in MIGRATIONS:
-            db.executescript(MIGRATIONS[v])
-            db.execute(f"PRAGMA user_version = {v}")
+        if v not in MIGRATIONS:
+            continue
+        try:
+            db.executescript(f"BEGIN;\n{MIGRATIONS[v]}\nPRAGMA user_version = {v};\nCOMMIT;")
+        except sqlite3.Error:
+            db.rollback()
+            raise

@@ -32,6 +32,7 @@ import pytest
 # reaper isn't needed. Must be set before testcontainers is imported.
 os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
 
+import docker  # noqa: E402
 from testcontainers.postgres import PostgresContainer  # noqa: E402
 
 from core.stores.postgres_store import PostgresStore  # noqa: E402
@@ -40,6 +41,10 @@ from core.stores.sqlite_store import SqliteStore  # noqa: E402
 
 @pytest.fixture(scope="session")
 def postgres_container():
+    try:
+        docker.from_env().ping()
+    except Exception as exc:  # noqa: BLE001 - any failure here means "no usable Docker daemon"
+        pytest.skip(f"Docker is not available, skipping Postgres-backed tests: {exc}")
     with PostgresContainer("pgvector/pgvector:pg15", username="eidolon", password="test", dbname="eidolon") as pg:
         yield pg
 

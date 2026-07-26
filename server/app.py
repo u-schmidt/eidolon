@@ -67,6 +67,15 @@ def create_app(
     """
     app = FastAPI(title="Eidolon")
 
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]:
+        """Unauthenticated liveness probe for container orchestration —
+        deliberately outside ``rpc`` (no bearer token needed) since a
+        Docker/Compose healthcheck has no way to supply one. Process-alive
+        only, no storage round-trip: if the process is wedged or crashed,
+        the probe already fails by timing out/refusing the connection."""
+        return {"status": "ok"}
+
     rpc = APIRouter(dependencies=[Depends(require_token)])
 
     @rpc.post("/active-topic", response_model=int | None)

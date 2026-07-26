@@ -35,7 +35,7 @@ def require_token(authorization: str = Header(default="")) -> None:
             status_code=500,
             detail="Server misconfigured: EIDOLON_DEPLOYMENT_TOKEN is not set.",
         )
-    if authorization != f"Bearer {expected}":
+    if not secrets.compare_digest(authorization, f"Bearer {expected}"):
         raise HTTPException(status_code=401, detail="Invalid or missing bearer token.")
 
 

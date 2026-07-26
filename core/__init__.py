@@ -410,24 +410,12 @@ class Eidolon:
         request_id = request_id or _new_request_id()
         turn_started = time.perf_counter()
 
-        # 1. Close old topic if topic changed — and generate summary + tags.
-        # _summarize_topic() closes the topic itself once it has a real
-        # summary; the placeholder here is only a fallback for when it
-        # couldn't (no messages, LLM failure, unparseable response), so a
-        # topic is never left stuck 'active' forever.
+        # 1(+1b). Close old topic if topic changed, then evaluate it for
+        # recurring-thread clustering — see _close_old_topic.
         if old_topic_id is not None and new_topic_label is not None:
-            summarized = self._summarizer.summarize(old_topic_id, request_id=request_id, session_id=session_id)
-            if summarized:
-                # 1b. Evaluate the freshly-closed topic for recurring-thread
-                # clustering — only meaningful with a real summary (the
-                # fallback path below has nothing worth clustering). See
-                # ClusterConsolidator.
-                if self._clustering_enabled:
-                    self._cluster_consolidator.consolidate_topic(
-                        old_topic_id, peer_id, request_id=request_id, session_id=session_id
-                    )
-            else:
-                self._storage.close_topic(old_topic_id, f"Continued to: {new_topic_label}")
+            self._close_old_topic(
+                old_topic_id, new_topic_label, peer_id, request_id=request_id, session_id=session_id
+            )
 
         # 2. Create new topic if topic changed. Starts pending (label="")
         # rather than the detector's raw guess (new_topic_label, still
@@ -454,32 +442,11 @@ class Eidolon:
             peer_id="ai", topic_id=resolved_topic_id, request_id=request_id,
         )
 
-        # 3b. Mid-conversation relabel — a still-pending topic (never yet
-        # given a real label, since it's still open) gets one relabel pass
-        # once it accumulates enough messages. CONTINUE turns only: a
-        # NEW_TOPIC turn's topic was just created this same call, nowhere
-        # near the threshold yet. Checking label == "" before counting
-        # lets the common case (already labeled) skip the count query.
+        # 3b. Mid-conversation relabel — CONTINUE turns only: a NEW_TOPIC
+        # turn's topic was just created this same call, nowhere near the
+        # threshold yet. See _maybe_relabel_pending_topic.
         if self._relabel_enabled and new_topic_label is None and old_topic_id is not None:
-            try:
-                topic = self._storage.get_topic(old_topic_id)
-                if (
-                    topic is not None
-                    and topic["label"] == ""
-                    and self._storage.count_messages_by_topic(old_topic_id) >= self._relabel_message_threshold
-                ):
-                    self._relabeler.relabel(old_topic_id, request_id=request_id, session_id=session_id)
-            except Exception as exc:
-                self._tracer.record(
-                    "error",
-                    {"step": "topic_relabel_trigger", "topic_id": old_topic_id, "exception": repr(exc)},
-                    request_id=request_id, session_id=session_id,
-                )
-                self._metrics.record_event(
-                    "error", "topic_relabel_trigger", repr(exc),
-                    peer_id=peer_id, request_id=request_id, session_id=session_id,
-                )
-                logger.warning("Eidolon topic_relabel_trigger failed (topic_id=%s): %s", old_topic_id, exc)
+            self._maybe_relabel_pending_topic(old_topic_id, peer_id, request_id=request_id, session_id=session_id)
 
         # 4. Extract memory fragments
         items = self._extractor.extract(
@@ -492,52 +459,12 @@ class Eidolon:
             session_id=session_id,
         )
 
-        # 5. Store memory items with topic + message association + embeddings
-        fact_items: list[MemoryItem] = []
-        for item in items:
-            if resolved_topic_id is not None:
-                item.topic_id = resolved_topic_id
-            # Link items to the message they were extracted from
-            if item.source_peer == "ai":
-                item.message_id = ai_msg_id
-            else:
-                item.message_id = user_msg_id
-            # Generate embedding for the item content
-            if item.content:
-                try:
-                    embed_started = time.perf_counter()
-                    item.embedding = self._embedder.embed(item.content)
-                    embed_duration_ms = (time.perf_counter() - embed_started) * 1000
-                    self._tracer.record(
-                        "embedding",
-                        {"purpose": "memory_item", "text": item.content, "dimension": len(item.embedding)},
-                        request_id=request_id, session_id=session_id, duration_ms=embed_duration_ms,
-                    )
-                    self._metrics.record_embedding_call(
-                        "memory_item", embed_duration_ms, len(item.embedding), True,
-                        entity_type="memory_item", peer_id=peer_id,
-                        request_id=request_id, session_id=session_id,
-                    )
-                except Exception as exc:
-                    self._tracer.record(
-                        "error",
-                        {"step": "memory_item_embedding", "exception": repr(exc)},
-                        request_id=request_id, session_id=session_id,
-                    )
-                    self._metrics.record_event(
-                        "error", "memory_item_embedding", repr(exc),
-                        peer_id=peer_id, request_id=request_id, session_id=session_id,
-                    )
-                    logger.warning("Eidolon memory_item_embedding failed: %s", exc)
-                    # Embedding failure is non-critical for a single
-                    # occurrence, but a persistent one silently degrades
-                    # retrieval quality — see the warning above.
-            self._storage.store_memory_item(item)
-            # Collect fact-type items — no longer converted to facts
-            # immediately (see step 6); kept here only for the
-            # turn_complete trace field below.
-            if item.item_type == "fact":
-                fact_items.append(item)
+        # 5. Store memory items with topic + message association +
+        # embeddings — see _store_memory_items.
+        fact_items = self._store_memory_items(
+            items, resolved_topic_id, user_msg_id, ai_msg_id, peer_id,
+            request_id=request_id, session_id=session_id,
+        )
 
         # 6. Periodically reconcile the durable facts profile — a batch
         # review every N turns instead of a per-turn conversion, so
@@ -692,6 +619,135 @@ class Eidolon:
         ]
 
     # ── Internal Helpers ────────────────────────────────────
+
+    def _close_old_topic(
+        self,
+        old_topic_id: int,
+        new_topic_label: str,
+        peer_id: str,
+        *,
+        request_id: str,
+        session_id: str | None,
+    ) -> None:
+        """store_turn step 1(+1b): close the previous topic with a real
+        summary, then evaluate it for recurring-thread clustering.
+
+        `_summarizer.summarize()` closes the topic itself once it has a
+        real summary; the fallback close here only covers the case it
+        couldn't (no messages, LLM failure, unparseable response), so a
+        topic is never left stuck 'active' forever. Clustering only runs
+        against a real summary — the fallback path has nothing worth
+        clustering. See ClusterConsolidator.
+        """
+        summarized = self._summarizer.summarize(old_topic_id, request_id=request_id, session_id=session_id)
+        if summarized:
+            if self._clustering_enabled:
+                self._cluster_consolidator.consolidate_topic(
+                    old_topic_id, peer_id, request_id=request_id, session_id=session_id
+                )
+        else:
+            self._storage.close_topic(old_topic_id, f"Continued to: {new_topic_label}")
+
+    def _maybe_relabel_pending_topic(
+        self,
+        old_topic_id: int,
+        peer_id: str,
+        *,
+        request_id: str,
+        session_id: str | None,
+    ) -> None:
+        """store_turn step 3b: give a still-pending topic (never yet given
+        a real label, since it's still open) one relabel pass once it
+        accumulates enough messages. Checking label == "" before counting
+        lets the common case (already labeled) skip the count query.
+
+        Only called for CONTINUE turns — see store_turn's call site.
+        """
+        try:
+            topic = self._storage.get_topic(old_topic_id)
+            if (
+                topic is not None
+                and topic["label"] == ""
+                and self._storage.count_messages_by_topic(old_topic_id) >= self._relabel_message_threshold
+            ):
+                self._relabeler.relabel(old_topic_id, request_id=request_id, session_id=session_id)
+        except Exception as exc:
+            self._tracer.record(
+                "error",
+                {"step": "topic_relabel_trigger", "topic_id": old_topic_id, "exception": repr(exc)},
+                request_id=request_id, session_id=session_id,
+            )
+            self._metrics.record_event(
+                "error", "topic_relabel_trigger", repr(exc),
+                peer_id=peer_id, request_id=request_id, session_id=session_id,
+            )
+            logger.warning("Eidolon topic_relabel_trigger failed (topic_id=%s): %s", old_topic_id, exc)
+
+    def _store_memory_items(
+        self,
+        items: list[MemoryItem],
+        topic_id: int | None,
+        user_msg_id: int,
+        ai_msg_id: int,
+        peer_id: str,
+        *,
+        request_id: str,
+        session_id: str | None,
+    ) -> list[MemoryItem]:
+        """store_turn step 5: attribute, embed, and persist each item
+        extracted from this turn.
+
+        Mutates each item's topic_id/message_id/embedding in place before
+        storing it. Returns the fact-type items — no longer converted to
+        facts immediately (see consolidate_facts), kept here only for the
+        turn_complete trace field.
+        """
+        fact_items: list[MemoryItem] = []
+        for item in items:
+            if topic_id is not None:
+                item.topic_id = topic_id
+            # Link items to the message they were extracted from
+            if item.source_peer == "ai":
+                item.message_id = ai_msg_id
+            else:
+                item.message_id = user_msg_id
+            # Generate embedding for the item content
+            if item.content:
+                try:
+                    embed_started = time.perf_counter()
+                    item.embedding = self._embedder.embed(item.content)
+                    embed_duration_ms = (time.perf_counter() - embed_started) * 1000
+                    self._tracer.record(
+                        "embedding",
+                        {"purpose": "memory_item", "text": item.content, "dimension": len(item.embedding)},
+                        request_id=request_id, session_id=session_id, duration_ms=embed_duration_ms,
+                    )
+                    self._metrics.record_embedding_call(
+                        "memory_item", embed_duration_ms, len(item.embedding), True,
+                        entity_type="memory_item", peer_id=peer_id,
+                        request_id=request_id, session_id=session_id,
+                    )
+                except Exception as exc:
+                    self._tracer.record(
+                        "error",
+                        {"step": "memory_item_embedding", "exception": repr(exc)},
+                        request_id=request_id, session_id=session_id,
+                    )
+                    self._metrics.record_event(
+                        "error", "memory_item_embedding", repr(exc),
+                        peer_id=peer_id, request_id=request_id, session_id=session_id,
+                    )
+                    logger.warning("Eidolon memory_item_embedding failed: %s", exc)
+                    # Embedding failure is non-critical for a single
+                    # occurrence, but a persistent one silently degrades
+                    # retrieval quality — see the warning above.
+            self._storage.store_memory_item(item)
+            # Collect fact-type items — no longer converted to facts
+            # immediately (see step 6); kept here only for the
+            # turn_complete trace field below.
+            if item.item_type == "fact":
+                fact_items.append(item)
+        return fact_items
 
     def _get_topic_summary(self, topic_id: int | None) -> str | None:
         """Get the summary of a topic by its ID.

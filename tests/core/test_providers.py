@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from core.providers.lm_studio import LMStudio
 from core.providers.ollama import Ollama
@@ -129,9 +130,90 @@ class TestOpenAICompatible:
 
         with (
             patch("core.providers.openai_compatible.requests.post", return_value=mock_response),
+            patch("core.providers.openai_compatible.time.sleep"),
             pytest.raises(RuntimeError, match="OpenAI-compatible embed API error"),
         ):
             OpenAICompatible().embed("test")
+
+
+class TestOpenAICompatibleRetry:
+    """Retry/backoff behavior on transient failures — see
+    OpenAICompatible._post_with_retry. ``time.sleep`` is patched
+    throughout so these tests don't actually wait out the backoff."""
+
+    def test_retries_connection_error_then_succeeds(self):
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+
+        with (
+            patch(
+                "core.providers.openai_compatible.requests.post",
+                side_effect=[requests.exceptions.ConnectionError("boom"), mock_response],
+            ) as mock_post,
+            patch("core.providers.openai_compatible.time.sleep") as mock_sleep,
+        ):
+            result = OpenAICompatible().complete("Hi")
+
+            assert result == "ok"
+            assert mock_post.call_count == 2
+            mock_sleep.assert_called_once()
+
+    def test_retries_5xx_then_succeeds(self):
+        failure = MagicMock(ok=False, status_code=503, text="unavailable")
+        success = MagicMock(ok=True)
+        success.json.return_value = {"data": [{"embedding": [0.1, 0.2]}]}
+
+        with (
+            patch("core.providers.openai_compatible.requests.post", side_effect=[failure, success]) as mock_post,
+            patch("core.providers.openai_compatible.time.sleep"),
+        ):
+            result = OpenAICompatible().embed("text")
+
+            assert result == [0.1, 0.2]
+            assert mock_post.call_count == 2
+
+    def test_gives_up_after_max_retries_on_persistent_failure(self):
+        with (
+            patch(
+                "core.providers.openai_compatible.requests.post",
+                side_effect=requests.exceptions.Timeout("slow"),
+            ) as mock_post,
+            patch("core.providers.openai_compatible.time.sleep") as mock_sleep,
+            pytest.raises(requests.exceptions.Timeout),
+        ):
+            OpenAICompatible(max_retries=2).complete("Hi")
+
+        # 1 initial attempt + 2 retries = 3 calls, 2 sleeps in between
+        assert mock_post.call_count == 3
+        assert mock_sleep.call_count == 2
+
+    def test_does_not_retry_client_error(self):
+        mock_response = MagicMock(ok=False, status_code=401, text="Unauthorized")
+
+        with (
+            patch("core.providers.openai_compatible.requests.post", return_value=mock_response) as mock_post,
+            patch("core.providers.openai_compatible.time.sleep") as mock_sleep,
+            pytest.raises(RuntimeError, match="OpenAI-compatible API error"),
+        ):
+            OpenAICompatible().complete("Hi")
+
+        assert mock_post.call_count == 1
+        mock_sleep.assert_not_called()
+
+    def test_max_retries_zero_disables_retry(self):
+        with (
+            patch(
+                "core.providers.openai_compatible.requests.post",
+                side_effect=requests.exceptions.ConnectionError("boom"),
+            ) as mock_post,
+            patch("core.providers.openai_compatible.time.sleep") as mock_sleep,
+            pytest.raises(requests.exceptions.ConnectionError),
+        ):
+            OpenAICompatible(max_retries=0).complete("Hi")
+
+        assert mock_post.call_count == 1
+        mock_sleep.assert_not_called()
 
 
 class TestPresetDefaults:

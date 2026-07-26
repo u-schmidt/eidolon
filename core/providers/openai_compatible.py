@@ -19,6 +19,9 @@ Authenticated endpoints: set ``api_key`` and it's sent as an
 
 from __future__ import annotations
 
+import time
+from typing import Any
+
 import requests
 
 # Fallback response cap when neither the caller nor the factory supplies
@@ -26,6 +29,17 @@ import requests
 # config) behaves like a configured one, and is generous enough to give
 # a reasoning model headroom instead of truncating mid-answer.
 _DEFAULT_MAX_TOKENS = 4096
+
+# Status codes worth retrying: 429 (rate limit) and 5xx (server-side,
+# transient by nature). Anything else (400, 401, 404, ...) is a client
+# error a retry can't fix, so it's returned to the caller immediately.
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+
+# Exponential backoff base — a turn makes 1-3+ of these calls (detection,
+# extraction, summarization), so a single transient network blip
+# shouldn't silently drop that turn's memory. Two retries (three attempts
+# total) at 0.5s/1.0s keeps the added worst-case latency modest.
+_RETRY_BACKOFF_SECONDS = 0.5
 
 
 class OpenAICompatible:
@@ -48,6 +62,11 @@ class OpenAICompatible:
         Request timeout in seconds (default: 60).
     max_tokens : int
         Default response cap for chat completions (default: 4096).
+    max_retries : int
+        Retries on a transient failure (connection error, timeout, 429,
+        5xx) before giving up — 2 extra attempts by default, so 3 total
+        (default: 2). Client errors (4xx other than 429) are never
+        retried since retrying can't change the outcome.
     """
 
     def __init__(
@@ -58,6 +77,7 @@ class OpenAICompatible:
         api_key: str = "",
         timeout: int = 60,
         max_tokens: int = _DEFAULT_MAX_TOKENS,
+        max_retries: int = 2,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._llm_model = llm_model
@@ -65,12 +85,34 @@ class OpenAICompatible:
         self._api_key = api_key
         self._timeout = timeout
         self._max_tokens = max_tokens
+        self._max_retries = max_retries
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
+
+    def _post_with_retry(self, url: str, payload: dict[str, Any]) -> requests.Response:
+        """POST with retry-on-transient-failure (see ``max_retries`` above).
+
+        A connection error/timeout, or a 429/5xx response, triggers a
+        retry with exponential backoff; anything else (including a 4xx
+        response) is returned immediately for the caller to handle.
+        """
+        attempt = 0
+        while True:
+            try:
+                response = requests.post(url, json=payload, headers=self._headers(), timeout=self._timeout)
+            except requests.exceptions.RequestException:
+                if attempt >= self._max_retries:
+                    raise
+            else:
+                if response.status_code not in _RETRYABLE_STATUS_CODES or attempt >= self._max_retries:
+                    return response
+
+            time.sleep(_RETRY_BACKOFF_SECONDS * (2**attempt))
+            attempt += 1
 
     # ── LLMProvider ─────────────────────────────────────────
 
@@ -103,16 +145,14 @@ class OpenAICompatible:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        response = requests.post(
+        response = self._post_with_retry(
             f"{self._base_url}/v1/chat/completions",
-            json={
+            {
                 "model": self._llm_model,
                 "messages": messages,
                 "max_tokens": tokens,
                 "stream": False,
             },
-            headers=self._headers(),
-            timeout=self._timeout,
         )
 
         if not response.ok:
@@ -146,11 +186,9 @@ class OpenAICompatible:
         list[float]
             The embedding vector.
         """
-        response = requests.post(
+        response = self._post_with_retry(
             f"{self._base_url}/v1/embeddings",
-            json={"model": self._embedder_model, "input": text},
-            headers=self._headers(),
-            timeout=self._timeout,
+            {"model": self._embedder_model, "input": text},
         )
 
         if not response.ok:

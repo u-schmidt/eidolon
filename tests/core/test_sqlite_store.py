@@ -58,6 +58,70 @@ class TestSchema:
         version = store._conn.execute("PRAGMA user_version").fetchone()[0]
         assert version == max(MIGRATIONS)
 
+
+class TestMigrationAtomicity:
+    """A failing statement partway through one version's script must roll
+    back that version's other statements too, not leave them durably
+    committed while user_version stays behind — see migrate()'s docstring
+    for how executescript's lack of implicit transaction control made
+    that possible before this was fixed."""
+
+    def test_failed_migration_rolls_back_ddl_and_version(self, monkeypatch, tmp_path):
+        import core.stores.migrations as migrations_module
+
+        db_path = str(tmp_path / "atomicity.db")
+        db = sqlite3.connect(db_path)
+
+        # Bring the DB to a known-good state at the real latest version.
+        migrations_module.migrate(db)
+        start_version = db.execute("PRAGMA user_version").fetchone()[0]
+
+        broken_version = start_version + 1
+        monkeypatch.setitem(
+            migrations_module.MIGRATIONS,
+            broken_version,
+            "CREATE TABLE atomicity_probe (id INTEGER);\n"
+            "ALTER TABLE this_table_does_not_exist ADD COLUMN x INTEGER;\n",
+        )
+
+        with pytest.raises(sqlite3.Error):
+            migrations_module.migrate(db)
+
+        db.close()
+
+        # Fresh connection — only durable/committed state is visible here.
+        verify = sqlite3.connect(db_path)
+        assert verify.execute("PRAGMA user_version").fetchone()[0] == start_version
+        assert (
+            verify.execute(
+                "SELECT name FROM sqlite_master WHERE name = 'atomicity_probe'"
+            ).fetchall()
+            == []
+        )
+        verify.close()
+
+    def test_successful_migration_still_commits_ddl_and_version(self, monkeypatch, tmp_path):
+        import core.stores.migrations as migrations_module
+
+        db_path = str(tmp_path / "atomicity_ok.db")
+        db = sqlite3.connect(db_path)
+        migrations_module.migrate(db)
+        start_version = db.execute("PRAGMA user_version").fetchone()[0]
+
+        new_version = start_version + 1
+        monkeypatch.setitem(
+            migrations_module.MIGRATIONS, new_version, "CREATE TABLE atomicity_probe_ok (id INTEGER);"
+        )
+        migrations_module.migrate(db)
+        db.close()
+
+        verify = sqlite3.connect(db_path)
+        assert verify.execute("PRAGMA user_version").fetchone()[0] == new_version
+        assert verify.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'atomicity_probe_ok'"
+        ).fetchall() != []
+        verify.close()
+
     def test_active_topic_query_uses_index(self, store: SqliteStore):
         """The per-turn get_active_topic lookup must be an index seek, not
         a full table scan — regression guard for the topics index."""

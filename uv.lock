@@ -278,6 +278,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
     { name = "testcontainers" },
+    { name = "textual" },
 ]
 postgres = [
     { name = "pgvector" },
@@ -316,6 +317,7 @@ requires-dist = [
     { name = "sentence-transformers", marker = "extra == 'sentence-transformers'", specifier = ">=3" },
     { name = "sqlite-vec", marker = "extra == 'vec'", specifier = ">=0.1.9" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4" },
+    { name = "textual", marker = "extra == 'dev'", specifier = ">=0.60" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.60" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.30" },

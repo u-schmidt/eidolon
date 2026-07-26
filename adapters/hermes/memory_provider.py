@@ -5,7 +5,6 @@ See adapters/hermes/__init__.py for the plugin's register() entry point.
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -19,9 +18,9 @@ except ImportError:
     MemoryProvider = object
 
 # Eidolon core
+from adapters.hermes.eidolon_client_builder import EidolonClientBuilder
 from adapters.hermes.session_state import SessionState
-from client.http_client import EidolonHttpClient
-from core import Eidolon
+from adapters.hermes.tool_handler import EidolonToolHandler
 from core.config import EidolonConfig, MaintenanceConfig
 from core.config_loader import ConfigLoader
 from core.context_formatter import ContextFormatter
@@ -158,89 +157,24 @@ class EidolonMemoryProvider(MemoryProvider):
         self._maintenance = config.maintenance
 
         if config.deployment.mode == "server":
-            # Server mode: core runs as its own process (tools/serve.py) —
-            # this adapter is just a thin HTTP client, with no storage/
-            # llm/embedder/tracer to build locally at all. No tracer is
-            # wired here either: there's nothing on this side to attach
-            # one to, and building one would just open a trace.db file
-            # for no purpose. Deliberate v1 limitation — see ROADMAP.md's
-            # "Core-as-a-service deployment mode" entry: a transport-layer
-            # failure (timeout, connection refused) is only visible via
-            # the broad except/logger.warning already in prefetch()/
-            # sync_turn(), not via tools/trace.py.
-            self._eidolon = EidolonHttpClient(
-                base_url=config.deployment.server_url,
-                token=config.deployment.token,
-                timeout=config.deployment.timeout,
-            )
+            self._eidolon = EidolonClientBuilder.build_server(config)
         else:
-            # Embedded mode (default): build storage/llm/embedder and run
-            # core in-process. Create providers via factory. Tracer first —
-            # a failure building storage/llm/embedder can then still be
-            # recorded before it's re-raised, instead of vanishing before
-            # anything capable of recording it exists (this is exactly what
-            # happened with a real "database is locked" storage failure: it
-            # never reached trace.db). SafeTracer never raises itself (see
-            # core/trace/safe_tracer.py), so this reordering can't introduce
-            # a new failure mode even if trace.db itself is unavailable. The
-            # trace.db event is only ever written when debug.enabled,
-            # though — logger.exception() is the channel that's visible
-            # regardless of that flag (see also the non-fatal failures
-            # logged the same way elsewhere in this file).
+            # Tracer built here (not inside the builder) and assigned to
+            # self._tracer before the risky calls below — a failure
+            # building storage/llm/embedder can then still be recorded
+            # (see the except block) and the tracer stays reachable for
+            # shutdown() even though initialize() didn't complete.
             factory = ProviderFactory(config)
             tracer = factory.create_tracer()
             self._tracer = tracer
             try:
-                store = factory.create_storage()
-                llm = factory.create_llm()
-                embedder = factory.create_embedder()
+                built = EidolonClientBuilder.build_embedded(factory, tracer, config)
             except Exception as exc:
                 tracer.record("error", {"step": "initialize", "exception": repr(exc)}, session_id=session_id)
                 logger.exception("Eidolon initialize failed")
                 raise
-
-            # Metrics after storage: it opens its own connection into
-            # tables storage's own connect() just migrated into
-            # existence (see core/stores/migrations.py) — unlike tracer
-            # above, there's no failure-recording reason to build it
-            # first, and it couldn't record anything yet if there were.
-            metrics = factory.create_metrics_recorder()
-
-            # Store reference for shutdown
-            self._store = store
-
-            self._eidolon = Eidolon(
-                storage=store,
-                llm=llm,
-                embedder=embedder,
-                language=config.language,
-                retrieval_weights={
-                    "semantic": config.retrieval.semantic,
-                    "tag_overlap": config.retrieval.tag_overlap,
-                    "person": config.retrieval.person,
-                    "temporal": config.retrieval.temporal,
-                },
-                retrieval_limits={
-                    "related_topics": config.retrieval.related_topics,
-                    "memory_items_fact": config.retrieval.memory_items_fact,
-                    "memory_items_surprise": config.retrieval.memory_items_surprise,
-                    "memory_items_feeling": config.retrieval.memory_items_feeling,
-                    "memory_items_free": config.retrieval.memory_items_free,
-                    "recent_topics": config.retrieval.recent_topics,
-                    "cluster_summaries": config.retrieval.cluster_summaries,
-                    "cluster_recent_topics": config.retrieval.cluster_recent_topics,
-                    "min_topic_messages": config.retrieval.min_topic_messages,
-                },
-                facts_consolidation_interval=config.facts.consolidation_interval,
-                facts_target_max=config.facts.target_max,
-                facts_categories=config.facts.categories,
-                clustering_enabled=config.clustering.enabled,
-                clustering_shortlist_size=config.clustering.shortlist_size,
-                relabel_enabled=config.relabel.enabled,
-                relabel_message_threshold=config.relabel.message_threshold,
-                tracer=tracer,
-                metrics=metrics,
-            )
+            self._eidolon = built.client
+            self._store = built.store
 
         # Seed the current-session fallback before resolving so an empty
         # session_id from a later prefetch() call still lands here.
@@ -315,7 +249,11 @@ class EidolonMemoryProvider(MemoryProvider):
             return ContextFormatter.format(result.bundle, now=turn_now, timezone=self._timezone)
 
         except Exception as e:
-            logger.debug("Eidolon prefetch failed (non-fatal): %s", e)
+            # warning, not debug: a prefetch failure means no memory
+            # context gets injected for this turn at all — the same
+            # visibility level as sync_turn()'s/the maintenance sweep's
+            # own failure handling below.
+            logger.warning("Eidolon prefetch failed (non-fatal): %s", e)
             return ""
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
@@ -455,234 +393,20 @@ class EidolonMemoryProvider(MemoryProvider):
         """Return tool schemas for memory-related tools.
 
         These tools are exposed to the LLM for explicit memory operations.
+        See EidolonToolHandler for the schemas and the actual handling.
         """
-        return [
-            {
-                "name": "eidolon_search",
-                "description": (
-                    "Search the Eidolon topic memory system for related topics "
-                    "and memory items. Use this to explicitly recall past "
-                    "conversation topics and extracted memory fragments."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Search query for associative retrieval",
-                        },
-                    },
-                    "required": ["query"],
-                },
-            },
-            {
-                "name": "eidolon_inspect_cluster",
-                "description": (
-                    "Look inside a recurring-topic cluster shown in memory context "
-                    "(e.g. 'Cluster #17') to see the full list of individual past "
-                    "topics it consolidates — each with its own summary and date. "
-                    "Use this when the consolidated summary isn't enough detail."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "cluster_id": {
-                            "type": "integer",
-                            "description": "The numeric cluster id shown in memory context, e.g. 17 for 'Cluster #17'.",
-                        },
-                    },
-                    "required": ["cluster_id"],
-                },
-            },
-            {
-                "name": "eidolon_inspect_topic",
-                "description": (
-                    "Look inside a specific past topic (e.g. topic_id 35 from an "
-                    "eidolon_search result) to see every individual memory fragment "
-                    "extracted from it, not just the compact injected summary. Use "
-                    "this when the summary shown in memory context isn't detailed "
-                    "enough and you need the specific facts underneath."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "topic_id": {
-                            "type": "integer",
-                            "description": "The numeric topic id, e.g. from an eidolon_search result's related_topics.",
-                        },
-                    },
-                    "required": ["topic_id"],
-                },
-            },
-            {
-                "name": "eidolon_correct_fact",
-                "description": (
-                    "Correct or remove one fact in the user's durable profile "
-                    "immediately. Use this when the user explicitly says a "
-                    "remembered fact is wrong, outdated, or should be forgotten. "
-                    "Note: a later automatic consolidation pass may still revise "
-                    "this fact based on other conversation evidence."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "category": {
-                            "type": "string",
-                            "description": "Fact category, e.g. 'location', 'work'.",
-                        },
-                        "key": {
-                            "type": "string",
-                            "description": "Fact key within the category, e.g. 'city'.",
-                        },
-                        "value": {
-                            "type": "string",
-                            "description": "New value. Omit to delete this fact entirely.",
-                        },
-                    },
-                    "required": ["category", "key"],
-                },
-            },
-        ]
+        return EidolonToolHandler.get_tool_schemas()
 
     def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs) -> str:
-        """Handle a tool call for one of this provider's tools."""
-        if tool_name == "eidolon_search":
-            return self._handle_search(args)
-        if tool_name == "eidolon_inspect_cluster":
-            return self._handle_inspect_cluster(args)
-        if tool_name == "eidolon_inspect_topic":
-            return self._handle_inspect_topic(args)
-        if tool_name == "eidolon_correct_fact":
-            return self._handle_correct_fact(args)
-        raise NotImplementedError(
-            f"Eidolon provider does not handle tool {tool_name}"
+        """Handle a tool call for one of this provider's tools.
+
+        See EidolonToolHandler — constructed fresh per call (cheap) so it
+        always reflects this provider's current _eidolon/_initialized/
+        _peer_id, same as prefetch()/sync_turn() reading them directly.
+        """
+        return EidolonToolHandler(self._eidolon, self._initialized, self._peer_id).handle_tool_call(
+            tool_name, args
         )
-
-    def _handle_search(self, args: dict[str, Any]) -> str:
-        """Handle eidolon_search tool call."""
-        if not self._eidolon or not self._initialized:
-            return '{"error": "Eidolon not initialized"}'
-
-        query = args.get("query", "")
-        if not query:
-            return '{"error": "query is required"}'
-
-        try:
-            bundle = self._eidolon.retrieve_context(
-                message=query,
-                peer_id=self._peer_id,
-                environment=EnvironmentSnapshot(situation="search"),
-                topic_label=None,
-                is_new_topic=True,
-            )
-
-            results = {
-                "facts": [
-                    {"category": f.category, "key": f.key, "value": f.value}
-                    for f in (bundle.facts or [])
-                ],
-                "related_topics": [
-                    {
-                        "topic_id": rt.topic_id,
-                        "summary": rt.summary,
-                        "tags": rt.tags,
-                    }
-                    for rt in (bundle.related_topics or [])
-                ],
-                "memory_items": [
-                    {
-                        "content": mi.content,
-                        "item_type": mi.item_type,
-                        "source_peer": mi.source_peer,
-                        "subject_peer": mi.subject_peer,
-                    }
-                    for mi in (bundle.memory_items or [])
-                ],
-            }
-
-            return json.dumps(results, ensure_ascii=False)
-
-        except Exception as e:
-            return f'{{"error": "Search failed: {e}"}}'
-
-    def _handle_inspect_cluster(self, args: dict[str, Any]) -> str:
-        """Handle eidolon_inspect_cluster tool call."""
-        if not self._eidolon or not self._initialized:
-            return json.dumps({"error": "Eidolon not initialized"})
-
-        cluster_id = args.get("cluster_id")
-        if not isinstance(cluster_id, int):
-            return json.dumps({"error": "cluster_id (integer) is required"})
-
-        try:
-            topics = self._eidolon.inspect_cluster(cluster_id)
-            return json.dumps(
-                {
-                    "cluster_id": cluster_id,
-                    "topics": [
-                        {
-                            "label": t.get("label"),
-                            "summary": t.get("summary"),
-                            "closed_at": t.get("closed_at"),
-                        }
-                        for t in topics
-                    ],
-                },
-                ensure_ascii=False,
-            )
-        except Exception as e:
-            return json.dumps({"error": f"Inspect failed: {e}"})
-
-    def _handle_inspect_topic(self, args: dict[str, Any]) -> str:
-        """Handle eidolon_inspect_topic tool call."""
-        if not self._eidolon or not self._initialized:
-            return json.dumps({"error": "Eidolon not initialized"})
-
-        topic_id = args.get("topic_id")
-        if not isinstance(topic_id, int):
-            return json.dumps({"error": "topic_id (integer) is required"})
-
-        try:
-            items = self._eidolon.inspect_topic(topic_id)
-            return json.dumps(
-                {
-                    "topic_id": topic_id,
-                    "memory_items": [
-                        {
-                            "content": i.get("content"),
-                            "item_type": i.get("item_type"),
-                            "source_peer": i.get("source_peer"),
-                            "subject_peer": i.get("subject_peer"),
-                        }
-                        for i in items
-                    ],
-                },
-                ensure_ascii=False,
-            )
-        except Exception as e:
-            return json.dumps({"error": f"Inspect failed: {e}"})
-
-    def _handle_correct_fact(self, args: dict[str, Any]) -> str:
-        """Handle eidolon_correct_fact tool call."""
-        if not self._eidolon or not self._initialized:
-            return json.dumps({"error": "Eidolon not initialized"})
-
-        category = args.get("category", "").strip()
-        key = args.get("key", "").strip()
-        if not category or not key:
-            return json.dumps({"error": "category and key are required"})
-
-        value = args.get("value")
-        try:
-            self._eidolon.correct_fact(self._peer_id, category, key, value)
-            return json.dumps({
-                "status": "ok",
-                "action": "deleted" if not value else "updated",
-                "category": category,
-                "key": key,
-            })
-        except Exception as e:
-            return json.dumps({"error": f"Fact correction failed: {e}"})
 
     # ── Session Lifecycle Hooks ─────────────────────────
 
