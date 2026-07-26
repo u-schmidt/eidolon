@@ -18,7 +18,8 @@ import json
 import logging
 import time
 
-from core.interfaces import LLMProvider, Tracer
+from core.interfaces import LLMProvider, MetricsRecorder, Tracer
+from core.metrics.null_metrics_recorder import NullMetricsRecorder
 from core.models import EnvironmentSnapshot, MemoryItem
 from core.trace.null_tracer import NullTracer
 
@@ -197,6 +198,9 @@ class FragmentaryExtractor:
     tracer : Tracer | None
         Debug tracer for recording the prompt/response/parsed items/duration
         of each extraction call. Defaults to a no-op tracer.
+    metrics : MetricsRecorder | None
+        Always-on operational-metrics recorder. Defaults to a no-op
+        recorder.
     """
 
     def __init__(
@@ -204,10 +208,12 @@ class FragmentaryExtractor:
         llm: LLMProvider,
         language: str = "en",
         tracer: Tracer | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._llm = llm
         self._language = language
         self._tracer = tracer or NullTracer()
+        self._metrics = metrics or NullMetricsRecorder()
 
     def extract(
         self,
@@ -248,6 +254,7 @@ class FragmentaryExtractor:
         prompt = _build_extraction_prompt(user_message, ai_response, topic_label)
         started = time.perf_counter()
         response = ""
+        succeeded = True
         try:
             response = self._llm.complete(
                 prompt=prompt,
@@ -256,11 +263,16 @@ class FragmentaryExtractor:
             )
             raw_items = _parse_extraction_response(response)
         except Exception as exc:
+            succeeded = False
             raw_items = []
             self._tracer.record(
                 "error",
                 {"step": "extraction", "exception": repr(exc), "response": response},
                 request_id=request_id, session_id=session_id,
+            )
+            self._metrics.record_event(
+                "error", "extraction", repr(exc),
+                peer_id=source_peer, request_id=request_id, session_id=session_id,
             )
             logger.warning("Eidolon extraction failed: %s", exc)
         duration_ms = (time.perf_counter() - started) * 1000
@@ -296,5 +308,9 @@ class FragmentaryExtractor:
             request_id=request_id,
             session_id=session_id,
             duration_ms=duration_ms,
+        )
+        self._metrics.record_llm_call(
+            "extraction", duration_ms, succeeded,
+            peer_id=source_peer, request_id=request_id, session_id=session_id,
         )
         return items

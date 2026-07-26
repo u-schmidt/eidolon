@@ -241,6 +241,7 @@ def main() -> None:
         print(f"\n  ✗ {exc}\n", file=sys.stderr)
         sys.exit(1)
     tracer = factory.create_tracer()
+    metrics = factory.create_metrics_recorder()
 
     # Initialize Eidolon core
     eidolon = Eidolon(
@@ -272,6 +273,7 @@ def main() -> None:
         relabel_enabled=config.relabel.enabled,
         relabel_message_threshold=config.relabel.message_threshold,
         tracer=tracer,
+        metrics=metrics,
     )
 
     if args.close_stale_topics:

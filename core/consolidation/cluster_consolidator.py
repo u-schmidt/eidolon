@@ -15,7 +15,8 @@ import json
 import logging
 import time
 
-from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
+from core.interfaces import EmbedderProvider, LLMProvider, MetricsRecorder, StorageProvider, Tracer
+from core.metrics.null_metrics_recorder import NullMetricsRecorder
 from core.trace.null_tracer import NullTracer
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,9 @@ class ClusterConsolidator:
     tracer : Tracer | None
         Debug tracer recording the prompt/response/duration of each
         pass and otherwise-silent failures. Defaults to a no-op tracer.
+    metrics : MetricsRecorder | None
+        Always-on operational-metrics recorder. Defaults to a no-op
+        recorder.
     """
 
     def __init__(
@@ -105,12 +109,14 @@ class ClusterConsolidator:
         embedder: EmbedderProvider,
         shortlist_size: int = 5,
         tracer: Tracer | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._storage = storage
         self._llm = llm
         self._embedder = embedder
         self._shortlist_size = shortlist_size
         self._tracer = tracer or NullTracer()
+        self._metrics = metrics or NullMetricsRecorder()
 
     def consolidate_topic(
         self,
@@ -199,6 +205,10 @@ class ClusterConsolidator:
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
+            self._metrics.record_llm_call(
+                "cluster_consolidation", (time.perf_counter() - started) * 1000, True,
+                peer_id=peer_id, request_id=request_id, session_id=session_id,
+            )
         except Exception as exc:
             self._tracer.record(
                 "error",
@@ -206,6 +216,10 @@ class ClusterConsolidator:
                 request_id=request_id,
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
+            )
+            self._metrics.record_event(
+                "error", "cluster_consolidation", repr(exc),
+                peer_id=peer_id, request_id=request_id, session_id=session_id,
             )
             logger.warning("Eidolon cluster_consolidation failed (topic_id=%s): %s", topic_id, exc)
 
@@ -223,17 +237,26 @@ class ClusterConsolidator:
         try:
             embed_started = time.perf_counter()
             embedding = self._embedder.embed(summary)
+            embed_duration_ms = (time.perf_counter() - embed_started) * 1000
             self._tracer.record(
                 "embedding",
                 {"purpose": "cluster_summary", "text": summary, "dimension": len(embedding)},
                 request_id=request_id, session_id=session_id,
-                duration_ms=(time.perf_counter() - embed_started) * 1000,
+                duration_ms=embed_duration_ms,
+            )
+            self._metrics.record_embedding_call(
+                "cluster_summary", embed_duration_ms, len(embedding), True,
+                request_id=request_id, session_id=session_id,
             )
             return embedding
         except Exception as exc:
             self._tracer.record(
                 "error",
                 {"step": "cluster_summary_embedding", "exception": repr(exc)},
+                request_id=request_id, session_id=session_id,
+            )
+            self._metrics.record_event(
+                "error", "cluster_summary_embedding", repr(exc),
                 request_id=request_id, session_id=session_id,
             )
             logger.warning("Eidolon cluster_summary_embedding failed: %s", exc)

@@ -127,6 +127,54 @@ MIGRATIONS: dict[int, str] = {
         SELECT COUNT(*) FROM messages WHERE messages.topic_id = topics.id
     );
     """,
+    9: """
+    -- Always-on operational metrics (see core/interfaces.py's
+    -- MetricsRecorder) — deliberately separate from the debug-gated,
+    -- JSON-payload trace mechanism in core/trace/: three typed tables,
+    -- one per concern, always created and always written regardless of
+    -- debug.enabled, so error/duration visibility never depends on a
+    -- debug flag. Kept in the main schema (not a trace-style independent
+    -- migration path) because they must always exist.
+    CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        severity TEXT NOT NULL,
+        step TEXT NOT NULL,
+        message TEXT NOT NULL,
+        peer_id TEXT,
+        request_id TEXT,
+        session_id TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_events_step ON events(step);
+    CREATE INDEX IF NOT EXISTS idx_events_request ON events(request_id);
+
+    CREATE TABLE IF NOT EXISTS llm_calls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        call_type TEXT NOT NULL,
+        duration_ms REAL NOT NULL,
+        succeeded INTEGER NOT NULL,
+        peer_id TEXT,
+        request_id TEXT,
+        session_id TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_llm_calls_type ON llm_calls(call_type);
+
+    CREATE TABLE IF NOT EXISTS embedding_calls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        purpose TEXT NOT NULL,
+        duration_ms REAL NOT NULL,
+        dimension INTEGER,
+        succeeded INTEGER NOT NULL,
+        entity_type TEXT,
+        entity_id TEXT,
+        peer_id TEXT,
+        request_id TEXT,
+        session_id TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_embedding_calls_purpose ON embedding_calls(purpose);
+    """,
 }
 
 

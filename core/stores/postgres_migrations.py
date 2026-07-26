@@ -31,6 +31,49 @@ POSTGRES_MIGRATIONS: dict[int, str] = {
         SELECT COUNT(*) FROM messages WHERE messages.topic_id = topics.id
     );
     """,
+    # Always-on operational metrics — see core/stores/migrations.py's
+    # version 9 for the full rationale (mirrors it exactly).
+    3: """
+    CREATE TABLE IF NOT EXISTS events (
+        id SERIAL PRIMARY KEY,
+        severity TEXT NOT NULL,
+        step TEXT NOT NULL,
+        message TEXT NOT NULL,
+        peer_id TEXT,
+        request_id TEXT,
+        session_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_events_step ON events(step);
+    CREATE INDEX IF NOT EXISTS idx_events_request ON events(request_id);
+
+    CREATE TABLE IF NOT EXISTS llm_calls (
+        id SERIAL PRIMARY KEY,
+        call_type TEXT NOT NULL,
+        duration_ms REAL NOT NULL,
+        succeeded BOOLEAN NOT NULL,
+        peer_id TEXT,
+        request_id TEXT,
+        session_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_llm_calls_type ON llm_calls(call_type);
+
+    CREATE TABLE IF NOT EXISTS embedding_calls (
+        id SERIAL PRIMARY KEY,
+        purpose TEXT NOT NULL,
+        duration_ms REAL NOT NULL,
+        dimension INTEGER,
+        succeeded BOOLEAN NOT NULL,
+        entity_type TEXT,
+        entity_id TEXT,
+        peer_id TEXT,
+        request_id TEXT,
+        session_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_embedding_calls_purpose ON embedding_calls(purpose);
+    """,
 }
 
 

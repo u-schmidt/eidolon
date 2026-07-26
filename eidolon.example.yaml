@@ -157,11 +157,22 @@ facts:
     - possession     # owned items — one key per item
     - instruction    # standing directive on how to treat this person
 
+# ── Operational Metrics ──────────────────────────────────────
+# No config here — always on, no flag to set. Every per-step LLM/
+# embedding call and error/warning writes a small typed row into the
+# main database (events/llm_calls/embedding_calls tables), alongside
+# facts/topics/memory items — regardless of debug.enabled below. See
+# README.md's "Operational Metrics" section.
+
 # ── Debug Tracing ──────────────────────────────────────────
 # Off by default — zero behavior/performance impact when disabled.
 # When enabled, records per-step trace events (prompts, responses,
-# retrieval score breakdowns, durations, failures) to a separate SQLite
-# file. Inspect with: python tools/trace.py --db <trace_db_path>
+# retrieval score breakdowns, durations, failures) to a trace store
+# separate from the tables above: storage.provider: sqlite gets a
+# separate SQLite file at trace_db_path below; storage.provider:
+# postgres gets a trace_events table in that same Postgres instance
+# instead (see README.md's "Debug Tracing" section for why).
+# Inspect with: python tools/trace.py --db <trace_db_path>
 debug:
   enabled: false
   trace_db_path: ~/.eidolon/trace.db

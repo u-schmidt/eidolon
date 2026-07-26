@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from core.detection.topic_detector import TopicDetector, _build_detection_prompt, _parse_detection_response
 from core.models import TopicChange
-from tests.mocks import SpyTracer
+from tests.mocks import SpyMetricsRecorder, SpyTracer
 
 
 class MockLLM:
@@ -164,6 +164,26 @@ class TestTopicDetector:
         assert event["payload"]["result_type"] == "NEW_TOPIC"
         assert event["payload"]["result_label"] == "Bello Features"
 
+    def test_records_llm_call_metric(self):
+        llm = MockLLM(response="NEW_TOPIC:Bello Features")
+        metrics = SpyMetricsRecorder()
+        detector = TopicDetector(llm, metrics=metrics)
+        detector.detect("Lass uns über Bello sprechen", request_id="req1", session_id="sess1")
+
+        assert len(metrics.llm_calls) == 1
+        call = metrics.llm_calls[0]
+        assert call["call_type"] == "topic_detection"
+        assert call["succeeded"] is True
+        assert call["duration_ms"] is not None
+        assert call["request_id"] == "req1"
+        assert call["session_id"] == "sess1"
+
+    def test_default_metrics_is_noop(self):
+        # No metrics passed — must not raise.
+        llm = MockLLM(response="CONTINUE")
+        detector = TopicDetector(llm)
+        detector.detect("hello")
+
     def test_default_tracer_is_noop(self):
         # No tracer passed — must not raise.
         llm = MockLLM(response="CONTINUE")
@@ -173,7 +193,8 @@ class TestTopicDetector:
     def test_detect_llm_call_failure_defaults_to_continue_and_records_error(self, caplog):
         llm = MockLLM(should_raise=True)
         tracer = SpyTracer()
-        detector = TopicDetector(llm, tracer=tracer)
+        metrics = SpyMetricsRecorder()
+        detector = TopicDetector(llm, tracer=tracer, metrics=metrics)
 
         with caplog.at_level("WARNING"):
             result = detector.detect("hello", request_id="req1", session_id="sess1")
@@ -191,6 +212,14 @@ class TestTopicDetector:
         assert len(detection_events) == 1
         assert detection_events[0]["payload"]["response"] == ""
         assert detection_events[0]["payload"]["result_type"] == "CONTINUE"
+        # Metrics: one error event, and the llm_call still fires but
+        # marked failed (mirrors the tracer's own always-fires behavior).
+        assert len(metrics.events) == 1
+        assert metrics.events[0]["severity"] == "error"
+        assert metrics.events[0]["step"] == "topic_detection"
+        assert metrics.events[0]["request_id"] == "req1"
+        assert len(metrics.llm_calls) == 1
+        assert metrics.llm_calls[0]["succeeded"] is False
 
     def test_recent_messages_passed_into_prompt(self):
         llm = MockLLM(response="CONTINUE")

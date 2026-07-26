@@ -199,6 +199,13 @@ class EidolonMemoryProvider(MemoryProvider):
                 logger.exception("Eidolon initialize failed")
                 raise
 
+            # Metrics after storage: it opens its own connection into
+            # tables storage's own connect() just migrated into
+            # existence (see core/stores/migrations.py) — unlike tracer
+            # above, there's no failure-recording reason to build it
+            # first, and it couldn't record anything yet if there were.
+            metrics = factory.create_metrics_recorder()
+
             # Store reference for shutdown
             self._store = store
 
@@ -231,6 +238,7 @@ class EidolonMemoryProvider(MemoryProvider):
                 relabel_enabled=config.relabel.enabled,
                 relabel_message_threshold=config.relabel.message_threshold,
                 tracer=tracer,
+                metrics=metrics,
             )
 
         # Seed the current-session fallback before resolving so an empty

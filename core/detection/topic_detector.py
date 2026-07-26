@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 import time
 
-from core.interfaces import LLMProvider, Tracer
+from core.interfaces import LLMProvider, MetricsRecorder, Tracer
+from core.metrics.null_metrics_recorder import NullMetricsRecorder
 from core.models import TopicChange
 from core.trace.null_tracer import NullTracer
 
@@ -124,11 +125,17 @@ class TopicDetector:
     tracer : Tracer | None
         Debug tracer for recording the prompt/response/duration of each
         detection call. Defaults to a no-op tracer.
+    metrics : MetricsRecorder | None
+        Always-on operational-metrics recorder. Defaults to a no-op
+        recorder.
     """
 
-    def __init__(self, llm: LLMProvider, tracer: Tracer | None = None) -> None:
+    def __init__(
+        self, llm: LLMProvider, tracer: Tracer | None = None, metrics: MetricsRecorder | None = None,
+    ) -> None:
         self._llm = llm
         self._tracer = tracer or NullTracer()
+        self._metrics = metrics or NullMetricsRecorder()
 
     def detect(
         self,
@@ -164,15 +171,21 @@ class TopicDetector:
         prompt = _build_detection_prompt(message, current_topic_summary, recent_messages)
         started = time.perf_counter()
         response = ""
+        succeeded = True
         try:
             response = self._llm.complete(
                 prompt=prompt,
                 system_prompt=_DETECTION_SYSTEM_PROMPT,
             )
         except Exception as exc:
+            succeeded = False
             self._tracer.record(
                 "error",
                 {"step": "topic_detection", "exception": repr(exc)},
+                request_id=request_id, session_id=session_id,
+            )
+            self._metrics.record_event(
+                "error", "topic_detection", repr(exc),
                 request_id=request_id, session_id=session_id,
             )
             logger.warning("Eidolon topic_detection failed: %s", exc)
@@ -196,5 +209,9 @@ class TopicDetector:
             request_id=request_id,
             session_id=session_id,
             duration_ms=duration_ms,
+        )
+        self._metrics.record_llm_call(
+            "topic_detection", duration_ms, succeeded,
+            request_id=request_id, session_id=session_id,
         )
         return result

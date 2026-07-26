@@ -17,7 +17,8 @@ from __future__ import annotations
 import logging
 import time
 
-from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
+from core.interfaces import EmbedderProvider, LLMProvider, MetricsRecorder, StorageProvider, Tracer
+from core.metrics.null_metrics_recorder import NullMetricsRecorder
 from core.trace.null_tracer import NullTracer
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,9 @@ class TopicSummarizer:
         Debug tracer recording the prompt/response/duration of each
         summarization pass and otherwise-silent failures. Defaults to a
         no-op tracer.
+    metrics : MetricsRecorder | None
+        Always-on operational-metrics recorder. Defaults to a no-op
+        recorder.
     """
 
     def __init__(
@@ -105,11 +109,13 @@ class TopicSummarizer:
         llm: LLMProvider,
         embedder: EmbedderProvider,
         tracer: Tracer | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._storage = storage
         self._llm = llm
         self._embedder = embedder
         self._tracer = tracer or NullTracer()
+        self._metrics = metrics or NullMetricsRecorder()
 
     def summarize(
         self,
@@ -196,6 +202,10 @@ class TopicSummarizer:
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
+            self._metrics.record_llm_call(
+                "topic_summarization", (time.perf_counter() - started) * 1000, True,
+                request_id=request_id, session_id=session_id,
+            )
             return bool(summary)
         except Exception as exc:
             self._tracer.record(
@@ -204,6 +214,10 @@ class TopicSummarizer:
                 request_id=request_id,
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
+            )
+            self._metrics.record_event(
+                "error", "topic_summarization", repr(exc),
+                request_id=request_id, session_id=session_id,
             )
             logger.warning("Eidolon topic_summarization failed (topic_id=%s): %s", topic_id, exc)
             return False  # Summarization failure is non-critical; caller falls back
@@ -229,10 +243,19 @@ class TopicSummarizer:
                 {"purpose": "topic_summary", "text": summary, "dimension": len(summary_embedding)},
                 request_id=request_id, session_id=session_id, duration_ms=embed_duration_ms,
             )
+            self._metrics.record_embedding_call(
+                "topic_summary", embed_duration_ms, len(summary_embedding), True,
+                entity_type="topic", entity_id=str(topic_id),
+                request_id=request_id, session_id=session_id,
+            )
         except Exception as exc:
             self._tracer.record(
                 "error",
                 {"step": "topic_summary_embedding", "exception": repr(exc)},
+                request_id=request_id, session_id=session_id,
+            )
+            self._metrics.record_event(
+                "error", "topic_summary_embedding", repr(exc),
                 request_id=request_id, session_id=session_id,
             )
             logger.warning("Eidolon topic_summary_embedding failed (topic_id=%s): %s", topic_id, exc)

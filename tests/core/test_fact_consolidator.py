@@ -15,7 +15,7 @@ import pytest
 from core.consolidation.fact_consolidator import FactConsolidator
 from core.models import MemoryItem
 from core.stores.sqlite_store import SqliteStore
-from tests.mocks import MockLLM, SpyTracer
+from tests.mocks import MockLLM, SpyMetricsRecorder, SpyTracer
 
 
 @pytest.fixture
@@ -207,6 +207,32 @@ class TestConsolidateTracing:
         assert any(e["payload"]["step"] == "fact_consolidation" for e in error_events)
         assert tracer.events_of_type("fact_consolidation") == []
         assert "fact_consolidation failed" in caplog.text
+
+    def test_records_llm_call_metric_on_success(self, store: SqliteStore):
+        store.store_memory_item(_fact_item("likes cats"))
+        llm = MockLLM('{"upserts": [{"category": "preferences", "key": "pets", "value": "likes cats"}], "deletes": []}')
+        metrics = SpyMetricsRecorder()
+
+        FactConsolidator(store, llm, metrics=metrics).consolidate("user", request_id="req1")
+
+        assert len(metrics.llm_calls) == 1
+        assert metrics.llm_calls[0]["call_type"] == "fact_consolidation"
+        assert metrics.llm_calls[0]["succeeded"] is True
+        assert metrics.llm_calls[0]["peer_id"] == "user"
+        assert metrics.llm_calls[0]["request_id"] == "req1"
+
+    def test_records_error_metric_on_malformed_response(self, store: SqliteStore, caplog):
+        store.store_memory_item(_fact_item("likes cats"))
+        metrics = SpyMetricsRecorder()
+
+        with caplog.at_level("WARNING"):
+            FactConsolidator(store, MockLLM("not valid json"), metrics=metrics).consolidate("user")
+
+        assert len(metrics.events) == 1
+        assert metrics.events[0]["severity"] == "error"
+        assert metrics.events[0]["step"] == "fact_consolidation"
+        assert metrics.events[0]["peer_id"] == "user"
+        assert metrics.llm_calls == []
 
 
 class TestConsolidatePeerIdVsSubjectPeer:

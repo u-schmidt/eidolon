@@ -15,7 +15,7 @@ import pytest
 
 from core.consolidation.cluster_consolidator import ClusterConsolidator
 from core.stores.sqlite_store import SqliteStore
-from tests.mocks import MockEmbedder, MockLLM, SpyTracer
+from tests.mocks import MockEmbedder, MockLLM, SpyMetricsRecorder, SpyTracer
 
 _MATCH_EMBEDDING = [1.0, 0.0, 0.0]
 
@@ -125,26 +125,30 @@ class TestConsolidateTopicFailure:
         _closed_topic(store, "Other topic")
         new_topic = _closed_topic(store, "New topic")
         tracer = SpyTracer()
+        metrics = SpyMetricsRecorder()
 
         with caplog.at_level("WARNING"):
             ClusterConsolidator(
-                store, MockLLM("not valid json"), MockEmbedder(), tracer=tracer
+                store, MockLLM("not valid json"), MockEmbedder(), tracer=tracer, metrics=metrics
             ).consolidate_topic(new_topic, "user")
 
         error_events = tracer.events_of_type("error")
         assert any(e["payload"]["step"] == "cluster_consolidation" for e in error_events)
         assert tracer.events_of_type("cluster_consolidation") == []
         assert "cluster_consolidation failed" in caplog.text
+        assert any(e["step"] == "cluster_consolidation" for e in metrics.events)
+        assert metrics.llm_calls == []
 
     def test_embedding_failure_records_error_event(self, store: SqliteStore, caplog):
         cid = store.create_cluster("user", "Bike", "old summary", embedding=_MATCH_EMBEDDING)
         new_topic = _closed_topic(store, "New bike development")
         llm = MockLLM('{"match_index": 1, "label": "Bike saga", "summary": "consolidated bike story"}')
         tracer = SpyTracer()
+        metrics = SpyMetricsRecorder()
 
         with caplog.at_level("WARNING"):
             ClusterConsolidator(
-                store, llm, MockEmbedder(should_fail=True), tracer=tracer
+                store, llm, MockEmbedder(should_fail=True), tracer=tracer, metrics=metrics
             ).consolidate_topic(new_topic, "user")
 
         # The cluster merge itself still succeeds — only the re-embedding failed.
@@ -152,6 +156,8 @@ class TestConsolidateTopicFailure:
         error_events = tracer.events_of_type("error")
         assert any(e["payload"]["step"] == "cluster_summary_embedding" for e in error_events)
         assert "cluster_summary_embedding failed" in caplog.text
+        assert any(e["step"] == "cluster_summary_embedding" for e in metrics.events)
+        assert metrics.embedding_calls == []
 
 
 class TestConsolidateTopicTracing:
@@ -175,6 +181,26 @@ class TestConsolidateTopicTracing:
         assert event["payload"]["match_index"] == 1
         assert event["payload"]["resulting_cluster_id"] == cid
         assert event["payload"]["candidates"][0]["kind"] == "cluster"
+
+    def test_records_llm_call_and_embedding_call_metrics_on_match(self, store: SqliteStore):
+        store.create_cluster("user", "Bike", "old summary", embedding=_MATCH_EMBEDDING)
+        new_topic = _closed_topic(store, "New development")
+        llm = MockLLM('{"match_index": 1, "label": "Bike saga", "summary": "consolidated"}')
+        metrics = SpyMetricsRecorder()
+
+        ClusterConsolidator(store, llm, MockEmbedder(), metrics=metrics).consolidate_topic(
+            new_topic, "user", request_id="req1"
+        )
+
+        assert len(metrics.llm_calls) == 1
+        assert metrics.llm_calls[0]["call_type"] == "cluster_consolidation"
+        assert metrics.llm_calls[0]["succeeded"] is True
+        assert metrics.llm_calls[0]["peer_id"] == "user"
+        assert metrics.llm_calls[0]["request_id"] == "req1"
+
+        assert len(metrics.embedding_calls) == 1
+        assert metrics.embedding_calls[0]["purpose"] == "cluster_summary"
+        assert metrics.embedding_calls[0]["succeeded"] is True
 
 
 class TestConsolidateTopicShortlistSize:

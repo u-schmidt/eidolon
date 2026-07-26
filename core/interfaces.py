@@ -470,3 +470,78 @@ class Tracer(Protocol):
         conversation identifier, when available.
         """
         ...
+
+
+class MetricsRecorder(Protocol):
+    """Abstract always-on operational-metrics backend.
+
+    Unlike ``Tracer`` (rich, verbose, gated by ``debug.enabled`` — off by
+    default), this is never gated: every instrumented class always
+    records duration/error data here, typed and cheap, so health/decay
+    reporting works whether or not debug tracing is turned on. Backed by
+    three tables living in the same database as production storage (see
+    ``core/stores/migrations.py``/``postgres_migrations.py``) —
+    ``events`` (errors/warnings), ``llm_calls`` (duration per LLM call
+    type), ``embedding_calls`` (duration per embedding purpose).
+    Implementations: ``core/metrics/``.
+    """
+
+    def connect(self) -> None:
+        """Open any resources needed to record metrics."""
+        ...
+
+    def close(self) -> None:
+        """Release resources opened by ``connect()``."""
+        ...
+
+    def record_event(
+        self,
+        severity: str,
+        step: str,
+        message: str,
+        *,
+        peer_id: str | None = None,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Record one error/warning. ``severity`` is ``"error"`` or
+        ``"warning"``; ``step`` names the process that raised it (e.g.
+        ``"fact_consolidation"``), matching the corresponding ``Tracer``
+        event type where one exists."""
+        ...
+
+    def record_llm_call(
+        self,
+        call_type: str,
+        duration_ms: float,
+        succeeded: bool,
+        *,
+        peer_id: str | None = None,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Record one LLM completion call. ``call_type`` is one of
+        ``topic_detection``, ``extraction``, ``topic_summarization``,
+        ``topic_relabel``, ``fact_consolidation``, ``cluster_consolidation``
+        — matching the corresponding ``Tracer`` event type."""
+        ...
+
+    def record_embedding_call(
+        self,
+        purpose: str,
+        duration_ms: float,
+        dimension: int,
+        succeeded: bool,
+        *,
+        entity_type: str | None = None,
+        entity_id: str | None = None,
+        peer_id: str | None = None,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Record one embedding call. ``purpose`` is one of
+        ``retrieval_query``, ``memory_item``, ``topic_summary``,
+        ``cluster_summary``. ``entity_type``/``entity_id`` identify what
+        got embedded (e.g. ``"topic"``/``42``) — nullable and polymorphic,
+        not a hard foreign key, since the id space varies by purpose."""
+        ...

@@ -15,7 +15,8 @@ import json
 import logging
 import time
 
-from core.interfaces import LLMProvider, StorageProvider, Tracer
+from core.interfaces import LLMProvider, MetricsRecorder, StorageProvider, Tracer
+from core.metrics.null_metrics_recorder import NullMetricsRecorder
 from core.models import Fact, MemoryItem
 from core.trace.null_tracer import NullTracer
 
@@ -193,6 +194,9 @@ class FactConsolidator:
         Debug tracer recording the prompt/response/duration of each
         consolidation pass and otherwise-silent failures. Defaults to a
         no-op tracer.
+    metrics : MetricsRecorder | None
+        Always-on operational-metrics recorder. Defaults to a no-op
+        recorder.
     """
 
     def __init__(
@@ -202,12 +206,14 @@ class FactConsolidator:
         target_max: int = 100,
         categories: list[str] | None = None,
         tracer: Tracer | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._storage = storage
         self._llm = llm
         self._target_max = target_max
         self._categories = categories if categories is not None else list(_DEFAULT_CATEGORIES)
         self._tracer = tracer or NullTracer()
+        self._metrics = metrics or NullMetricsRecorder()
 
     def consolidate(
         self,
@@ -293,6 +299,10 @@ class FactConsolidator:
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
+            self._metrics.record_llm_call(
+                "fact_consolidation", (time.perf_counter() - started) * 1000, True,
+                peer_id=peer_id, request_id=request_id, session_id=session_id,
+            )
         except Exception as exc:
             self._tracer.record(
                 "error",
@@ -300,6 +310,10 @@ class FactConsolidator:
                 request_id=request_id,
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
+            )
+            self._metrics.record_event(
+                "error", "fact_consolidation", repr(exc),
+                peer_id=peer_id, request_id=request_id, session_id=session_id,
             )
             logger.warning("Eidolon fact_consolidation failed (peer_id=%s): %s", peer_id, exc)
             # Checkpoint intentionally not advanced — these items are

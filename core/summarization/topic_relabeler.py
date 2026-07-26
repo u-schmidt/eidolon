@@ -16,7 +16,8 @@ from __future__ import annotations
 import logging
 import time
 
-from core.interfaces import LLMProvider, StorageProvider, Tracer
+from core.interfaces import LLMProvider, MetricsRecorder, StorageProvider, Tracer
+from core.metrics.null_metrics_recorder import NullMetricsRecorder
 from core.trace.null_tracer import NullTracer
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,9 @@ class TopicRelabeler:
     tracer : Tracer | None
         Debug tracer recording each relabel pass and otherwise-silent
         failures. Defaults to a no-op tracer.
+    metrics : MetricsRecorder | None
+        Always-on operational-metrics recorder. Defaults to a no-op
+        recorder.
     """
 
     def __init__(
@@ -64,10 +68,12 @@ class TopicRelabeler:
         storage: StorageProvider,
         llm: LLMProvider,
         tracer: Tracer | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._storage = storage
         self._llm = llm
         self._tracer = tracer or NullTracer()
+        self._metrics = metrics or NullMetricsRecorder()
 
     def relabel(
         self,
@@ -119,6 +125,10 @@ class TopicRelabeler:
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
+            self._metrics.record_llm_call(
+                "topic_relabel", (time.perf_counter() - started) * 1000, True,
+                request_id=request_id, session_id=session_id,
+            )
             return bool(label)
         except Exception as exc:
             self._tracer.record(
@@ -127,6 +137,10 @@ class TopicRelabeler:
                 request_id=request_id,
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
+            )
+            self._metrics.record_event(
+                "error", "topic_relabel", repr(exc),
+                request_id=request_id, session_id=session_id,
             )
             logger.warning("Eidolon topic_relabel failed (topic_id=%s): %s", topic_id, exc)
             return False  # Relabeling failure is non-critical; TopicSummarizer falls back at close

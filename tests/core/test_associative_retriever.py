@@ -9,7 +9,7 @@ from core.models import (
     MemoryItem,
 )
 from core.retrieval.associative_retriever import AssociativeRetriever
-from tests.mocks import SpyTracer
+from tests.mocks import SpyMetricsRecorder, SpyTracer
 
 
 class MockStorage:
@@ -533,6 +533,29 @@ class TestAssociativeRetriever:
         assert events[0]["payload"]["purpose"] == "retrieval_query"
         assert events[0]["payload"]["text"] == "test message"
         assert events[0]["payload"]["dimension"] == 3
+
+    def test_records_query_embedding_call_metric(self):
+        storage = MockStorage()
+        embedder = MockEmbedder(vector=[0.1, 0.2, 0.3])
+        metrics = SpyMetricsRecorder()
+        retriever = AssociativeRetriever(storage, embedder, metrics=metrics)
+
+        retriever.retrieve(
+            message="test message",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            topic_label="Test",
+            is_new_topic=True,
+            request_id="req1",
+        )
+
+        assert len(metrics.embedding_calls) == 1
+        call = metrics.embedding_calls[0]
+        assert call["purpose"] == "retrieval_query"
+        assert call["succeeded"] is True
+        assert call["dimension"] == 3
+        assert call["peer_id"] == "user"
+        assert call["request_id"] == "req1"
 
 
 class TestAssociativeRetrieverCurrentTopicLabel:

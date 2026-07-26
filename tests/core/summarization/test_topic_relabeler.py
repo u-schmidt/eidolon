@@ -12,11 +12,11 @@ from core.summarization.topic_relabeler import (
     _parse_relabel_response,
 )
 from tests.core.test_eidolon import MockLLM, MockStorage
-from tests.mocks import SpyTracer
+from tests.mocks import SpyMetricsRecorder, SpyTracer
 
 
-def _relabeler(storage, llm, tracer=None) -> TopicRelabeler:
-    return TopicRelabeler(storage, llm, tracer=tracer)
+def _relabeler(storage, llm, tracer=None, metrics=None) -> TopicRelabeler:
+    return TopicRelabeler(storage, llm, tracer=tracer, metrics=metrics)
 
 
 class TestParseRelabelResponse:
@@ -123,10 +123,26 @@ class TestRelabel:
         tid = storage.create_topic("", peer_id="user")
         llm = MockLLM(relabel_response="Buying a bike")
         tracer = SpyTracer()
+        metrics = SpyMetricsRecorder()
 
         with caplog.at_level("WARNING"):
-            _relabeler(storage, llm, tracer=tracer).relabel(tid)  # must not raise
+            _relabeler(storage, llm, tracer=tracer, metrics=metrics).relabel(tid)  # must not raise
 
         error_events = tracer.events_of_type("error")
         assert any(e["payload"]["step"] == "topic_relabel" for e in error_events)
         assert "topic_relabel failed" in caplog.text
+        assert any(e["step"] == "topic_relabel" for e in metrics.events)
+
+    def test_records_llm_call_metric(self):
+        storage = MockStorage()
+        tid = storage.create_topic("", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        llm = MockLLM(relabel_response="Buying a bike")
+        metrics = SpyMetricsRecorder()
+
+        _relabeler(storage, llm, metrics=metrics).relabel(tid, request_id="req1")
+
+        assert len(metrics.llm_calls) == 1
+        assert metrics.llm_calls[0]["call_type"] == "topic_relabel"
+        assert metrics.llm_calls[0]["succeeded"] is True
+        assert metrics.llm_calls[0]["request_id"] == "req1"

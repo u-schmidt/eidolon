@@ -39,7 +39,8 @@ from core.consolidation.cluster_consolidator import ClusterConsolidator
 from core.consolidation.fact_consolidator import FactConsolidator
 from core.detection.topic_detector import TopicDetector
 from core.extraction.fragmentary_extractor import FragmentaryExtractor
-from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
+from core.interfaces import EmbedderProvider, LLMProvider, MetricsRecorder, StorageProvider, Tracer
+from core.metrics.null_metrics_recorder import NullMetricsRecorder
 from core.models import ContextBundle, EnvironmentSnapshot, MemoryItem, PrefetchResult, TopicChange
 from core.retrieval.associative_retriever import AssociativeRetriever
 from core.summarization.topic_relabeler import TopicRelabeler
@@ -116,6 +117,12 @@ class Eidolon:
         Debug tracer recording per-step prompts/responses/scores/durations
         and otherwise-silent failures. Defaults to a no-op tracer — off
         unless explicitly configured (see ``core/trace/``).
+    metrics : MetricsRecorder | None
+        Always-on operational-metrics recorder (errors/warnings, LLM-call
+        and embedding-call durations) — unlike ``tracer``, never gated by
+        debug configuration. Defaults to a no-op recorder; production
+        wiring (``ProviderFactory.create_metrics_recorder()``) always
+        supplies a real one. See ``core/metrics/``.
     """
 
     def __init__(
@@ -134,21 +141,26 @@ class Eidolon:
         relabel_enabled: bool = True,
         relabel_message_threshold: int = 4,
         tracer: Tracer | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._storage = storage
         self._tracer = tracer or NullTracer()
-        self._detector = TopicDetector(llm, tracer=self._tracer)
+        self._metrics = metrics or NullMetricsRecorder()
+        self._detector = TopicDetector(llm, tracer=self._tracer, metrics=self._metrics)
         self._retriever = AssociativeRetriever(
-            storage, embedder, retrieval_weights, language, retrieval_limits, tracer=self._tracer
+            storage, embedder, retrieval_weights, language, retrieval_limits,
+            tracer=self._tracer, metrics=self._metrics,
         )
-        self._extractor = FragmentaryExtractor(llm, language, tracer=self._tracer)
-        self._summarizer = TopicSummarizer(storage, llm, embedder, tracer=self._tracer)
-        self._relabeler = TopicRelabeler(storage, llm, tracer=self._tracer)
+        self._extractor = FragmentaryExtractor(llm, language, tracer=self._tracer, metrics=self._metrics)
+        self._summarizer = TopicSummarizer(storage, llm, embedder, tracer=self._tracer, metrics=self._metrics)
+        self._relabeler = TopicRelabeler(storage, llm, tracer=self._tracer, metrics=self._metrics)
         self._fact_consolidator = FactConsolidator(
-            storage, llm, target_max=facts_target_max, categories=facts_categories, tracer=self._tracer
+            storage, llm, target_max=facts_target_max, categories=facts_categories,
+            tracer=self._tracer, metrics=self._metrics,
         )
         self._cluster_consolidator = ClusterConsolidator(
-            storage, llm, embedder, shortlist_size=clustering_shortlist_size, tracer=self._tracer
+            storage, llm, embedder, shortlist_size=clustering_shortlist_size,
+            tracer=self._tracer, metrics=self._metrics,
         )
         self._consolidation_interval = facts_consolidation_interval
         self._clustering_enabled = clustering_enabled
@@ -463,6 +475,10 @@ class Eidolon:
                     {"step": "topic_relabel_trigger", "topic_id": old_topic_id, "exception": repr(exc)},
                     request_id=request_id, session_id=session_id,
                 )
+                self._metrics.record_event(
+                    "error", "topic_relabel_trigger", repr(exc),
+                    peer_id=peer_id, request_id=request_id, session_id=session_id,
+                )
                 logger.warning("Eidolon topic_relabel_trigger failed (topic_id=%s): %s", old_topic_id, exc)
 
         # 4. Extract memory fragments
@@ -497,11 +513,20 @@ class Eidolon:
                         {"purpose": "memory_item", "text": item.content, "dimension": len(item.embedding)},
                         request_id=request_id, session_id=session_id, duration_ms=embed_duration_ms,
                     )
+                    self._metrics.record_embedding_call(
+                        "memory_item", embed_duration_ms, len(item.embedding), True,
+                        entity_type="memory_item", peer_id=peer_id,
+                        request_id=request_id, session_id=session_id,
+                    )
                 except Exception as exc:
                     self._tracer.record(
                         "error",
                         {"step": "memory_item_embedding", "exception": repr(exc)},
                         request_id=request_id, session_id=session_id,
+                    )
+                    self._metrics.record_event(
+                        "error", "memory_item_embedding", repr(exc),
+                        peer_id=peer_id, request_id=request_id, session_id=session_id,
                     )
                     logger.warning("Eidolon memory_item_embedding failed: %s", exc)
                     # Embedding failure is non-critical for a single

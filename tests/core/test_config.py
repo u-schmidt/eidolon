@@ -21,6 +21,9 @@ from core.config import (
     StorageConfig,
 )
 from core.config_loader import ConfigLoader
+from core.metrics.postgres_metrics_recorder import PostgresMetricsRecorder
+from core.metrics.safe_metrics_recorder import SafeMetricsRecorder
+from core.metrics.sqlite_metrics_recorder import SqliteMetricsRecorder
 from core.provider_factory import ProviderFactory
 from core.trace.null_tracer import NullTracer
 from core.trace.safe_tracer import SafeTracer
@@ -909,3 +912,78 @@ class TestProviderFactory:
         assert isinstance(tracer, SafeTracer)
         assert isinstance(tracer._wrapped, SqliteTracer)
         tracer.close()
+
+    def test_create_tracer_postgres_when_enabled(self, postgres_container):
+        # Backend follows storage.provider, mirroring create_storage()'s
+        # own branch — a Postgres-backed tracer writes into the same
+        # instance as production data instead of a separate SQLite file.
+        config = EidolonConfig(
+            debug=DebugConfig(enabled=True),
+            storage=StorageConfig(
+                provider="postgres",
+                host=postgres_container.get_container_host_ip(),
+                port=int(postgres_container.get_exposed_port(5432)),
+                dbname=postgres_container.dbname,
+                user=postgres_container.username,
+                password=postgres_container.password,
+            ),
+        )
+        factory = ProviderFactory(config)
+        tracer = factory.create_tracer()
+        try:
+            from core.trace.postgres_tracer import PostgresTracer
+
+            assert isinstance(tracer, SafeTracer)
+            assert isinstance(tracer._wrapped, PostgresTracer)
+        finally:
+            with tracer._wrapped._conn.cursor() as cur:
+                cur.execute("TRUNCATE trace_events RESTART IDENTITY")
+            tracer._wrapped._conn.commit()
+            tracer.close()
+
+    def test_create_metrics_recorder_sqlite_regardless_of_debug(self):
+        # No debug= at all — defaults to disabled. Unlike create_tracer(),
+        # create_metrics_recorder() has no debug gate: it always builds a
+        # real backend.
+        config = EidolonConfig(storage=StorageConfig(provider="sqlite", path="/tmp/test_factory_metrics.db"))
+        factory = ProviderFactory(config)
+        recorder = factory.create_metrics_recorder()
+        assert isinstance(recorder, SafeMetricsRecorder)
+        assert isinstance(recorder._wrapped, SqliteMetricsRecorder)
+        recorder.close()
+
+    def test_create_metrics_recorder_postgres_regardless_of_debug(self, postgres_container):
+        config = EidolonConfig(
+            storage=StorageConfig(
+                provider="postgres",
+                host=postgres_container.get_container_host_ip(),
+                port=int(postgres_container.get_exposed_port(5432)),
+                dbname=postgres_container.dbname,
+                user=postgres_container.username,
+                password=postgres_container.password,
+            ),
+            models={
+                "embedder": ModelConfig(provider="simulated", base_url="local", model="simulated", dimension=3),
+            },
+        )
+        factory = ProviderFactory(config)
+        # Storage must connect first — its own migrations create the
+        # always-on tables the metrics recorder writes into.
+        store = factory.create_storage()
+        recorder = factory.create_metrics_recorder()
+        try:
+            assert isinstance(recorder, SafeMetricsRecorder)
+            assert isinstance(recorder._wrapped, PostgresMetricsRecorder)
+            recorder.record_event("error", "test_step", "boom")
+            row = store._conn.execute("SELECT step, message FROM events").fetchone()
+            assert row == ("test_step", "boom")
+        finally:
+            with store._conn.cursor() as cur:
+                cur.execute(
+                    "TRUNCATE topics, memory_items, messages, facts, "
+                    "topic_clusters, fact_consolidation_state, "
+                    "events, llm_calls, embedding_calls RESTART IDENTITY CASCADE"
+                )
+            store._conn.commit()
+            recorder.close()
+            store.close()

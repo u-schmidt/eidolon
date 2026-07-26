@@ -90,7 +90,8 @@ class PostgresBackend:
         with self.store._conn.cursor() as cur:
             cur.execute(
                 "TRUNCATE topics, memory_items, messages, facts, "
-                "topic_clusters, fact_consolidation_state RESTART IDENTITY CASCADE"
+                "topic_clusters, fact_consolidation_state, "
+                "events, llm_calls, embedding_calls RESTART IDENTITY CASCADE"
             )
         self.store._conn.commit()
 
@@ -117,6 +118,33 @@ def store(store_backend: SqliteBackend | PostgresBackend):
     """The connected StorageProvider itself — for the majority of
     contract tests that don't need store_backend.backdate()."""
     return store_backend.store
+
+
+@pytest.fixture
+def metrics_recorder(store_backend: SqliteBackend | PostgresBackend):
+    """A connected MetricsRecorder pointed at the *same* database as
+    ``store_backend`` — a second, independent connection (see
+    core/metrics/'s module docstrings for why), not the store's own
+    connection. Tables already exist: store_backend's own connect()
+    already ran the migrations that create them (see
+    core/stores/migrations.py's version 9 / postgres_migrations.py's
+    version 3) — this fixture only opens a connection, same as
+    ProviderFactory.create_metrics_recorder() does in production.
+    """
+    if isinstance(store_backend, SqliteBackend):
+        from core.metrics.sqlite_metrics_recorder import SqliteMetricsRecorder
+
+        recorder = SqliteMetricsRecorder(str(store_backend.store._path))
+    else:
+        from core.metrics.postgres_metrics_recorder import PostgresMetricsRecorder
+
+        s = store_backend.store
+        recorder = PostgresMetricsRecorder(
+            host=s._host, port=s._port, dbname=s._dbname, user=s._user, password=s._password,
+        )
+    recorder.connect()
+    yield recorder
+    recorder.close()
 
 
 @pytest.fixture(params=["embedded", "http"])

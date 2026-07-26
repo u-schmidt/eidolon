@@ -11,7 +11,7 @@ from core.extraction.fragmentary_extractor import (
     _parse_extraction_response,
 )
 from core.models import EnvironmentSnapshot, MemoryItem
-from tests.mocks import SpyTracer
+from tests.mocks import SpyMetricsRecorder, SpyTracer
 
 
 class MockLLM:
@@ -272,6 +272,23 @@ class TestFragmentaryExtractor:
         assert len(event["payload"]["items"]) == 1
         assert event["payload"]["items"][0]["content"] == "User is frustrated with FitZone"
 
+    def test_records_llm_call_metric(self):
+        llm = MockLLM(response="[]")
+        metrics = SpyMetricsRecorder()
+        extractor = FragmentaryExtractor(llm, metrics=metrics)
+        extractor.extract(
+            user_message="hi", ai_response="hello", source_peer="user",
+            request_id="req1", session_id="sess1",
+        )
+
+        assert len(metrics.llm_calls) == 1
+        call = metrics.llm_calls[0]
+        assert call["call_type"] == "extraction"
+        assert call["succeeded"] is True
+        assert call["peer_id"] == "user"
+        assert call["request_id"] == "req1"
+        assert call["session_id"] == "sess1"
+
     def test_default_tracer_is_noop(self):
         llm = MockLLM(response="[]")
         extractor = FragmentaryExtractor(llm)
@@ -280,11 +297,12 @@ class TestFragmentaryExtractor:
     def test_extract_llm_call_failure_returns_empty_and_records_error(self):
         llm = MockLLM(should_raise=True)
         tracer = SpyTracer()
-        extractor = FragmentaryExtractor(llm, tracer=tracer)
+        metrics = SpyMetricsRecorder()
+        extractor = FragmentaryExtractor(llm, tracer=tracer, metrics=metrics)
 
         items = extractor.extract(
             user_message="FitZone ist immer voll", ai_response="Das klingt frustrierend!",
-            request_id="req1", session_id="sess1",
+            source_peer="user", request_id="req1", session_id="sess1",
         )
 
         assert items == []
@@ -298,6 +316,13 @@ class TestFragmentaryExtractor:
         extraction_events = tracer.events_of_type("extraction")
         assert len(extraction_events) == 1
         assert extraction_events[0]["payload"]["items"] == []
+        # Metrics: matching error event + a failed llm_call.
+        assert len(metrics.events) == 1
+        assert metrics.events[0]["severity"] == "error"
+        assert metrics.events[0]["step"] == "extraction"
+        assert metrics.events[0]["peer_id"] == "user"
+        assert len(metrics.llm_calls) == 1
+        assert metrics.llm_calls[0]["succeeded"] is False
 
     def test_extract_malformed_response_returns_empty_and_records_error(self, caplog):
         llm = MockLLM(response="not json at all")

@@ -107,13 +107,17 @@ User Message
     ▼
 ┌─────────────────────────────────────┐
 │ 5. Fragmentary Extraction (LLM)     │  ← ASYNC (after LLM response)
-│ 6. Topic Summary + Tags (LLM)       │
-│ 7. Embedding storage                │
-│ 8. Facts Consolidation (LLM)        │  ← every N turns, not every turn
+│    + embedding per extracted item   │
+│ 6. Mid-conversation Relabel (LLM)   │  ← once per topic, threshold-gated
+│ 7. Topic Summary + Tags (LLM)       │  ← on topic close
+│    + re-embedding from summary      │
+│ 8. Recurring-topic Clustering (LLM) │  ← on topic close, if it matches
+│    + cluster summary embedding      │    a prior recurring thread
+│ 9. Facts Consolidation (LLM)        │  ← every N turns, not every turn
 └─────────────────────────────────────┘  see Facts Consolidation below
 ```
 
-Every step above (prompts, responses, durations, retrieval score breakdowns, and otherwise-silent failures) can be recorded to a separate trace database for inspection — see [Debug Tracing](#debug-tracing) below. Off by default; zero behavior/performance impact unless enabled.
+Every step above always records an **operational-metrics row** — duration and success/failure, typed columns in the main database — regardless of debug settings (see [Operational Metrics](#operational-metrics) below). With [Debug Tracing](#debug-tracing) additionally enabled, the same steps also get a much richer trace event (full prompts, responses, retrieval score breakdowns) — off by default, zero extra behavior/performance impact unless enabled.
 
 Whenever there's anything to inject, `ContextFormatter` prepends a short `[Memory Context]` preamble explaining how to read the sections that follow (recalled background, not something the user just said) — a static, always-on hint aimed at reducing the LLM misinterpreting stale facts or old topic summaries as part of the live conversation. How many related topics and memory items get injected per turn is configurable — see `retrieval.*_new`/`retrieval.*_continue` under [Configuration](#configuration).
 
@@ -297,9 +301,23 @@ timezone: Europe/Berlin       # IANA zone for displaying injected time (default:
 
 `timezone` only affects how the `[Environment]` time is *displayed* to the LLM — stored timestamps (facts, topics, memory items) stay UTC internally, so relative-age suffixes like "3 weeks ago" are unaffected. Defaults to `UTC` for backward compatibility; set it to your own IANA zone (e.g. `Europe/Berlin`) so the LLM sees an unambiguous, correctly-labeled local time instead of an unlabeled UTC one.
 
+## Operational Metrics
+
+Always on, no config flag — every [Per-Turn Flow](#per-turn-flow) step writes a small, typed row to the main database the moment it runs, regardless of `debug.enabled`. Three tables, in the same database as facts/topics/memory items (SQLite: same file; Postgres: same instance):
+
+| Table | One row per | Key columns |
+|---|---|---|
+| `events` | An error or warning from any step | `severity`, `step`, `message`, plus `peer_id`/`request_id`/`session_id` |
+| `llm_calls` | An LLM completion call | `call_type` (`topic_detection`, `extraction`, `topic_summarization`, `topic_relabel`, `fact_consolidation`, `cluster_consolidation`), `duration_ms`, `succeeded` |
+| `embedding_calls` | An embedding call | `purpose` (`retrieval_query`, `memory_item`, `topic_summary`, `cluster_summary`), `duration_ms`, `dimension`, `succeeded`, `entity_type`/`entity_id` |
+
+This is deliberately the lightweight, always-on counterpart to [Debug Tracing](#debug-tracing) below — plain typed columns (directly queryable with `AVG(duration_ms)`, `COUNT(*) WHERE succeeded = false`, no JSON parsing needed), not full prompts/responses. `MetricsRecorder` (`core/interfaces.py`, implementations in `core/metrics/`) is a separate collaborator from `Tracer`, wired into every instrumented class the same way `tracer` already is, and — unlike `Tracer` — `ProviderFactory.create_metrics_recorder()` never returns a no-op: it always builds a real backend, wrapped in `SafeMetricsRecorder` so a broken metrics backend can never take down real extraction/storage.
+
+Retrieval (`context_retrieval`, the per-candidate similarity scoring) is the one step with no row here — it carries full candidate/score payloads, not just a duration, so it stays exclusively in the richer, debug-gated trace below. Its query-embedding cost is still visible via `embedding_calls` (`purpose = 'retrieval_query'`).
+
 ## Debug Tracing
 
-Off by default, zero behavior/performance impact unless enabled. When on, every step in the [Per-Turn Flow](#per-turn-flow) — topic detection, extraction, facts consolidation, topic summarization, every embedding call, and retrieval (including per-candidate similarity scores *before and after* weighting) — is recorded as a structured event to a **separate** SQLite database, not the main memory DB. Previously-silent failures (extraction/summarization/embedding/consolidation errors that would otherwise vanish into a bare `except: pass`) are recorded as `error` events instead of disappearing.
+Off by default, zero behavior/performance impact unless enabled. When on, every step in the [Per-Turn Flow](#per-turn-flow) — topic detection, extraction, facts consolidation, topic summarization, every embedding call, and retrieval (including per-candidate similarity scores *before and after* weighting) — is recorded as a rich structured event (full prompts/responses, not just duration — see [Operational Metrics](#operational-metrics) above for the always-on counterpart) to a trace store **separate from the main memory tables**: `storage.provider: sqlite` gets a separate SQLite file (`debug.trace_db_path`); `storage.provider: postgres` gets a `trace_events` table in that same Postgres instance instead (`PostgresTracer` — avoids the reliability problems of a SQLite file on a mounted/bind-mounted volume, the same reasoning `PostgresStore` itself exists for). Previously-silent failures (extraction/summarization/embedding/consolidation errors that would otherwise vanish into a bare `except: pass`) are recorded as `error` events instead of disappearing.
 
 Enable it via `eidolon.yaml`:
 

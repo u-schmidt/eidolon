@@ -92,6 +92,79 @@ class SpyTracer:
         return [e for e in self.events if e["event_type"] == event_type]
 
 
+class SpyMetricsRecorder:
+    """A metrics recorder that records every call for test assertions.
+
+    Implements ``MetricsRecorder`` protocol structurally (duck typing).
+    Mirrors ``SpyTracer``'s shape — one list per record_* method rather
+    than a single merged list, since the three methods are typed/
+    single-purpose rather than one generic event stream (see
+    core/interfaces.py's MetricsRecorder).
+    """
+
+    def __init__(self) -> None:
+        self.connected = False
+        self.closed = False
+        self.events: list[dict] = []
+        self.llm_calls: list[dict] = []
+        self.embedding_calls: list[dict] = []
+
+    def connect(self) -> None:
+        self.connected = True
+
+    def close(self) -> None:
+        self.closed = True
+
+    def record_event(
+        self,
+        severity: str,
+        step: str,
+        message: str,
+        *,
+        peer_id: str | None = None,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        self.events.append({
+            "severity": severity, "step": step, "message": message,
+            "peer_id": peer_id, "request_id": request_id, "session_id": session_id,
+        })
+
+    def record_llm_call(
+        self,
+        call_type: str,
+        duration_ms: float,
+        succeeded: bool,
+        *,
+        peer_id: str | None = None,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        self.llm_calls.append({
+            "call_type": call_type, "duration_ms": duration_ms, "succeeded": succeeded,
+            "peer_id": peer_id, "request_id": request_id, "session_id": session_id,
+        })
+
+    def record_embedding_call(
+        self,
+        purpose: str,
+        duration_ms: float,
+        dimension: int,
+        succeeded: bool,
+        *,
+        entity_type: str | None = None,
+        entity_id: str | None = None,
+        peer_id: str | None = None,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        self.embedding_calls.append({
+            "purpose": purpose, "duration_ms": duration_ms, "dimension": dimension, "succeeded": succeeded,
+            "entity_type": entity_type, "entity_id": entity_id,
+            "peer_id": peer_id, "request_id": request_id, "session_id": session_id,
+        })
+
+
 class MockStorage:
     """In-memory StorageProvider for Eidolon facade testing.
 

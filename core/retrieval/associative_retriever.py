@@ -9,7 +9,8 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 
-from core.interfaces import EmbedderProvider, StorageProvider, Tracer
+from core.interfaces import EmbedderProvider, MetricsRecorder, StorageProvider, Tracer
+from core.metrics.null_metrics_recorder import NullMetricsRecorder
 from core.models import ClusterSummary, ContextBundle, EnvironmentSnapshot, RelatedTopic
 from core.stop_words import get_stop_words
 from core.trace.null_tracer import NullTracer
@@ -55,6 +56,9 @@ class AssociativeRetriever:
         Debug tracer recording the retrieval summary and (when the storage
         backend supports it) per-candidate score breakdowns. Defaults to a
         no-op tracer.
+    metrics : MetricsRecorder | None
+        Always-on operational-metrics recorder. Defaults to a no-op
+        recorder.
     """
 
     def __init__(
@@ -65,6 +69,7 @@ class AssociativeRetriever:
         language: str = "en",
         limits: dict[str, int] | None = None,
         tracer: Tracer | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._storage = storage
         self._embedder = embedder
@@ -86,6 +91,7 @@ class AssociativeRetriever:
         }
         self._stop_words = get_stop_words(language)
         self._tracer = tracer or NullTracer()
+        self._metrics = metrics or NullMetricsRecorder()
 
     def retrieve(
         self,
@@ -144,12 +150,17 @@ class AssociativeRetriever:
         # 2. Generate query embedding for semantic search
         embed_started = time.perf_counter()
         query_embedding = self._embedder.embed(message)
+        embed_duration_ms = (time.perf_counter() - embed_started) * 1000
         self._tracer.record(
             "embedding",
             {"purpose": "retrieval_query", "text": message, "dimension": len(query_embedding)},
             request_id=request_id,
             session_id=session_id,
-            duration_ms=(time.perf_counter() - embed_started) * 1000,
+            duration_ms=embed_duration_ms,
+        )
+        self._metrics.record_embedding_call(
+            "retrieval_query", embed_duration_ms, len(query_embedding), True,
+            peer_id=peer_id, request_id=request_id, session_id=session_id,
         )
 
         # 3. Extract potential tags from the message (simple keyword extraction)

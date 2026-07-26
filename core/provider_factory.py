@@ -12,8 +12,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from core.config import ConfigError, EidolonConfig, ModelConfig
-from core.interfaces import EmbedderProvider, LLMProvider, StorageProvider, Tracer
+from core.config import ConfigError, EidolonConfig, ModelConfig, StorageConfig
+from core.interfaces import EmbedderProvider, LLMProvider, MetricsRecorder, StorageProvider, Tracer
+from core.metrics.safe_metrics_recorder import SafeMetricsRecorder
+from core.metrics.sqlite_metrics_recorder import SqliteMetricsRecorder
 from core.stores.sqlite_store import SqliteStore
 from core.trace.null_tracer import NullTracer
 from core.trace.safe_tracer import SafeTracer
@@ -55,15 +57,19 @@ class ProviderFactory:
         store.connect()
         return store
 
-    def _create_postgres(self) -> PostgresStore:
-        from core.stores.postgres_store import PostgresStore
-
-        cfg = self._config.storage
+    @staticmethod
+    def _require_postgres_password(cfg: StorageConfig) -> None:
         if not cfg.password:
             raise ConfigError(
                 "storage.password is required for provider='postgres' — set it in "
                 "eidolon.yaml, EIDOLON_STORAGE_PASSWORD, or --storage-password."
             )
+
+    def _create_postgres(self) -> PostgresStore:
+        from core.stores.postgres_store import PostgresStore
+
+        cfg = self._config.storage
+        self._require_postgres_password(cfg)
         # PostgresStore needs the embedder's dimension up front to size its
         # VECTOR(n) columns at schema-creation time — pgvector's vector
         # width is fixed per column, unlike SQLite's dimension-agnostic
@@ -81,16 +87,66 @@ class ProviderFactory:
     # ── Tracer ─────────────────────────────────────────────
 
     def create_tracer(self) -> Tracer:
-        """Create the debug tracer — a connected ``SqliteTracer`` wrapped
-        in ``SafeTracer`` when ``config.debug.enabled``, otherwise a
-        no-op ``NullTracer``. ``SafeTracer`` ensures a broken trace
-        backend degrades to "no tracing" instead of taking down real
-        extraction/storage."""
+        """Create the debug tracer — a connected backend wrapped in
+        ``SafeTracer`` when ``config.debug.enabled``, otherwise a no-op
+        ``NullTracer``. ``SafeTracer`` ensures a broken trace backend
+        degrades to "no tracing" instead of taking down real
+        extraction/storage.
+
+        Backend follows ``storage.provider``, mirroring ``create_storage()``
+        — a Postgres-backed tracer writes into the same instance as
+        production data instead of a separate SQLite file, avoiding the
+        mounted-volume reliability problem ``PostgresStore`` itself exists
+        to solve (see its docstring). Still fully gated by
+        ``debug.enabled`` either way — this is the rich, verbose trace,
+        not the always-on operational metrics (see ``create_metrics_recorder``).
+        """
         if not self._config.debug.enabled:
             return NullTracer()
-        tracer = SafeTracer(SqliteTracer(self._config.debug.trace_db_path))
+        if self._config.storage.provider == "postgres":
+            from core.trace.postgres_tracer import PostgresTracer
+
+            cfg = self._config.storage
+            self._require_postgres_password(cfg)
+            tracer = SafeTracer(PostgresTracer(
+                host=cfg.host, port=cfg.port, dbname=cfg.dbname,
+                user=cfg.user, password=cfg.password,
+            ))
+        else:
+            tracer = SafeTracer(SqliteTracer(self._config.debug.trace_db_path))
         tracer.connect()
         return tracer
+
+    # ── Metrics ────────────────────────────────────────────
+
+    def create_metrics_recorder(self) -> MetricsRecorder:
+        """Create the always-on operational-metrics recorder.
+
+        Unlike ``create_tracer()``, this has **no** ``debug.enabled``
+        gate — every deployment always gets error/duration visibility,
+        regardless of whether verbose debug tracing is turned on. Backend
+        follows ``storage.provider``, same branch as ``create_tracer()``,
+        writing into the same database instance as production storage —
+        both tables are created unconditionally by that database's own
+        migrations (see ``core/stores/migrations.py``/
+        ``postgres_migrations.py``), so this recorder runs no migration
+        of its own, it just connects. Wrapped in ``SafeMetricsRecorder``
+        — more important here than for ``SafeTracer``, since this path
+        always runs.
+        """
+        if self._config.storage.provider == "postgres":
+            from core.metrics.postgres_metrics_recorder import PostgresMetricsRecorder
+
+            cfg = self._config.storage
+            self._require_postgres_password(cfg)
+            recorder = SafeMetricsRecorder(PostgresMetricsRecorder(
+                host=cfg.host, port=cfg.port, dbname=cfg.dbname,
+                user=cfg.user, password=cfg.password,
+            ))
+        else:
+            recorder = SafeMetricsRecorder(SqliteMetricsRecorder(self._config.storage.path))
+        recorder.connect()
+        return recorder
 
     # ── LLM ────────────────────────────────────────────────
 

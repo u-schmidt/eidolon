@@ -12,11 +12,11 @@ from core.summarization.topic_summarizer import (
     _parse_summary_response,
 )
 from tests.core.test_eidolon import MockEmbedder, MockLLM, MockStorage
-from tests.mocks import SpyTracer
+from tests.mocks import SpyMetricsRecorder, SpyTracer
 
 
-def _summarizer(storage, llm, embedder, tracer=None) -> TopicSummarizer:
-    return TopicSummarizer(storage, llm, embedder, tracer=tracer)
+def _summarizer(storage, llm, embedder, tracer=None, metrics=None) -> TopicSummarizer:
+    return TopicSummarizer(storage, llm, embedder, tracer=tracer, metrics=metrics)
 
 
 class TestParseSummaryResponse:
@@ -199,13 +199,15 @@ class TestSummarize:
         llm = MockLLM(summary_response="Summary: x\nTags: y")
         embedder = MockEmbedder()
         tracer = SpyTracer()
+        metrics = SpyMetricsRecorder()
 
         with caplog.at_level("WARNING"):
-            _summarizer(storage, llm, embedder, tracer=tracer).summarize(tid)  # must not raise
+            _summarizer(storage, llm, embedder, tracer=tracer, metrics=metrics).summarize(tid)  # must not raise
 
         error_events = tracer.events_of_type("error")
         assert any(e["payload"]["step"] == "topic_summarization" for e in error_events)
         assert "topic_summarization failed" in caplog.text
+        assert any(e["step"] == "topic_summarization" for e in metrics.events)
 
     def test_records_error_on_embedding_failure(self, caplog):
         storage = MockStorage()
@@ -214,10 +216,33 @@ class TestSummarize:
         llm = MockLLM(summary_response="Summary: x\nTags: y")
         embedder = MockEmbedder(should_fail=True)
         tracer = SpyTracer()
+        metrics = SpyMetricsRecorder()
 
         with caplog.at_level("WARNING"):
-            _summarizer(storage, llm, embedder, tracer=tracer).summarize(tid)  # must not raise
+            _summarizer(storage, llm, embedder, tracer=tracer, metrics=metrics).summarize(tid)  # must not raise
 
         error_events = tracer.events_of_type("error")
         assert any(e["payload"]["step"] == "topic_summary_embedding" for e in error_events)
         assert "topic_summary_embedding failed" in caplog.text
+        assert any(e["step"] == "topic_summary_embedding" for e in metrics.events)
+
+    def test_records_llm_call_and_embedding_call_metrics(self):
+        storage = MockStorage()
+        tid = storage.create_topic("", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        llm = MockLLM(summary_response="Label: Crowded Gym\nSummary: Crowded gym frustration\nTags: fitness")
+        embedder = MockEmbedder()
+        metrics = SpyMetricsRecorder()
+
+        _summarizer(storage, llm, embedder, metrics=metrics).summarize(tid, request_id="req1")
+
+        assert len(metrics.llm_calls) == 1
+        assert metrics.llm_calls[0]["call_type"] == "topic_summarization"
+        assert metrics.llm_calls[0]["succeeded"] is True
+        assert metrics.llm_calls[0]["request_id"] == "req1"
+
+        assert len(metrics.embedding_calls) == 1
+        assert metrics.embedding_calls[0]["purpose"] == "topic_summary"
+        assert metrics.embedding_calls[0]["succeeded"] is True
+        assert metrics.embedding_calls[0]["entity_type"] == "topic"
+        assert metrics.embedding_calls[0]["entity_id"] == str(tid)
