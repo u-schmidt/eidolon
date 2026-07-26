@@ -30,13 +30,19 @@ class PostgresMetricsRecorder:
         self._db: psycopg.Connection | None = None
 
     def connect(self) -> None:
+        """Connects with ``autocommit=True`` — each ``record_*`` method
+        is a single INSERT with no need for multi-statement atomicity,
+        so there's nothing an explicit transaction buys here (see
+        ``core/stores/postgres_store.py``'s ``connect()`` docstring for
+        why a long-lived connection without autocommit is a real
+        footgun for methods that forget their own trailing commit)."""
         self._db = psycopg.connect(
             host=self._host,
             port=self._port,
             dbname=self._dbname,
             user=self._user,
             password=self._password,
-            autocommit=False,
+            autocommit=True,
         )
 
     def close(self) -> None:
@@ -66,7 +72,6 @@ class PostgresMetricsRecorder:
                 "VALUES (%s, %s, %s, %s, %s, %s)",
                 (severity, step, message, peer_id, request_id, session_id),
             )
-        self._conn.commit()
 
     def record_llm_call(
         self,
@@ -84,7 +89,6 @@ class PostgresMetricsRecorder:
                 "VALUES (%s, %s, %s, %s, %s, %s)",
                 (call_type, duration_ms, succeeded, peer_id, request_id, session_id),
             )
-        self._conn.commit()
 
     def record_embedding_call(
         self,
@@ -107,4 +111,3 @@ class PostgresMetricsRecorder:
                 (purpose, duration_ms, dimension, succeeded, entity_type, entity_id,
                  peer_id, request_id, session_id),
             )
-        self._conn.commit()

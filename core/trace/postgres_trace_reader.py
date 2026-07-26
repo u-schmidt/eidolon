@@ -29,6 +29,14 @@ class PostgresTraceReader:
         self._db: psycopg.Connection | None = None
 
     def connect(self) -> None:
+        """Connects with ``autocommit=False`` only for ``migrate()``,
+        which commits its own work internally per migration step; every
+        real read after that runs with autocommit on instead — a
+        long-lived connection without it leaves each ``SELECT`` sitting
+        "idle in transaction" indefinitely (no trailing commit), the
+        same live issue ``core/stores/postgres_store.py``'s own
+        ``connect()`` docstring documents and fixes for the main
+        storage connection."""
         self._db = psycopg.connect(
             host=self._host,
             port=self._port,
@@ -42,6 +50,7 @@ class PostgresTraceReader:
         # never ran) — idempotent, guarded by its own version-tracking
         # table, same call PostgresTracer.connect() makes.
         migrate(self._db)
+        self._db.autocommit = True
 
     def close(self) -> None:
         if self._db is not None:

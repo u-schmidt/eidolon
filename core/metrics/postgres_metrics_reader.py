@@ -30,13 +30,19 @@ class PostgresMetricsReader:
         self._db: psycopg.Connection | None = None
 
     def connect(self) -> None:
+        """Connects with ``autocommit=True`` — every method here is a
+        read-only ``SELECT``, and a long-lived connection without
+        autocommit leaves each call sitting "idle in transaction"
+        indefinitely (no trailing commit), the same live issue
+        ``core/stores/postgres_store.py``'s ``connect()`` docstring
+        documents and fixes for the main storage connection."""
         self._db = psycopg.connect(
             host=self._host,
             port=self._port,
             dbname=self._dbname,
             user=self._user,
             password=self._password,
-            autocommit=False,
+            autocommit=True,
         )
 
     def close(self) -> None:
