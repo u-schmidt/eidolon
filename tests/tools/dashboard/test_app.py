@@ -70,8 +70,8 @@ def client(storage: MockStorage) -> TestClient:
     return TestClient(_wrap(turn_reader))
 
 
-class TestIndex:
-    def test_lists_recent_turns(self, client: TestClient, storage: MockStorage):
+class TestLanding:
+    def test_shows_recent_activity(self, client: TestClient, storage: MockStorage):
         storage.store_message(turn_id=1, role="user", content="hello there", peer_id="u1", request_id="req1")
 
         response = client.get("/")
@@ -83,6 +83,35 @@ class TestIndex:
         response = client.get("/")
         assert response.status_code == 200
         assert "No turns found" in response.text
+
+    def test_nav_links_present(self, client: TestClient):
+        response = client.get("/")
+        assert response.status_code == 200
+        assert '/turns"' in response.text
+
+
+class TestTurnsList:
+    def test_lists_recent_turns(self, client: TestClient, storage: MockStorage):
+        storage.store_message(turn_id=1, role="user", content="hello there", peer_id="u1", request_id="req1")
+
+        response = client.get("/turns")
+        assert response.status_code == 200
+        assert "hello there" in response.text
+        assert "req1" in response.text
+
+    def test_empty_state_when_no_turns(self, client: TestClient):
+        response = client.get("/turns")
+        assert response.status_code == 200
+        assert "No turns found" in response.text
+
+    def test_filters_by_peer_id(self, client: TestClient, storage: MockStorage):
+        storage.store_message(turn_id=1, role="user", content="mine", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=2, role="user", content="theirs", peer_id="u2", request_id="req2")
+
+        response = client.get("/turns", params={"peer_id": "u1"})
+        assert response.status_code == 200
+        assert "mine" in response.text
+        assert "theirs" not in response.text
 
 
 class TestTurnDetail:
@@ -113,3 +142,31 @@ class TestTurnDetail:
     def test_unknown_request_id_returns_404(self, client: TestClient):
         response = client.get("/turns/nope")
         assert response.status_code == 404
+
+    def test_retrieval_scoring_summary_shows_candidate_label(self, storage: MockStorage):
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        topic_id = storage.create_topic("Bello Features", summary="", tags=[])
+        trace = _FakeTraceReader({
+            "req1": [
+                {
+                    "event_type": "retrieval_scoring_summary",
+                    "payload": {
+                        "candidate_type": "topic",
+                        "total_scored": 1,
+                        "included_count": 1,
+                        "top_candidates": [
+                            {"candidate_type": "topic", "candidate_id": topic_id, "included": True,
+                             "final_score": 0.5, "semantic_weighted": 0.4, "semantic_raw": 0.9,
+                             "temporal_weighted": 0.1, "temporal_raw": 0.9},
+                        ],
+                    },
+                    "duration_ms": 5.0, "session_id": None, "created_at": "t1",
+                },
+            ],
+        })
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader))
+
+        response = client.get("/turns/req1")
+        assert response.status_code == 200
+        assert "Bello Features" in response.text

@@ -1,55 +1,71 @@
 {% extends "base.html" %}
 {% block title %}Turn {{ detail.header.request_id }}{% endblock %}
 {% block content %}
-  <p><a href="{{ url_for('dashboard_index') }}">&larr; back to recent turns</a></p>
+  <p><a href="{{ url_for('dashboard_turns_list') }}">&larr; back to turns</a></p>
 
-  <div class="card">
-    <div class="row">
-      <div class="field"><span class="label">Request</span>{{ detail.header.request_id }}</div>
-      <div class="field"><span class="label">Peer</span>{{ detail.header.peer_id or "—" }}</div>
-      <div class="field"><span class="label">Session</span>{{ detail.header.session_id or "—" }}</div>
-      <div class="field"><span class="label">When</span>{{ detail.header.created_at }}</div>
+  <div class="detail-header">
+    <div class="card">
+      <div class="row">
+        <div class="field"><span class="label">Request</span>{{ detail.header.request_id }}</div>
+        <div class="field"><span class="label">Peer</span>{{ detail.header.peer_id or "—" }}</div>
+        <div class="field"><span class="label">Session</span>{{ detail.header.session_id or "—" }}</div>
+        <div class="field"><span class="label">When</span>{{ detail.header.created_at }}</div>
+      </div>
+      {% if detail.header.topic %}
+      <div class="field">
+        <span class="label">Topic</span>
+        #{{ detail.header.topic.id }} — {{ detail.header.topic.label }}
+        {% if detail.header.topic.summary %}<div class="muted">{{ detail.header.topic.summary }}</div>{% endif %}
+      </div>
+      {% endif %}
     </div>
-    {% if detail.header.topic %}
-    <div class="field">
-      <span class="label">Topic</span>
-      #{{ detail.header.topic.id }} — {{ detail.header.topic.label }}
-      {% if detail.header.topic.summary %}<div class="muted">{{ detail.header.topic.summary }}</div>{% endif %}
+
+    {% if detail.header.user_message %}
+    <div class="card">
+      <div class="field"><span class="label">User</span></div>
+      {{ detail.header.user_message }}
+    </div>
+    {% endif %}
+    {% if detail.header.ai_response %}
+    <div class="card">
+      <div class="field"><span class="label">AI</span></div>
+      {{ detail.header.ai_response }}
     </div>
     {% endif %}
   </div>
 
-  {% if detail.header.user_message %}
-  <div class="card">
-    <div class="field"><span class="label">User</span></div>
-    {{ detail.header.user_message }}
-  </div>
-  {% endif %}
-  {% if detail.header.ai_response %}
-  <div class="card">
-    <div class="field"><span class="label">AI</span></div>
-    {{ detail.header.ai_response }}
-  </div>
-  {% endif %}
-
   <h2>Steps</h2>
 
   {% if detail.rich_available %}
-    {% for step in detail.trace_steps %}
-      <div class="card">
-        <div class="row" style="justify-content: space-between;">
-          <strong>{{ step.event_type }}</strong>
-          <span class="muted">
-            {{ "%.1f"|format(step.duration_ms) + "ms — " if step.duration_ms is not none else "" }}{{ step.created_at }}
-          </span>
+    {% if not detail.trace_steps %}
+      <p class="muted">No steps recorded for this turn.</p>
+    {% else %}
+      <div class="master-detail">
+        <div class="step-list">
+          {% for step in detail.trace_steps %}
+          <button type="button" class="step-list-item{{ ' active' if loop.first }}" data-step="{{ loop.index0 }}">
+            <strong>{{ step.event_type }}</strong>
+            <div class="muted">
+              {{ "%.1f"|format(step.duration_ms) + "ms — " if step.duration_ms is not none else "" }}{{ step.created_at }}
+            </div>
+          </button>
+          {% endfor %}
         </div>
-        {% if step.event_type == "retrieval_scoring_summary" %}
-          {% include "_retrieval_scoring_summary.html" %}
-        {% else %}
-          <pre>{{ step.payload | tojson(indent=2) }}</pre>
-        {% endif %}
+        <div class="step-detail-panel">
+          {% for step in detail.trace_steps %}
+          <div class="step-detail{{ ' active' if loop.first }}" data-step-detail="{{ loop.index0 }}">
+            <div class="card">
+              {% if step.event_type == "retrieval_scoring_summary" %}
+                {% include "_retrieval_scoring_summary.html" %}
+              {% else %}
+                <pre>{{ step.payload | tojson(indent=2) }}</pre>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
       </div>
-    {% endfor %}
+    {% endif %}
   {% else %}
     <div class="banner">
       No rich trace data for this turn — either <code>debug.enabled</code> was off when it ran, or it ran
@@ -58,31 +74,58 @@
     {% if not detail.skeleton_steps %}
       <p class="muted">No metrics rows found for this turn either.</p>
     {% else %}
-      <table>
-        <thead><tr><th>Kind</th><th>Step</th><th>Duration</th><th>Result</th><th>When</th></tr></thead>
-        <tbody>
+      <div class="master-detail">
+        <div class="step-list">
           {% for step in detail.skeleton_steps %}
-          <tr>
-            <td class="muted">{{ step.kind }}</td>
-            <td>{{ step.label }}</td>
-            <td>{{ "%.1f"|format(step.duration_ms) + "ms" if step.duration_ms is not none else "—" }}</td>
-            <td>
-              {% if step.kind == "event" %}
-                <span class="badge err">error</span>
-              {% elif step.succeeded %}
-                <span class="badge ok">ok</span>
-              {% else %}
-                <span class="badge err">failed</span>
-              {% endif %}
-            </td>
-            <td class="muted">{{ step.created_at }}</td>
-          </tr>
-          {% if step.detail %}
-          <tr><td></td><td colspan="4" class="muted">{{ step.detail }}</td></tr>
-          {% endif %}
+          <button type="button" class="step-list-item{{ ' active' if loop.first }}" data-step="{{ loop.index0 }}">
+            <span class="muted">{{ step.kind }}</span> <strong>{{ step.label }}</strong>
+            <div class="muted">
+              {{ "%.1f"|format(step.duration_ms) + "ms — " if step.duration_ms is not none else "" }}{{ step.created_at }}
+            </div>
+            {% if step.kind == "event" %}
+              <span class="badge err">error</span>
+            {% elif step.succeeded %}
+              <span class="badge ok">ok</span>
+            {% else %}
+              <span class="badge err">failed</span>
+            {% endif %}
+          </button>
           {% endfor %}
-        </tbody>
-      </table>
+        </div>
+        <div class="step-detail-panel">
+          {% for step in detail.skeleton_steps %}
+          <div class="step-detail{{ ' active' if loop.first }}" data-step-detail="{{ loop.index0 }}">
+            <div class="card">
+              <div class="field"><span class="label">Kind</span>{{ step.kind }}</div>
+              <div class="field"><span class="label">Step</span>{{ step.label }}</div>
+              <div class="field">
+                <span class="label">Duration</span>
+                {{ "%.1f"|format(step.duration_ms) + "ms" if step.duration_ms is not none else "—" }}
+              </div>
+              <div class="field"><span class="label">When</span>{{ step.created_at }}</div>
+              {% if step.detail %}
+                <div class="field"><span class="label">Detail</span></div>
+                <div class="muted">{{ step.detail }}</div>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
     {% endif %}
   {% endif %}
+
+  <script>
+    document.querySelectorAll('.step-list').forEach(function (list) {
+      list.addEventListener('click', function (event) {
+        var item = event.target.closest('.step-list-item');
+        if (!item) return;
+        var panel = item.closest('.master-detail').querySelector('.step-detail-panel');
+        list.querySelectorAll('.step-list-item.active').forEach(function (el) { el.classList.remove('active'); });
+        panel.querySelectorAll('.step-detail.active').forEach(function (el) { el.classList.remove('active'); });
+        item.classList.add('active');
+        panel.querySelector('[data-step-detail="' + item.dataset.step + '"]').classList.add('active');
+      });
+    });
+  </script>
 {% endblock %}

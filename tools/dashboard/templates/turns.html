@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Eidolon — Turns{% endblock %}
+{% block content %}
+  <h1>Turns</h1>
+  <form method="get" action="{{ url_for('dashboard_turns_list') }}" class="row" style="margin-bottom: 1rem; align-items: center;">
+    <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
+    <button type="submit">Filter</button>
+  </form>
+
+  {% if not turns %}
+    <p class="muted">No turns found{% if peer_id %} for peer_id "{{ peer_id }}"{% endif %}. Run a few turns through Eidolon first.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>When</th><th>Peer</th><th>Message</th><th>Topic</th></tr>
+      </thead>
+      <tbody>
+        {% for t in turns %}
+        <tr>
+          <td class="muted">{{ t.created_at }}</td>
+          <td>{{ t.peer_id or "—" }}</td>
+          <td><a href="{{ url_for('dashboard_turn_detail', request_id=t.request_id) }}">{{ t.preview }}</a></td>
+          <td class="muted">{{ t.topic_id if t.topic_id is not none else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}

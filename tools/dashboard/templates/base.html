@@ -56,12 +56,36 @@
       background: var(--accent); color: white; border: none; border-radius: 6px;
       padding: 0.35rem 0.8rem; cursor: pointer;
     }
+    nav.top-nav {
+      display: flex; gap: 1.25rem; align-items: baseline; margin-bottom: 1.25rem;
+      padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
+    }
+    nav.top-nav a.nav-link { color: var(--fg); font-weight: 500; }
+    nav.top-nav a.nav-link:hover { color: var(--accent); }
+
+    .detail-header {
+      position: sticky; top: 0; z-index: 1;
+      background: var(--bg); padding-top: 0.25rem; margin-bottom: 1rem;
+    }
+    .master-detail { display: flex; gap: 1rem; align-items: flex-start; }
+    .step-list { flex: 0 0 320px; display: flex; flex-direction: column; gap: 0.4rem; }
+    .step-list-item {
+      display: block; width: 100%; text-align: left; cursor: pointer;
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.5rem 0.7rem; color: var(--fg); font: inherit;
+    }
+    .step-list-item.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+    .step-detail-panel { flex: 1; min-width: 0; }
+    .step-detail { display: none; }
+    .step-detail.active { display: block; }
   </style>
 </head>
 <body>
-  <div class="row" style="justify-content: space-between; align-items: baseline; margin-bottom: 1rem;">
-    <h1><a href="{{ url_for('dashboard_index') }}">Eidolon — Turn Detail</a></h1>
-  </div>
+  <nav class="top-nav">
+    <strong>Eidolon Dashboard</strong>
+    <a class="nav-link" href="{{ url_for('dashboard_index') }}">Overview</a>
+    <a class="nav-link" href="{{ url_for('dashboard_turns_list') }}">Turns</a>
+  </nav>
   {% block content %}{% endblock %}
 </body>
 </html>

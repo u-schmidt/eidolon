@@ -161,6 +161,9 @@ class TurnReader:
             )
             for e in trace_events
         ]
+        for step in trace_steps:
+            if step.event_type == "retrieval_scoring_summary":
+                self._annotate_candidate_labels(step.payload)
 
         events = self._metrics_reader.events_for_request(request_id)
         llm_calls = self._metrics_reader.llm_calls_for_request(request_id)
@@ -181,6 +184,33 @@ class TurnReader:
             trace_steps=trace_steps,
             skeleton_steps=skeleton_steps,
         )
+
+    def _annotate_candidate_labels(self, payload: dict) -> None:
+        """Mutate a ``retrieval_scoring_summary`` payload in place, adding a
+        ``label`` key to each ``top_candidates`` entry — the candidate's
+        topic/cluster label or a memory-item content preview, instead of a
+        bare ``candidate_type``/``candidate_id`` pair.
+
+        ``candidate_kind`` disambiguates ``cluster_candidate`` rows (which
+        score both topics and clusters in one call — see
+        ``core/stores/retrieval_scorer.py``'s ``finalize()``); every other
+        row's own ``candidate_type`` is the kind directly.
+        """
+        for candidate in payload.get("top_candidates", []):
+            kind = candidate.get("candidate_kind") or candidate.get("candidate_type")
+            candidate["label"] = self._resolve_candidate_label(kind, candidate["candidate_id"])
+
+    def _resolve_candidate_label(self, kind: str | None, candidate_id: int) -> str | None:
+        if kind == "topic":
+            topic = self._storage.get_topic(candidate_id)
+            return topic["label"] if topic else None
+        if kind == "cluster":
+            cluster = self._storage.get_cluster(candidate_id)
+            return cluster["label"] if cluster else None
+        if kind == "memory_item":
+            item = self._storage.get_memory_item(candidate_id)
+            return _preview(item["content"]) if item else None
+        return None
 
     @staticmethod
     def _build_skeleton_steps(events: list[dict], llm_calls: list[dict], embedding_calls: list[dict]) -> list[SkeletonStep]:

@@ -6,6 +6,7 @@ tests/core/trace/test_*_trace_reader.py)."""
 
 from __future__ import annotations
 
+from core.models import MemoryItem
 from tests.mocks import MockStorage
 from tools.dashboard.turn_reader import TurnReader
 
@@ -108,6 +109,104 @@ class TestGet:
         detail = reader.get("req1")
         assert detail is not None
         assert detail.header.topic is None
+
+
+class TestCandidateLabels:
+    """Retrieval-scoring-summary candidates should resolve to a human
+    label/content preview, not just a bare candidate_type/candidate_id —
+    see TurnReader._annotate_candidate_labels."""
+
+    def test_topic_candidate_gets_label(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        topic_id = storage.create_topic("Bello Features", summary="")
+        trace.events["req1"] = [{
+            "event_type": "retrieval_scoring_summary",
+            "payload": {
+                "candidate_type": "topic", "total_scored": 1, "included_count": 1,
+                "top_candidates": [{"candidate_type": "topic", "candidate_id": topic_id}],
+            },
+            "duration_ms": 1.0, "session_id": None, "created_at": "t1",
+        }]
+
+        detail = reader.get("req1")
+        candidate = detail.trace_steps[0].payload["top_candidates"][0]
+        assert candidate["label"] == "Bello Features"
+
+    def test_cluster_candidate_gets_label(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        cluster_id = storage.create_cluster(peer_id="u1", label="Fitness", summary="")
+        trace.events["req1"] = [{
+            "event_type": "retrieval_scoring_summary",
+            "payload": {
+                "candidate_type": "cluster", "total_scored": 1, "included_count": 1,
+                "top_candidates": [{"candidate_type": "cluster", "candidate_id": cluster_id}],
+            },
+            "duration_ms": 1.0, "session_id": None, "created_at": "t1",
+        }]
+
+        detail = reader.get("req1")
+        candidate = detail.trace_steps[0].payload["top_candidates"][0]
+        assert candidate["label"] == "Fitness"
+
+    def test_memory_item_candidate_gets_content_preview(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        item_id = storage.store_memory_item(MemoryItem(
+            content="User likes hiking", item_type="essence",
+            source_peer="user", subject_peer="user", attribution_type="self_statement",
+        ))
+        trace.events["req1"] = [{
+            "event_type": "retrieval_scoring_summary",
+            "payload": {
+                "candidate_type": "memory_item", "total_scored": 1, "included_count": 1,
+                "top_candidates": [{"candidate_type": "memory_item", "candidate_id": item_id}],
+            },
+            "duration_ms": 1.0, "session_id": None, "created_at": "t1",
+        }]
+
+        detail = reader.get("req1")
+        candidate = detail.trace_steps[0].payload["top_candidates"][0]
+        assert candidate["label"] == "User likes hiking"
+
+    def test_cluster_candidate_kind_overrides_candidate_type(self):
+        """search_cluster_candidates scores both topics and clusters under
+        candidate_type="cluster_candidate" — candidate_kind disambiguates
+        which one each row actually is (see retrieval_scorer.py)."""
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        topic_id = storage.create_topic("Gym talk", summary="")
+        trace.events["req1"] = [{
+            "event_type": "retrieval_scoring_summary",
+            "payload": {
+                "candidate_type": "cluster_candidate", "total_scored": 1, "included_count": 1,
+                "top_candidates": [
+                    {"candidate_type": "cluster_candidate", "candidate_kind": "topic", "candidate_id": topic_id},
+                ],
+            },
+            "duration_ms": 1.0, "session_id": None, "created_at": "t1",
+        }]
+
+        detail = reader.get("req1")
+        candidate = detail.trace_steps[0].payload["top_candidates"][0]
+        assert candidate["label"] == "Gym talk"
+
+    def test_missing_candidate_resolves_to_none(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace.events["req1"] = [{
+            "event_type": "retrieval_scoring_summary",
+            "payload": {
+                "candidate_type": "topic", "total_scored": 1, "included_count": 0,
+                "top_candidates": [{"candidate_type": "topic", "candidate_id": 999}],
+            },
+            "duration_ms": 1.0, "session_id": None, "created_at": "t1",
+        }]
+
+        detail = reader.get("req1")
+        candidate = detail.trace_steps[0].payload["top_candidates"][0]
+        assert candidate["label"] is None
 
 
 class TestRecentTurns:

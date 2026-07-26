@@ -333,6 +333,21 @@ class MockStorage:
         item.id = len(self.stored_items)
         return item.id
 
+    def get_memory_item(self, item_id: int) -> dict | None:
+        item = next((i for i in self.stored_items if i.id == item_id), None)
+        if item is None:
+            return None
+        return {
+            "id": item.id,
+            "content": item.content,
+            "item_type": item.item_type,
+            "source_peer": item.source_peer,
+            "subject_peer": item.subject_peer,
+            "attribution_type": item.attribution_type,
+            "topic_id": item.topic_id,
+            "created_at": item.timestamp,
+        }
+
     def search_memory_items(self, query_embedding=None, peer_id=None, limit=5, weights=None,
                              tracer=None, request_id=None, now=None):
         return self.memory_items[:limit]

@@ -16,7 +16,10 @@
   <tbody>
     {% for c in step.payload.top_candidates %}
     <tr>
-      <td>{{ (c.candidate_kind ~ " " if c.candidate_kind) }}#{{ c.candidate_id }}</td>
+      <td>
+        {{ c.label if c.label else "—" }}
+        <div class="muted">{{ (c.candidate_kind ~ " " if c.candidate_kind) }}#{{ c.candidate_id }}</div>
+      </td>
       <td>
         {% if c.included %}<span class="badge ok">yes</span>{% else %}<span class="badge neutral">no</span>{% endif %}
       </td>

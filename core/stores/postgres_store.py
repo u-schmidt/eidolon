@@ -711,6 +711,25 @@ class PostgresStore:
         assert row is not None  # RETURNING id always yields a row on successful INSERT
         return row[0]
 
+    def get_memory_item(self, item_id: int) -> dict | None:
+        row = self._conn.execute(
+            "SELECT id, content, item_type, source_peer, subject_peer, attribution_type, "
+            "topic_id, created_at FROM memory_items WHERE id = %s",
+            (item_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "content": row[1],
+            "item_type": row[2],
+            "source_peer": row[3],
+            "subject_peer": row[4],
+            "attribution_type": row[5],
+            "topic_id": row[6],
+            "created_at": row[7],
+        }
+
     def search_memory_items(
         self,
         query_embedding: list[float] | None = None,

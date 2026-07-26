@@ -1,19 +1,27 @@
 {% extends "base.html" %}
+{% block title %}Eidolon — Overview{% endblock %}
 {% block content %}
-  <form method="get" action="{{ url_for('dashboard_index') }}" class="row" style="margin-bottom: 1rem; align-items: center;">
-    <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
-    <button type="submit">Filter</button>
-  </form>
+  <h1>Overview</h1>
+  <p class="muted">Read-only inspection views over Eidolon's stored turns, topics, and traces.</p>
 
-  {% if not turns %}
-    <p class="muted">No turns found{% if peer_id %} for peer_id "{{ peer_id }}"{% endif %}. Run a few turns through Eidolon first.</p>
+  <div class="card">
+    <h2 style="margin-top: 0;"><a href="{{ url_for('dashboard_turns_list') }}">Turn Inspector</a></h2>
+    <p>Step-by-step replay of a single turn — topic detection, extraction, retrieval scoring, and
+      whatever it conditionally triggered (fact consolidation, topic close, clustering), joined by
+      <code>request_id</code>.</p>
+    <a href="{{ url_for('dashboard_turns_list') }}">Browse turns &rarr;</a>
+  </div>
+
+  <h2>Recent activity</h2>
+  {% if not recent_turns %}
+    <p class="muted">No turns found. Run a few turns through Eidolon first.</p>
   {% else %}
     <table>
       <thead>
         <tr><th>When</th><th>Peer</th><th>Message</th><th>Topic</th></tr>
       </thead>
       <tbody>
-        {% for t in turns %}
+        {% for t in recent_turns %}
         <tr>
           <td class="muted">{{ t.created_at }}</td>
           <td>{{ t.peer_id or "—" }}</td>
@@ -23,5 +31,6 @@
         {% endfor %}
       </tbody>
     </table>
+    <p><a href="{{ url_for('dashboard_turns_list') }}">See all turns &rarr;</a></p>
   {% endif %}
 {% endblock %}

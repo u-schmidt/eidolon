@@ -820,6 +820,27 @@ class TestMemoryItems:
         mid = store.store_memory_item(item)
         assert isinstance(mid, int)
 
+    def test_get_memory_item(self, store: StorageProvider):
+        item = MemoryItem(
+            content="User talked about Bello features",
+            item_type="essence",
+            source_peer="user",
+            subject_peer="user",
+            attribution_type="self_statement",
+        )
+        mid = store.store_memory_item(item)
+
+        fetched = store.get_memory_item(mid)
+        assert fetched is not None
+        assert fetched["content"] == "User talked about Bello features"
+        assert fetched["item_type"] == "essence"
+        assert fetched["source_peer"] == "user"
+        assert fetched["subject_peer"] == "user"
+        assert fetched["attribution_type"] == "self_statement"
+
+    def test_get_memory_item_not_found(self, store: StorageProvider):
+        assert store.get_memory_item(999) is None
+
     def test_search_by_peer(self, store: StorageProvider):
         msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
         store.store_memory_item(MemoryItem(

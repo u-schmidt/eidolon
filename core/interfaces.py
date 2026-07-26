@@ -337,6 +337,15 @@ class StorageProvider(Protocol):
         """Persist a single memory item and return its id."""
         ...
 
+    def get_memory_item(self, item_id: int) -> dict | None:
+        """Return a memory item dict by id, or None if not found.
+
+        Mirrors ``get_topic``/``get_cluster`` — a plain dict, not a
+        ``MemoryItem``, since this is a read-path lookup (e.g. resolving a
+        retrieval candidate to its content), not a write-path object.
+        """
+        ...
+
     def search_memory_items(
         self,
         query_embedding: list[float] | None = None,

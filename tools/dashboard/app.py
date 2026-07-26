@@ -36,10 +36,17 @@ def create_dashboard_router(turn_reader: TurnReader) -> APIRouter:
     router = APIRouter()
 
     @router.get("/", response_class=HTMLResponse, name="dashboard_index")
-    def index(request: Request, peer_id: str | None = None, limit: int = 50) -> HTMLResponse:
+    def landing(request: Request) -> HTMLResponse:
+        recent = turn_reader.recent_turns(limit=5)
+        return _templates.TemplateResponse(
+            request, "index.html", {"recent_turns": recent},
+        )
+
+    @router.get("/turns", response_class=HTMLResponse, name="dashboard_turns_list")
+    def turns_list(request: Request, peer_id: str | None = None, limit: int = 50) -> HTMLResponse:
         turns = turn_reader.recent_turns(limit=limit, peer_id=peer_id)
         return _templates.TemplateResponse(
-            request, "index.html", {"turns": turns, "peer_id": peer_id or ""},
+            request, "turns.html", {"turns": turns, "peer_id": peer_id or ""},
         )
 
     @router.get("/turns/{request_id}", response_class=HTMLResponse, name="dashboard_turn_detail")
