@@ -77,6 +77,16 @@ class TestFacts:
         facts = store.get_facts("user")
         assert [f.importance for f in facts] == ["high", "medium", "low"]
 
+    def test_get_all_facts_returns_facts_from_every_peer(self, store: StorageProvider):
+        store.set_fact("u1", "basic", "name", "Alex", "user")
+        store.set_fact("u2", "basic", "name", "Sam", "user")
+
+        facts = store.get_all_facts()
+        assert {f.peer_id for f in facts} == {"u1", "u2"}
+
+    def test_get_all_facts_empty(self, store: StorageProvider):
+        assert store.get_all_facts() == []
+
 
 class TestFactsConsolidation:
     def test_count_user_turns_only_counts_user_role(self, store: StorageProvider):

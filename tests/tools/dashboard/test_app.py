@@ -16,9 +16,11 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
+from core.models import Fact
 from tests.mocks import MockStorage
 from tools.dashboard.app import DASHBOARD_STATIC_DIR, create_dashboard_router
 from tools.dashboard.performance_reader import PerformanceReader
+from tools.dashboard.prompt_quality_reader import PromptQualityReader
 from tools.dashboard.retrieval_quality_reader import RetrievalQualityReader
 from tools.dashboard.turn_reader import TurnReader
 
@@ -71,11 +73,15 @@ def _wrap(
     storage: MockStorage,
     metrics_reader: object | None = None,
     trace_reader: object | None = None,
+    fact_categories: list[str] | None = None,
 ) -> FastAPI:
     app = FastAPI()
     performance_reader = PerformanceReader(metrics_reader or _FakeMetricsReader())
     retrieval_quality_reader = RetrievalQualityReader(trace_reader or _FakeTraceReader(), storage)
-    app.include_router(create_dashboard_router(turn_reader, performance_reader, retrieval_quality_reader))
+    prompt_quality_reader = PromptQualityReader(trace_reader or _FakeTraceReader(), storage, fact_categories or [])
+    app.include_router(
+        create_dashboard_router(turn_reader, performance_reader, retrieval_quality_reader, prompt_quality_reader)
+    )
     app.mount("/static", StaticFiles(directory=str(DASHBOARD_STATIC_DIR)), name="dashboard-static")
     return app
 
@@ -295,3 +301,49 @@ class TestRetrievalQuality:
         response = client.get("/")
         assert response.status_code == 200
         assert '/retrieval-quality"' in response.text
+
+
+class TestPromptQuality:
+    def test_renders_with_no_data(self, client: TestClient):
+        response = client.get("/prompt-quality")
+        assert response.status_code == 200
+        assert "No <code>topic_detection</code> events" in response.text
+
+    def test_renders_fallback_flip_flop_churn_and_outlier(self, storage: MockStorage):
+        trace = _TraceReaderWithData(events_of_type={
+            "topic_detection": [
+                {"payload": {"response": "CONTINUE", "result_type": "CONTINUE"}},
+                {"payload": {"response": "sure, let's keep going", "result_type": "CONTINUE"}},
+            ],
+            "topic_relabel": [
+                {"payload": {"topic_id": 1, "label": "Weekend trip"}},
+                {"payload": {"topic_id": 1, "label": "Grocery list"}},
+            ],
+            "fact_consolidation": [
+                {"payload": {"upserts": [{"category": "work", "key": "role", "value": "engineer"}]}},
+                {"payload": {"upserts": [{"category": "work", "key": "role", "value": "senior engineer"}]}},
+            ],
+        })
+        storage.facts.append(Fact(peer_id="u1", category="typo_cat", key="k", value="v", source="ai"))
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader, storage, trace_reader=trace, fact_categories=["basic"]))
+
+        response = client.get("/prompt-quality")
+        assert response.status_code == 200
+        assert "Grocery list" in response.text  # relabel flip-flop
+        assert "typo_cat" in response.text  # category outlier
+        assert "role" in response.text  # fact churn
+
+    def test_window_select_reflects_query_param(self, client: TestClient):
+        response = client.get("/prompt-quality", params={"window": "1h"})
+        assert response.status_code == 200
+        assert 'value="1h" selected' in response.text
+
+    def test_unknown_window_returns_400(self, client: TestClient):
+        response = client.get("/prompt-quality", params={"window": "3y"})
+        assert response.status_code == 400
+
+    def test_nav_link_present(self, client: TestClient):
+        response = client.get("/")
+        assert response.status_code == 200
+        assert '/prompt-quality"' in response.text

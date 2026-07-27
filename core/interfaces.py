@@ -39,6 +39,17 @@ class StorageProvider(Protocol):
         """Return all stored facts for a given peer."""
         ...
 
+    def get_all_facts(self) -> list[Fact]:
+        """Return every stored fact across every peer, ordered by
+        ``peer_id``/``category``/``key``.
+
+        Bulk, unscoped counterpart to ``get_facts`` — powers dashboard
+        views that need to scan the whole facts table (e.g. flagging
+        categories outside the configured list) rather than one peer's
+        profile.
+        """
+        ...
+
     def set_fact(
         self,
         peer_id: str,

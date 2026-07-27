@@ -193,6 +193,9 @@ class MockStorage:
     def get_facts(self, peer_id: str) -> list[Fact]:
         return [f for f in self.facts if f.peer_id == peer_id]
 
+    def get_all_facts(self) -> list[Fact]:
+        return list(self.facts)
+
     def set_fact(
         self, peer_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
     ) -> None:

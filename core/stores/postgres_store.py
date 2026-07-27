@@ -155,6 +155,16 @@ class PostgresStore:
             for r in rows
         ]
 
+    def get_all_facts(self) -> list[Fact]:
+        rows = self._conn.execute(
+            "SELECT peer_id, category, key, value, source, importance, created_at "
+            "FROM facts ORDER BY peer_id, category, key",
+        ).fetchall()
+        return [
+            Fact(peer_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4], importance=r[5], created_at=r[6])
+            for r in rows
+        ]
+
     def set_fact(
         self, peer_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
     ) -> None:

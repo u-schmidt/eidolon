@@ -44,6 +44,7 @@ from core.models import ContextBundle, EnvironmentSnapshot, PrefetchResult, Topi
 from server.auth import require_dashboard_password, require_token
 from tools.dashboard.app import DASHBOARD_STATIC_DIR, create_dashboard_router
 from tools.dashboard.performance_reader import PerformanceReader
+from tools.dashboard.prompt_quality_reader import PromptQualityReader
 from tools.dashboard.retrieval_quality_reader import RetrievalQualityReader
 from tools.dashboard.turn_reader import TurnReader
 
@@ -53,6 +54,7 @@ def create_app(
     turn_reader: TurnReader | None = None,
     performance_reader: PerformanceReader | None = None,
     retrieval_quality_reader: RetrievalQualityReader | None = None,
+    prompt_quality_reader: PromptQualityReader | None = None,
 ) -> FastAPI:
     """Build the FastAPI app wrapping an already-constructed ``EidolonClient``.
 
@@ -60,12 +62,12 @@ def create_app(
     ``tools/serve.py`` the same way ``tools/cli.py`` builds one — this
     app contains no core logic itself, only HTTP<->facade translation.
 
-    ``turn_reader``/``performance_reader``/``retrieval_quality_reader``
-    are optional together: when given, the dashboard is mounted under
-    ``/dashboard``; when omitted (the default — e.g. tests that only
-    care about the RPC contract), the app is exactly the RPC API and
-    nothing else. Any one given without the other two is a caller bug,
-    not a state worth validating for.
+    ``turn_reader``/``performance_reader``/``retrieval_quality_reader``/
+    ``prompt_quality_reader`` are optional together: when given, the
+    dashboard is mounted under ``/dashboard``; when omitted (the default
+    — e.g. tests that only care about the RPC contract), the app is
+    exactly the RPC API and nothing else. Any one given without the
+    others is a caller bug, not a state worth validating for.
     """
     app = FastAPI(title="Eidolon")
 
@@ -187,9 +189,14 @@ def create_app(
 
     app.include_router(rpc)
 
-    if turn_reader is not None and performance_reader is not None and retrieval_quality_reader is not None:
+    if (
+        turn_reader is not None
+        and performance_reader is not None
+        and retrieval_quality_reader is not None
+        and prompt_quality_reader is not None
+    ):
         app.include_router(
-            create_dashboard_router(turn_reader, performance_reader, retrieval_quality_reader),
+            create_dashboard_router(turn_reader, performance_reader, retrieval_quality_reader, prompt_quality_reader),
             prefix="/dashboard",
             dependencies=[Depends(require_dashboard_password)],
         )

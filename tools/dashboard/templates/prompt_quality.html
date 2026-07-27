@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Eidolon — Prompt Quality{% endblock %}
+{% block content %}
+  <h1>Prompt &amp; Pipeline Quality</h1>
+  <p class="muted">Sourced from <code>topic_detection</code>/<code>topic_relabel</code>/<code>extraction</code>/<code>fact_consolidation</code>/<code>fact_correction</code> debug trace events — only available for turns that ran with <code>debug.enabled: true</code>.</p>
+
+  <form method="get" action="{{ url_for('dashboard_prompt_quality') }}" class="row" style="margin-bottom: 1.5rem; align-items: center;">
+    <label for="window" class="muted">Window</label>
+    <select name="window" id="window" onchange="this.form.submit()">
+      {% for w in windows %}
+      <option value="{{ w }}"{{ ' selected' if w == window }}>{{ w }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  {% if summary.total_topic_detection_calls == 0 %}
+    <div class="banner">
+      No <code>topic_detection</code> events in this window — either <code>debug.enabled</code> was off the
+      whole time, or there was no turn activity. Try a wider window, or turn on debug tracing and use Eidolon
+      for a bit. (<code>topic_detection</code> fires on every turn, so its absence means no rich trace data at
+      all — not just that this particular check has nothing to show.)
+    </div>
+  {% else %}
+    <p class="muted">{{ summary.total_topic_detection_calls }} topic-detection calls in this window.</p>
+
+    <div class="row">
+      <div style="flex: 1; min-width: 280px;">
+        <h2>CONTINUE fallback rate</h2>
+        <p class="muted">How often the parser fell back to CONTINUE because the LLM's response wasn't the literal string "CONTINUE" — a sign the detection prompt is producing unparseable output.</p>
+        <table>
+          <thead><tr><th>Outcome</th><th>Count</th></tr></thead>
+          <tbody>
+            <tr><td>Literal CONTINUE</td><td>{{ summary.continue_fallback.literal_continue }}</td></tr>
+            <tr>
+              <td>Fallback CONTINUE (unparseable response)</td>
+              <td>
+                {% if summary.continue_fallback.fallback_continue %}
+                  <span class="badge err">{{ summary.continue_fallback.fallback_continue }}</span>
+                {% else %}
+                  <span class="badge ok">0</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr><td>NEW_TOPIC</td><td>{{ summary.continue_fallback.new_topic }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="flex: 1; min-width: 280px;">
+        <h2>Relabel flip-flops</h2>
+        <p class="muted">Topics whose label alternated across multiple relabel calls — unstable relabel prompt.</p>
+        {% if not summary.relabel_flip_flops %}
+          <p class="muted">No flip-flopping topics in this window.</p>
+        {% else %}
+          <table>
+            <thead><tr><th>Topic</th><th>Latest label</th><th>Distinct labels</th><th>Relabel calls</th></tr></thead>
+            <tbody>
+              {% for f in summary.relabel_flip_flops %}
+              <tr>
+                <td class="muted">#{{ f.topic_id }}</td>
+                <td>{{ f.latest_label }}</td>
+                <td><span class="badge err">{{ f.distinct_labels }}</span></td>
+                <td>{{ f.relabel_count }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="row">
+      <div style="flex: 1; min-width: 240px;">
+        <h2>Extracted item types</h2>
+        {% if not summary.item_type_counts %}
+          <p class="muted">No extraction events in this window.</p>
+        {% else %}
+          <table>
+            <thead><tr><th>item_type</th><th>Count</th></tr></thead>
+            <tbody>
+              {% for c in summary.item_type_counts %}
+              <tr><td>{{ c.type_name }}</td><td>{{ c.count }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </div>
+      <div style="flex: 1; min-width: 240px;">
+        <h2>Extracted attribution types</h2>
+        {% if not summary.attribution_type_counts %}
+          <p class="muted">No extraction events in this window.</p>
+        {% else %}
+          <table>
+            <thead><tr><th>attribution_type</th><th>Count</th></tr></thead>
+            <tbody>
+              {% for c in summary.attribution_type_counts %}
+              <tr><td>{{ c.type_name }}</td><td>{{ c.count }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </div>
+    </div>
+
+    <h2>Fact category outliers</h2>
+    <p class="muted">Facts whose category isn't in the configured <code>facts.categories</code> list. Reflects the <strong>current</strong> facts table, not the selected time window.</p>
+    {% if not summary.fact_category_outliers %}
+      <p class="muted">No outlier categories found.</p>
+    {% else %}
+      <table>
+        <thead><tr><th>Peer</th><th>Category</th><th>Key</th><th>Value</th></tr></thead>
+        <tbody>
+          {% for o in summary.fact_category_outliers %}
+          <tr>
+            <td class="muted">{{ o.peer_id }}</td>
+            <td><span class="badge err">{{ o.category }}</span></td>
+            <td>{{ o.key }}</td>
+            <td>{{ o.value }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <h2>Fact consolidation churn</h2>
+    <p class="muted">Keys upserted more than once in this window — <code>distinct_values &gt; 1</code> means the value genuinely flip-flopped, not just got reconfirmed.</p>
+    {% if not summary.fact_churn %}
+      <p class="muted">No repeated upserts in this window.</p>
+    {% else %}
+      <table>
+        <thead><tr><th>Category</th><th>Key</th><th>Upserts</th><th>Distinct values</th></tr></thead>
+        <tbody>
+          {% for c in summary.fact_churn %}
+          <tr>
+            <td class="muted">{{ c.category }}</td>
+            <td>{{ c.key }}</td>
+            <td>{{ c.upsert_count }}</td>
+            <td>
+              {% if c.distinct_values > 1 %}
+                <span class="badge err">{{ c.distinct_values }}</span>
+              {% else %}
+                <span class="badge neutral">{{ c.distinct_values }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <h2>Manual fact corrections</h2>
+    <p class="muted">How often the user manually corrected what the pipeline decided — a trust signal.</p>
+    <p class="muted">{{ summary.fact_correction.total_corrections }} total ({{ summary.fact_correction.upserts }} upserts, {{ summary.fact_correction.deletes }} deletes).</p>
+    {% if summary.fact_correction.top_corrected %}
+      <table>
+        <thead><tr><th>Category</th><th>Key</th><th>Corrections</th></tr></thead>
+        <tbody>
+          {% for c in summary.fact_correction.top_corrected %}
+          <tr><td class="muted">{{ c.category }}</td><td>{{ c.key }}</td><td>{{ c.correction_count }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  {% endif %}
+{% endblock %}

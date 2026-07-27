@@ -26,6 +26,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from tools.dashboard.performance_reader import PerformanceReader
+from tools.dashboard.prompt_quality_reader import PromptQualityReader
 from tools.dashboard.retrieval_quality_reader import RetrievalQualityReader
 from tools.dashboard.turn_reader import TurnReader
 
@@ -48,6 +49,7 @@ def create_dashboard_router(
     turn_reader: TurnReader,
     performance_reader: PerformanceReader,
     retrieval_quality_reader: RetrievalQualityReader,
+    prompt_quality_reader: PromptQualityReader,
 ) -> APIRouter:
     """Build the dashboard's routes wrapping already-constructed readers."""
     router = APIRouter()
@@ -94,6 +96,17 @@ def create_dashboard_router(
         summary = retrieval_quality_reader.summary(since)
         return _templates.TemplateResponse(
             request, "retrieval_quality.html",
+            {"summary": summary, "window": window, "windows": list(_WINDOW_CUTOFFS)},
+        )
+
+    @router.get("/prompt-quality", response_class=HTMLResponse, name="dashboard_prompt_quality")
+    def prompt_quality(request: Request, window: str = _DEFAULT_WINDOW) -> HTMLResponse:
+        if window not in _WINDOW_CUTOFFS:
+            raise HTTPException(status_code=400, detail=f"Unknown window {window!r} — use one of {list(_WINDOW_CUTOFFS)}")
+        since = datetime.now(UTC) - _WINDOW_CUTOFFS[window]
+        summary = prompt_quality_reader.summary(since)
+        return _templates.TemplateResponse(
+            request, "prompt_quality.html",
             {"summary": summary, "window": window, "windows": list(_WINDOW_CUTOFFS)},
         )
 
