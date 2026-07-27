@@ -26,6 +26,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from tools.dashboard.performance_reader import PerformanceReader
+from tools.dashboard.retrieval_quality_reader import RetrievalQualityReader
 from tools.dashboard.turn_reader import TurnReader
 
 _DASHBOARD_DIR = Path(__file__).parent
@@ -43,7 +44,11 @@ _WINDOW_CUTOFFS: dict[str, timedelta] = {
 _DEFAULT_WINDOW = "24h"
 
 
-def create_dashboard_router(turn_reader: TurnReader, performance_reader: PerformanceReader) -> APIRouter:
+def create_dashboard_router(
+    turn_reader: TurnReader,
+    performance_reader: PerformanceReader,
+    retrieval_quality_reader: RetrievalQualityReader,
+) -> APIRouter:
     """Build the dashboard's routes wrapping already-constructed readers."""
     router = APIRouter()
 
@@ -78,6 +83,17 @@ def create_dashboard_router(turn_reader: TurnReader, performance_reader: Perform
         summary = performance_reader.summary(since)
         return _templates.TemplateResponse(
             request, "performance.html",
+            {"summary": summary, "window": window, "windows": list(_WINDOW_CUTOFFS)},
+        )
+
+    @router.get("/retrieval-quality", response_class=HTMLResponse, name="dashboard_retrieval_quality")
+    def retrieval_quality(request: Request, window: str = _DEFAULT_WINDOW) -> HTMLResponse:
+        if window not in _WINDOW_CUTOFFS:
+            raise HTTPException(status_code=400, detail=f"Unknown window {window!r} — use one of {list(_WINDOW_CUTOFFS)}")
+        since = datetime.now(UTC) - _WINDOW_CUTOFFS[window]
+        summary = retrieval_quality_reader.summary(since)
+        return _templates.TemplateResponse(
+            request, "retrieval_quality.html",
             {"summary": summary, "window": window, "windows": list(_WINDOW_CUTOFFS)},
         )
 

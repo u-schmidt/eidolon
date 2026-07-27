@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Eidolon — Retrieval Quality{% endblock %}
+{% block content %}
+  <h1>Retrieval Quality &amp; Weighting</h1>
+  <p class="muted">Sourced from <code>retrieval_scoring_summary</code>/<code>context_retrieval</code> debug trace events — only available for turns that ran with <code>debug.enabled: true</code>.</p>
+
+  <form method="get" action="{{ url_for('dashboard_retrieval_quality') }}" class="row" style="margin-bottom: 1.5rem; align-items: center;">
+    <label for="window" class="muted">Window</label>
+    <select name="window" id="window" onchange="this.form.submit()">
+      {% for w in windows %}
+      <option value="{{ w }}"{{ ' selected' if w == window }}>{{ w }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  {% if summary.total_events == 0 %}
+    <div class="banner">
+      No <code>retrieval_scoring_summary</code> events in this window — either <code>debug.enabled</code> was off
+      the whole time, or there was no retrieval traffic. Try a wider window, or turn on debug tracing and use
+      Eidolon for a bit.
+    </div>
+  {% else %}
+    <p class="muted">{{ summary.total_events }} retrieval scoring events in this window.</p>
+
+    <div class="row">
+      <div style="flex: 1; min-width: 280px;">
+        <h2>Top retrieved</h2>
+        <p class="muted">Most frequently included in context — potentially over-used content.</p>
+        {% if not summary.top_retrieved %}
+          <p class="muted">Nothing included yet in this window.</p>
+        {% else %}
+          <table>
+            <thead><tr><th>Kind</th><th>Label</th><th>Included</th><th>Scored</th></tr></thead>
+            <tbody>
+              {% for c in summary.top_retrieved %}
+              <tr>
+                <td class="muted">{{ c.kind }}</td>
+                <td>{{ c.label or ("#" ~ c.candidate_id) }}</td>
+                <td>{{ c.included_count }}</td>
+                <td>{{ c.scored_count }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </div>
+      <div style="flex: 1; min-width: 280px;">
+        <h2>Never included</h2>
+        <p class="muted">Scored but never made the cut — decay candidates.</p>
+        {% if not summary.never_included %}
+          <p class="muted">Nothing scored-but-excluded in this window.</p>
+        {% else %}
+          <table>
+            <thead><tr><th>Kind</th><th>Label</th><th>Times scored</th></tr></thead>
+            <tbody>
+              {% for c in summary.never_included %}
+              <tr>
+                <td class="muted">{{ c.kind }}</td>
+                <td>{{ c.label or ("#" ~ c.candidate_id) }}</td>
+                <td>{{ c.scored_count }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </div>
+    </div>
+
+    <h2>Score component dominance</h2>
+    <p class="muted">Average share of the final score each weighted component contributes — validates whether the configured <code>retrieval.*</code> weights actually do anything.</p>
+    {% if not summary.score_components %}
+      <p class="muted">No scored candidates in this window.</p>
+    {% else %}
+      <table>
+        <thead><tr><th>Candidate type</th><th>Count</th><th>Semantic</th><th>Tag overlap</th><th>Person</th><th>Temporal</th></tr></thead>
+        <tbody>
+          {% for s in summary.score_components %}
+          <tr>
+            <td>{{ s.candidate_type }}</td>
+            <td>{{ s.count }}</td>
+            <td>{{ "%.1f"|format(100 * s.avg_semantic_share) }}%</td>
+            <td>{{ "%.1f%%"|format(100 * s.avg_tag_overlap_share) if s.avg_tag_overlap_share is not none else "—" }}</td>
+            <td>{{ "%.1f%%"|format(100 * s.avg_person_share) if s.avg_person_share is not none else "—" }}</td>
+            <td>{{ "%.1f"|format(100 * s.avg_temporal_share) }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <h2>Near misses</h2>
+    <p class="muted">Excluded candidates that scored close to the cutoff — a signal that limits/thresholds might be too strict.</p>
+    {% if not summary.near_misses %}
+      <p class="muted">No near-misses in this window.</p>
+    {% else %}
+      <table>
+        <thead><tr><th>Kind</th><th>Label</th><th>Best score</th><th>Times near-missed</th></tr></thead>
+        <tbody>
+          {% for nm in summary.near_misses %}
+          <tr>
+            <td class="muted">{{ nm.kind }}</td>
+            <td>{{ nm.label or ("#" ~ nm.candidate_id) }}</td>
+            <td>{{ "%.3f"|format(nm.final_score) }}</td>
+            <td>{{ nm.near_miss_count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <h2>Top injected facts</h2>
+    <p class="muted">Which facts get injected into context most often, with their current value.</p>
+    {% if not summary.top_injected_facts %}
+      <p class="muted">No facts injected in this window.</p>
+    {% else %}
+      <table>
+        <thead><tr><th>Category</th><th>Key</th><th>Value</th><th>Injections</th></tr></thead>
+        <tbody>
+          {% for f in summary.top_injected_facts %}
+          <tr>
+            <td class="muted">{{ f.category }}</td>
+            <td>{{ f.key }}</td>
+            <td>{{ f.value }}</td>
+            <td>{{ f.injection_count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  {% endif %}
+{% endblock %}

@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from tests.mocks import MockStorage
 from tools.dashboard.app import DASHBOARD_STATIC_DIR, create_dashboard_router
 from tools.dashboard.performance_reader import PerformanceReader
+from tools.dashboard.retrieval_quality_reader import RetrievalQualityReader
 from tools.dashboard.turn_reader import TurnReader
 
 
@@ -61,11 +62,20 @@ class _FakeTraceReader:
     def events_for_request(self, request_id: str) -> list[dict]:
         return self._events.get(request_id, [])
 
+    def events_of_type_since(self, event_type: str, since) -> list[dict]:
+        return []
 
-def _wrap(turn_reader: TurnReader, metrics_reader: object | None = None) -> FastAPI:
+
+def _wrap(
+    turn_reader: TurnReader,
+    storage: MockStorage,
+    metrics_reader: object | None = None,
+    trace_reader: object | None = None,
+) -> FastAPI:
     app = FastAPI()
     performance_reader = PerformanceReader(metrics_reader or _FakeMetricsReader())
-    app.include_router(create_dashboard_router(turn_reader, performance_reader))
+    retrieval_quality_reader = RetrievalQualityReader(trace_reader or _FakeTraceReader(), storage)
+    app.include_router(create_dashboard_router(turn_reader, performance_reader, retrieval_quality_reader))
     app.mount("/static", StaticFiles(directory=str(DASHBOARD_STATIC_DIR)), name="dashboard-static")
     return app
 
@@ -78,7 +88,7 @@ def storage() -> MockStorage:
 @pytest.fixture
 def client(storage: MockStorage) -> TestClient:
     turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
-    return TestClient(_wrap(turn_reader))
+    return TestClient(_wrap(turn_reader, storage))
 
 
 class TestLanding:
@@ -144,7 +154,7 @@ class TestTurnDetail:
             ],
         })
         turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
-        client = TestClient(_wrap(turn_reader))
+        client = TestClient(_wrap(turn_reader, storage))
 
         response = client.get("/turns/req1")
         assert response.status_code == 200
@@ -176,7 +186,7 @@ class TestTurnDetail:
             ],
         })
         turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
-        client = TestClient(_wrap(turn_reader))
+        client = TestClient(_wrap(turn_reader, storage))
 
         response = client.get("/turns/req1")
         assert response.status_code == 200
@@ -207,7 +217,7 @@ class TestPerformance:
              "peer_id": "u1", "session_id": None, "created_at": "2026-07-26T18:00:00+00:00"},
         ])
         turn_reader = TurnReader(storage, metrics, _FakeTraceReader())
-        client = TestClient(_wrap(turn_reader, metrics_reader=metrics))
+        client = TestClient(_wrap(turn_reader, storage, metrics_reader=metrics))
 
         response = client.get("/performance")
         assert response.status_code == 200
@@ -219,7 +229,7 @@ class TestPerformance:
              "peer_id": "u1", "session_id": "s1", "created_at": "2026-07-26T18:00:00+00:00"},
         ])
         turn_reader = TurnReader(storage, metrics, _FakeTraceReader())
-        client = TestClient(_wrap(turn_reader, metrics_reader=metrics))
+        client = TestClient(_wrap(turn_reader, storage, metrics_reader=metrics))
 
         response = client.get("/performance")
         assert response.status_code == 200
@@ -234,3 +244,54 @@ class TestPerformance:
     def test_unknown_window_returns_400(self, client: TestClient):
         response = client.get("/performance", params={"window": "3y"})
         assert response.status_code == 400
+
+
+class _TraceReaderWithData(_FakeTraceReader):
+    def __init__(self, events_of_type: dict[str, list[dict]] | None = None) -> None:
+        super().__init__()
+        self._events_of_type = events_of_type or {}
+
+    def events_of_type_since(self, event_type: str, since) -> list[dict]:
+        return self._events_of_type.get(event_type, [])
+
+
+class TestRetrievalQuality:
+    def test_renders_with_no_data(self, client: TestClient):
+        response = client.get("/retrieval-quality")
+        assert response.status_code == 200
+        assert "No <code>retrieval_scoring_summary</code> events" in response.text
+
+    def test_renders_top_retrieved_with_label(self, storage: MockStorage):
+        topic_id = storage.create_topic("Bello Features", summary="", tags=[])
+        trace = _TraceReaderWithData(events_of_type={
+            "retrieval_scoring_summary": [
+                {"payload": {
+                    "candidate_type": "topic",
+                    "top_candidates": [
+                        {"candidate_type": "topic", "candidate_id": topic_id, "included": True,
+                         "final_score": 0.5, "semantic_weighted": 0.4, "semantic_raw": 0.9,
+                         "temporal_weighted": 0.1, "temporal_raw": 0.9},
+                    ],
+                }},
+            ],
+        })
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader, storage, trace_reader=trace))
+
+        response = client.get("/retrieval-quality")
+        assert response.status_code == 200
+        assert "Bello Features" in response.text
+
+    def test_window_select_reflects_query_param(self, client: TestClient):
+        response = client.get("/retrieval-quality", params={"window": "1h"})
+        assert response.status_code == 200
+        assert 'value="1h" selected' in response.text
+
+    def test_unknown_window_returns_400(self, client: TestClient):
+        response = client.get("/retrieval-quality", params={"window": "3y"})
+        assert response.status_code == 400
+
+    def test_nav_link_present(self, client: TestClient):
+        response = client.get("/")
+        assert response.status_code == 200
+        assert '/retrieval-quality"' in response.text

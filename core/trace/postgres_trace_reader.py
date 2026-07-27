@@ -6,6 +6,8 @@ from the same Postgres instance production storage uses.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import psycopg
 
 from core.trace.postgres_migrations import migrate
@@ -75,6 +77,23 @@ class PostgresTraceReader:
                 "payload": r[1],
                 "duration_ms": r[2],
                 "session_id": r[3],
+                "created_at": r[4],
+            }
+            for r in rows
+        ]
+
+    def events_of_type_since(self, event_type: str, since: datetime) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT payload, duration_ms, session_id, request_id, created_at "
+            "FROM trace_events WHERE event_type = %s AND created_at >= %s ORDER BY id",
+            (event_type, since),
+        ).fetchall()
+        return [
+            {
+                "payload": r[0],
+                "duration_ms": r[1],
+                "session_id": r[2],
+                "request_id": r[3],
                 "created_at": r[4],
             }
             for r in rows

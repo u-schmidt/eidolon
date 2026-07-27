@@ -559,6 +559,15 @@ class TraceReader(Protocol):
         reason."""
         ...
 
+    def events_of_type_since(self, event_type: str, since: datetime) -> list[dict]:
+        """Return every trace event of ``event_type`` with ``created_at
+        >= since``, oldest first. Bulk/time-windowed counterpart to
+        ``events_for_request`` — powers aggregate dashboard views (e.g.
+        retrieval-quality analysis) rather than single-turn replay. Each
+        dict has ``payload``/``duration_ms``/``session_id``/
+        ``request_id``/``created_at`` keys."""
+        ...
+
 
 class MetricsRecorder(Protocol):
     """Abstract always-on operational-metrics backend.

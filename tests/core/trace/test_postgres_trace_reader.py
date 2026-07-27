@@ -8,6 +8,8 @@ truncates ``trace_events`` between tests for isolation.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from core.trace.postgres_trace_reader import PostgresTraceReader
@@ -86,3 +88,37 @@ class TestPostgresTraceReader:
         r.connect()
         assert r.events_for_request("anything") == []
         r.close()
+
+
+class TestEventsOfTypeSince:
+    def test_reads_back_matching_type_within_window(self, tracer: PostgresTracer, reader: PostgresTraceReader):
+        tracer.record(
+            "retrieval_scoring_summary", {"candidate_type": "topic"},
+            request_id="req1", session_id="sess1", duration_ms=12.0,
+        )
+
+        rows = reader.events_of_type_since("retrieval_scoring_summary", datetime.now(UTC) - timedelta(hours=1))
+        assert len(rows) == 1
+        assert rows[0]["payload"] == {"candidate_type": "topic"}
+        assert rows[0]["request_id"] == "req1"
+        assert rows[0]["session_id"] == "sess1"
+        assert rows[0]["duration_ms"] == 12.0
+
+    def test_excludes_other_event_types(self, tracer: PostgresTracer, reader: PostgresTraceReader):
+        tracer.record("topic_detection", {}, request_id="req1")
+
+        rows = reader.events_of_type_since("retrieval_scoring_summary", datetime.now(UTC) - timedelta(hours=1))
+        assert rows == []
+
+    def test_excludes_rows_before_cutoff(self, tracer: PostgresTracer, reader: PostgresTraceReader):
+        tracer.record("retrieval_scoring_summary", {}, request_id="req1")
+
+        rows = reader.events_of_type_since("retrieval_scoring_summary", datetime.now(UTC) + timedelta(hours=1))
+        assert rows == []
+
+    def test_events_come_back_oldest_first(self, tracer: PostgresTracer, reader: PostgresTraceReader):
+        tracer.record("retrieval_scoring_summary", {"n": 1}, request_id="req1")
+        tracer.record("retrieval_scoring_summary", {"n": 2}, request_id="req2")
+
+        rows = reader.events_of_type_since("retrieval_scoring_summary", datetime.now(UTC) - timedelta(hours=1))
+        assert [r["payload"]["n"] for r in rows] == [1, 2]
