@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from tools.dashboard.cluster_dynamics_reader import ClusterDynamicsReader
 from tools.dashboard.performance_reader import PerformanceReader
 from tools.dashboard.prompt_quality_reader import PromptQualityReader
 from tools.dashboard.retrieval_quality_reader import RetrievalQualityReader
@@ -52,6 +53,7 @@ def create_dashboard_router(
     retrieval_quality_reader: RetrievalQualityReader,
     prompt_quality_reader: PromptQualityReader,
     topic_lifecycle_reader: TopicLifecycleReader,
+    cluster_dynamics_reader: ClusterDynamicsReader,
 ) -> APIRouter:
     """Build the dashboard's routes wrapping already-constructed readers."""
     router = APIRouter()
@@ -120,6 +122,17 @@ def create_dashboard_router(
         summary = topic_lifecycle_reader.summary(since)
         return _templates.TemplateResponse(
             request, "topic_lifecycle.html",
+            {"summary": summary, "window": window, "windows": list(_WINDOW_CUTOFFS)},
+        )
+
+    @router.get("/cluster-dynamics", response_class=HTMLResponse, name="dashboard_cluster_dynamics")
+    def cluster_dynamics(request: Request, window: str = _DEFAULT_WINDOW) -> HTMLResponse:
+        if window not in _WINDOW_CUTOFFS:
+            raise HTTPException(status_code=400, detail=f"Unknown window {window!r} — use one of {list(_WINDOW_CUTOFFS)}")
+        since = datetime.now(UTC) - _WINDOW_CUTOFFS[window]
+        summary = cluster_dynamics_reader.summary(since)
+        return _templates.TemplateResponse(
+            request, "cluster_dynamics.html",
             {"summary": summary, "window": window, "windows": list(_WINDOW_CUTOFFS)},
         )
 

@@ -37,6 +37,7 @@ from core.config import ConfigError
 from core.config_loader import ConfigLoader
 from core.provider_factory import ProviderFactory
 from server.app import create_app
+from tools.dashboard.cluster_dynamics_reader import ClusterDynamicsReader
 from tools.dashboard.performance_reader import PerformanceReader
 from tools.dashboard.prompt_quality_reader import PromptQualityReader
 from tools.dashboard.retrieval_quality_reader import RetrievalQualityReader
@@ -96,6 +97,7 @@ def main() -> None:
     retrieval_quality_reader = RetrievalQualityReader(trace_reader, store)
     prompt_quality_reader = PromptQualityReader(trace_reader, store, config.facts.categories)
     topic_lifecycle_reader = TopicLifecycleReader(trace_reader, store)
+    cluster_dynamics_reader = ClusterDynamicsReader(trace_reader, store)
 
     # Initialize Eidolon core — identical construction to tools/cli.py's,
     # just wrapped in an HTTP server instead of a REPL.
@@ -134,7 +136,7 @@ def main() -> None:
 
     app = create_app(
         eidolon, turn_reader, performance_reader, retrieval_quality_reader,
-        prompt_quality_reader, topic_lifecycle_reader,
+        prompt_quality_reader, topic_lifecycle_reader, cluster_dynamics_reader,
     )
     print(f"  Starting Eidolon server on {args.host}:{args.port} (dashboard at /dashboard)\n")
     uvicorn.run(app, host=args.host, port=args.port)

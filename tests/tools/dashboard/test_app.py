@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from core.models import Fact
 from tests.mocks import MockStorage
 from tools.dashboard.app import DASHBOARD_STATIC_DIR, create_dashboard_router
+from tools.dashboard.cluster_dynamics_reader import ClusterDynamicsReader
 from tools.dashboard.performance_reader import PerformanceReader
 from tools.dashboard.prompt_quality_reader import PromptQualityReader
 from tools.dashboard.retrieval_quality_reader import RetrievalQualityReader
@@ -81,10 +82,11 @@ def _wrap(
     retrieval_quality_reader = RetrievalQualityReader(trace_reader or _FakeTraceReader(), storage)
     prompt_quality_reader = PromptQualityReader(trace_reader or _FakeTraceReader(), storage, fact_categories or [])
     topic_lifecycle_reader = TopicLifecycleReader(trace_reader or _FakeTraceReader(), storage)
+    cluster_dynamics_reader = ClusterDynamicsReader(trace_reader or _FakeTraceReader(), storage)
     app.include_router(
         create_dashboard_router(
             turn_reader, performance_reader, retrieval_quality_reader,
-            prompt_quality_reader, topic_lifecycle_reader,
+            prompt_quality_reader, topic_lifecycle_reader, cluster_dynamics_reader,
         )
     )
     app.mount("/static", StaticFiles(directory=str(DASHBOARD_STATIC_DIR)), name="dashboard-static")
@@ -391,3 +393,50 @@ class TestTopicLifecycle:
         response = client.get("/")
         assert response.status_code == 200
         assert '/topic-lifecycle"' in response.text
+
+
+class TestClusterDynamics:
+    def test_renders_with_no_data(self, client: TestClient):
+        response = client.get("/cluster-dynamics")
+        assert response.status_code == 200
+        assert "No <code>cluster_consolidation</code> events" in response.text
+
+    def test_renders_decisions_and_most_active_cluster(self, storage: MockStorage):
+        cid = storage.create_cluster("u1", "Recurring topic", "summary")
+        storage.clusters[cid]["topic_count"] = 4
+        trace = _TraceReaderWithData(events_of_type={
+            "cluster_consolidation": [
+                {"payload": {
+                    "match_index": 1,
+                    "candidates": [{"kind": "cluster", "id": cid, "label": "Recurring topic"}],
+                    "resulting_cluster_id": cid,
+                }},
+                {"payload": {
+                    "match_index": 1,
+                    "candidates": [{"kind": "topic", "id": 99, "label": "Old chat"}],
+                    "resulting_cluster_id": 500,
+                }},
+                {"payload": {"match_index": None, "candidates": [], "resulting_cluster_id": None}},
+            ],
+        })
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader, storage, trace_reader=trace))
+
+        response = client.get("/cluster-dynamics")
+        assert response.status_code == 200
+        assert "Recurring topic" in response.text  # most-active cluster label
+        assert "3 clustering decisions" in response.text
+
+    def test_window_select_reflects_query_param(self, client: TestClient):
+        response = client.get("/cluster-dynamics", params={"window": "1h"})
+        assert response.status_code == 200
+        assert 'value="1h" selected' in response.text
+
+    def test_unknown_window_returns_400(self, client: TestClient):
+        response = client.get("/cluster-dynamics", params={"window": "3y"})
+        assert response.status_code == 400
+
+    def test_nav_link_present(self, client: TestClient):
+        response = client.get("/")
+        assert response.status_code == 200
+        assert '/cluster-dynamics"' in response.text

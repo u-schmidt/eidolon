@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Eidolon — Cluster Dynamics{% endblock %}
+{% block content %}
+  <h1>Cluster Dynamics</h1>
+  <p class="muted">Sourced from <code>cluster_consolidation</code> debug trace events — only available for turns that ran with <code>debug.enabled: true</code>.</p>
+
+  <form method="get" action="{{ url_for('dashboard_cluster_dynamics') }}" class="row" style="margin-bottom: 1.5rem; align-items: center;">
+    <label for="window" class="muted">Window</label>
+    <select name="window" id="window" onchange="this.form.submit()">
+      {% for w in windows %}
+      <option value="{{ w }}"{{ ' selected' if w == window }}>{{ w }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  {% if summary.decisions.total_calls == 0 %}
+    <div class="banner">
+      No <code>cluster_consolidation</code> events in this window — either <code>debug.enabled</code> was off,
+      clustering is disabled, or there was no clustering activity. Try a wider window.
+    </div>
+  {% else %}
+    <p class="muted">{{ summary.decisions.total_calls }} clustering decisions in this window.</p>
+
+    <h2>Consolidation decisions</h2>
+    <p class="muted">Does a turn tend to match an existing cluster, create a new one, or find no confident match at all?</p>
+    <table>
+      <thead><tr><th>Outcome</th><th>Count</th></tr></thead>
+      <tbody>
+        <tr><td>Matched existing cluster</td><td>{{ summary.decisions.matched_existing }}</td></tr>
+        <tr><td>New cluster created</td><td>{{ summary.decisions.new_cluster_created }}</td></tr>
+        <tr><td>No confident match</td><td>{{ summary.decisions.no_match }}</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Most active clusters</h2>
+    <p class="muted">Ranked by consolidation events pointing at that cluster in this window — not a precise "topics added" count (a newly-created cluster's founding call bundles two topic assignments into one event). Total topic count is shown alongside for context.</p>
+    {% if not summary.most_active_clusters %}
+      <p class="muted">No clusters received consolidation activity in this window.</p>
+    {% else %}
+      <table>
+        <thead><tr><th>Cluster</th><th>Label</th><th>Consolidation events</th><th>Total topics</th></tr></thead>
+        <tbody>
+          {% for c in summary.most_active_clusters %}
+          <tr>
+            <td class="muted">#{{ c.cluster_id }}</td>
+            <td>{{ c.label or "(deleted)" }}</td>
+            <td>{{ c.activity_count }}</td>
+            <td>{{ c.total_topic_count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  {% endif %}
+{% endblock %}
