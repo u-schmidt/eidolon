@@ -568,6 +568,49 @@ class TestGetRecentTopics:
         assert [t["id"] for t in store.get_recent_topics("user", limit=10)] == [tid]
 
 
+class TestGetClosedTopicsSince:
+    def test_returns_topics_closed_at_or_after_since(self, store_backend):
+        store = store_backend.store
+        tid = store.create_topic("Recent", summary="", peer_id="user")
+        store.close_topic(tid, "wrapped up")
+        store_backend.backdate("topics", tid, "closed_at", datetime(2025, 6, 1, tzinfo=UTC))
+
+        results = store.get_closed_topics_since(datetime(2025, 1, 1, tzinfo=UTC))
+
+        assert [t["id"] for t in results] == [tid]
+        assert results[0]["peer_id"] == "user"
+        assert results[0]["message_count"] == 0
+
+    def test_excludes_topics_closed_before_since(self, store_backend):
+        store = store_backend.store
+        tid = store.create_topic("Old", summary="", peer_id="user")
+        store.close_topic(tid, "wrapped up")
+        store_backend.backdate("topics", tid, "closed_at", datetime(2020, 1, 1, tzinfo=UTC))
+
+        assert store.get_closed_topics_since(datetime(2025, 1, 1, tzinfo=UTC)) == []
+
+    def test_excludes_active_topics(self, store: StorageProvider):
+        store.create_topic("Still open", summary="", peer_id="user")
+
+        assert store.get_closed_topics_since(datetime(2020, 1, 1, tzinfo=UTC)) == []
+
+    def test_ordered_oldest_closed_first(self, store_backend):
+        store = store_backend.store
+        newer = store.create_topic("Newer", summary="", peer_id="user")
+        store.close_topic(newer, "")
+        store_backend.backdate("topics", newer, "closed_at", datetime(2025, 6, 1, tzinfo=UTC))
+        older = store.create_topic("Older", summary="", peer_id="user")
+        store.close_topic(older, "")
+        store_backend.backdate("topics", older, "closed_at", datetime(2025, 1, 1, tzinfo=UTC))
+
+        results = store.get_closed_topics_since(datetime(2020, 1, 1, tzinfo=UTC))
+
+        assert [t["id"] for t in results] == [older, newer]
+
+    def test_empty_when_no_closed_topics(self, store: StorageProvider):
+        assert store.get_closed_topics_since(datetime(2020, 1, 1, tzinfo=UTC)) == []
+
+
 class TestClusters:
     def test_create_and_get_cluster(self, store: StorageProvider):
         cid = store.create_cluster("user", "Bike purchase", "User wants a new bike", tags=["bike"])

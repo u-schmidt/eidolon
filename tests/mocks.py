@@ -283,6 +283,14 @@ class MockStorage:
             and len(self.get_messages_by_topic(t["id"])) > min_message_count
         ][:limit]
 
+    def get_closed_topics_since(self, since) -> list[dict]:
+        # Real time-filtering logic is exercised against the real
+        # SqliteStore/PostgresStore (contract suite) — same "manually
+        # controllable double" philosophy as get_stale_active_topics
+        # above. Callers needing specific created_at/closed_at/
+        # message_count values set them directly on self.topics[id].
+        return [t for t in self.topics.values() if t["status"] == "closed"]
+
     def create_cluster(self, peer_id: str, label: str, summary: str,
                        tags: list[str] | None = None, embedding: list[float] | None = None) -> int:
         cid = self._next_cluster_id

@@ -393,6 +393,26 @@ class SqliteStore:
             for row in rows
         ]
 
+    def get_closed_topics_since(self, since: datetime) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, peer_id, label, created_at, closed_at, message_count "
+            "FROM topics WHERE status = 'closed' ORDER BY closed_at ASC"
+        ).fetchall()
+        result = []
+        for row in rows:
+            closed_at = _parse_sqlite_timestamp(row[4])
+            if closed_at is None or closed_at < since:
+                continue
+            result.append({
+                "id": row[0],
+                "peer_id": row[1],
+                "label": row[2],
+                "created_at": row[3],
+                "closed_at": row[4],
+                "message_count": row[5],
+            })
+        return result
+
     def update_topic_embedding(
         self, topic_id: int, embedding: list[float]
     ) -> None:

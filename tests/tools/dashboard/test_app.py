@@ -22,6 +22,7 @@ from tools.dashboard.app import DASHBOARD_STATIC_DIR, create_dashboard_router
 from tools.dashboard.performance_reader import PerformanceReader
 from tools.dashboard.prompt_quality_reader import PromptQualityReader
 from tools.dashboard.retrieval_quality_reader import RetrievalQualityReader
+from tools.dashboard.topic_lifecycle_reader import TopicLifecycleReader
 from tools.dashboard.turn_reader import TurnReader
 
 
@@ -79,8 +80,12 @@ def _wrap(
     performance_reader = PerformanceReader(metrics_reader or _FakeMetricsReader())
     retrieval_quality_reader = RetrievalQualityReader(trace_reader or _FakeTraceReader(), storage)
     prompt_quality_reader = PromptQualityReader(trace_reader or _FakeTraceReader(), storage, fact_categories or [])
+    topic_lifecycle_reader = TopicLifecycleReader(trace_reader or _FakeTraceReader(), storage)
     app.include_router(
-        create_dashboard_router(turn_reader, performance_reader, retrieval_quality_reader, prompt_quality_reader)
+        create_dashboard_router(
+            turn_reader, performance_reader, retrieval_quality_reader,
+            prompt_quality_reader, topic_lifecycle_reader,
+        )
     )
     app.mount("/static", StaticFiles(directory=str(DASHBOARD_STATIC_DIR)), name="dashboard-static")
     return app
@@ -347,3 +352,42 @@ class TestPromptQuality:
         response = client.get("/")
         assert response.status_code == 200
         assert '/prompt-quality"' in response.text
+
+
+class TestTopicLifecycle:
+    def test_renders_with_no_data(self, client: TestClient):
+        response = client.get("/topic-lifecycle")
+        assert response.status_code == 200
+        assert "No topics closed in this window" in response.text
+
+    def test_renders_lifespan_and_stale_sweep(self, storage: MockStorage):
+        tid = storage.create_topic("Short-lived topic", peer_id="u1")
+        storage.close_topic(tid, "done")
+        storage.topics[tid]["created_at"] = "2026-07-28T10:00:00"
+        storage.topics[tid]["closed_at"] = "2026-07-28T10:30:00"
+        storage.topics[tid]["message_count"] = 2
+
+        trace = _TraceReaderWithData(events_of_type={
+            "stale_topic_cleanup": [{"payload": {"closed_topic_ids": [tid]}}],
+        })
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader, storage, trace_reader=trace))
+
+        response = client.get("/topic-lifecycle")
+        assert response.status_code == 200
+        assert "Short-lived topic" in response.text  # shortest-lived table
+        assert "0.50h" in response.text  # lifespan_hours
+
+    def test_window_select_reflects_query_param(self, client: TestClient):
+        response = client.get("/topic-lifecycle", params={"window": "1h"})
+        assert response.status_code == 200
+        assert 'value="1h" selected' in response.text
+
+    def test_unknown_window_returns_400(self, client: TestClient):
+        response = client.get("/topic-lifecycle", params={"window": "3y"})
+        assert response.status_code == 400
+
+    def test_nav_link_present(self, client: TestClient):
+        response = client.get("/")
+        assert response.status_code == 200
+        assert '/topic-lifecycle"' in response.text

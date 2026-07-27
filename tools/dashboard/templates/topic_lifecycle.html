@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Eidolon — Topic Lifecycle{% endblock %}
+{% block content %}
+  <h1>Topic Lifecycle</h1>
+  <p class="muted">Always-on — sourced from <code>topics.created_at</code>/<code>closed_at</code>/<code>message_count</code>. The stale-sweep split additionally needs <code>debug.enabled: true</code> (<code>stale_topic_cleanup</code> trace events).</p>
+
+  <form method="get" action="{{ url_for('dashboard_topic_lifecycle') }}" class="row" style="margin-bottom: 1.5rem; align-items: center;">
+    <label for="window" class="muted">Window</label>
+    <select name="window" id="window" onchange="this.form.submit()">
+      {% for w in windows %}
+      <option value="{{ w }}"{{ ' selected' if w == window }}>{{ w }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  {% if summary.lifespan.total_closed == 0 %}
+    <div class="banner">
+      No topics closed in this window. Try a wider window.
+    </div>
+  {% else %}
+    <p class="muted">{{ summary.lifespan.total_closed }} topics closed in this window.</p>
+
+    <div class="row">
+      <div style="flex: 1; min-width: 280px;">
+        <h2>Lifespan</h2>
+        <p class="muted">Too short = possibly over-eager <code>NEW_TOPIC</code> detection.</p>
+        <table>
+          <thead><tr><th>Stat</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Average</td><td>{{ "%.1f"|format(summary.lifespan.avg_lifespan_hours) }}h</td></tr>
+            <tr><td>p50</td><td>{{ "%.1f"|format(summary.lifespan.p50_lifespan_hours) }}h</td></tr>
+            <tr><td>p95</td><td>{{ "%.1f"|format(summary.lifespan.p95_lifespan_hours) }}h</td></tr>
+            <tr><td>Average message count</td><td>{{ "%.1f"|format(summary.lifespan.avg_message_count) }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="flex: 1; min-width: 280px;">
+        <h2>Stale sweep vs. natural</h2>
+        <p class="muted">How many closes came from the idle-timeout sweep vs. a normal topic transition.</p>
+        <table>
+          <thead><tr><th>Kind</th><th>Count</th></tr></thead>
+          <tbody>
+            <tr><td>Natural</td><td>{{ summary.stale_sweep.natural }}</td></tr>
+            <tr><td>Stale-swept</td><td>{{ summary.stale_sweep.stale_swept }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <h2>Shortest-lived topics</h2>
+    <p class="muted">Closed fastest — the direct "is topic detection too trigger-happy" signal.</p>
+    {% if not summary.shortest_lived %}
+      <p class="muted">No topics with parseable lifespans in this window.</p>
+    {% else %}
+      <table>
+        <thead><tr><th>Topic</th><th>Label</th><th>Lifespan</th><th>Messages</th></tr></thead>
+        <tbody>
+          {% for s in summary.shortest_lived %}
+          <tr>
+            <td class="muted">#{{ s.topic_id }}</td>
+            <td>{{ s.label }}</td>
+            <td>{{ "%.2f"|format(s.lifespan_hours) }}h</td>
+            <td>{{ s.message_count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  {% endif %}
+{% endblock %}

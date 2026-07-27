@@ -240,6 +240,18 @@ class StorageProvider(Protocol):
         """
         ...
 
+    def get_closed_topics_since(self, since: datetime) -> list[dict]:
+        """Return every topic closed at/after ``since``, across every
+        peer, oldest first — id/peer_id/label/created_at/closed_at/
+        message_count.
+
+        Bulk, time-windowed, cross-peer counterpart to
+        ``get_recent_topics``/``get_stale_active_topics`` (both scoped
+        differently) — powers the topic-lifecycle dashboard view; not
+        used by any core orchestration path.
+        """
+        ...
+
     # ── Topic Clusters ─────────────────────────────────────
 
     def get_clusters(self, peer_id: str) -> list[dict]:

@@ -412,7 +412,7 @@ Both are configured in `pyproject.toml` and installed via the `dev` extra
 | Phase | Status | What |
 |---|---|---|
 | **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, batch facts consolidation, 419+ tests |
-| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage acceleration ✅, Postgres/pgvector storage backend ✅, core-as-a-service deployment mode ✅, topic detection & summarization review, fact consolidation hardening — see [`ROADMAP.md`](ROADMAP.md); 1037+ tests |
+| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage acceleration ✅, Postgres/pgvector storage backend ✅, core-as-a-service deployment mode ✅, topic detection & summarization review, fact consolidation hardening — see [`ROADMAP.md`](ROADMAP.md); 1059+ tests |
 | **Phase 3** | ⏳ TBD | Topic-Only Mode, production deployment, performance optimization |
 
 ## Roadmap

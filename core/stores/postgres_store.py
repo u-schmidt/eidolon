@@ -336,6 +336,24 @@ class PostgresStore:
             for row in rows
         ]
 
+    def get_closed_topics_since(self, since: datetime) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, peer_id, label, created_at, closed_at, message_count "
+            "FROM topics WHERE status = 'closed' AND closed_at >= %s ORDER BY closed_at ASC",
+            (since,),
+        ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "peer_id": row[1],
+                "label": row[2],
+                "created_at": row[3],
+                "closed_at": row[4],
+                "message_count": row[5],
+            }
+            for row in rows
+        ]
+
     def update_topic_embedding(self, topic_id: int, embedding: list[float]) -> None:
         self._conn.execute("UPDATE topics SET embedding = %s WHERE id = %s", (embedding, topic_id))
 
