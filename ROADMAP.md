@@ -127,6 +127,23 @@ consolidation. 400+ tests.
   just stop being *returned* by those two queries below the threshold.
   Scoped to standalone one-offs only — see the "interrupting tangents"
   case still open below.
+- ✅ **Dashboard insight pages** — the turn-detail dashboard (originally
+  a single per-turn "why didn't this work" replay view) grew into six
+  pages: Performance & Reliability, Retrieval Quality & Weighting,
+  Prompt & Pipeline Quality, Topic Lifecycle, Cluster Dynamics, plus the
+  original per-turn request-replay view. Each covers one themed group
+  from an earlier German-language question catalogue about what an
+  "advanced monitoring/evaluation tool" should be able to answer (see
+  [`tools/dashboard/README.md`](tools/dashboard/README.md) for what each
+  page shows and which data tier it needs). Every aggregate page shares
+  one bulk query primitive, `TraceReader.events_of_type_since(event_type,
+  since)`; only a handful needed a matching new `StorageProvider`
+  bulk-read method (`get_all_facts`, `get_closed_topics_since`) — the
+  last one built (Cluster Dynamics) needed neither, since the existing
+  `cluster_consolidation` trace event and `get_cluster` already carried
+  everything required. Directly (if partially) answers two of the
+  "Ideas / open questions" below — see the "insights/monitoring tool"
+  and "usefulness scoring" entries.
 - 🚧 **Fact consolidation hardening** — `FactConsolidator` already ships
   and works (Phase 1); ongoing work is about improving edge cases like
   the boundary between "essence" and "fact" classification during
@@ -289,17 +306,22 @@ lost. Pick up and scope properly when one of these becomes a priority.
 - **Usefulness scoring for topics/facts** — some notion of which
   topics/facts actually get surfaced and used again vs. which never
   come up. Open question: how to even measure "useful" — retrieval
-  frequency? explicit user correction/confirmation signals?
-- **The insights/monitoring tool, revisited** — not built *for* the
-  core-as-a-service work, but that work is what makes it newly
-  practical: a standalone tool could talk to a running `eidolon-server`
-  (only the ~9-method `EidolonClient` facade — deliberately scoped to
-  adapter-lifecycle needs, see `core/eidolon_client.py`) or connect to
-  Postgres directly for read-only browsing, which the storage migration
-  already made safe to do. Worth a real design pass once the above
-  ideas clarify what such a tool would actually need to show — several
-  of them (temporal relations, usefulness scoring) are exactly the kind
-  of thing a monitoring tool would want to surface.
+  frequency? explicit user correction/confirmation signals? **Partially
+  answered** by the Retrieval Quality dashboard page's top-retrieved/
+  never-included tables (retrieval-frequency-based) and the Prompt
+  Quality page's manual-correction stats (confirmation-signal-based) —
+  see the shipped entry above. Still open: a true *usage* signal (a fact
+  actually referenced in the AI's reply, not merely injected into
+  context) — `context_retrieval` only proves injection, not use.
+- **The insights/monitoring tool, revisited** — **shipped, in a
+  different shape than originally sketched here**: not a standalone tool
+  talking to `eidolon-server` over `EidolonClient` or connecting to
+  Postgres directly, but six pages mounted directly on `eidolon-server`
+  itself under `/dashboard` (see the shipped dashboard entry above) —
+  simpler, since it reuses the one process that already owns the only
+  live write path through core, rather than standing up a second
+  consumer of the storage layer. Covers most of what this entry
+  originally asked for.
 
 ## Shipped ahead of schedule
 

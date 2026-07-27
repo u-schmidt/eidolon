@@ -360,24 +360,15 @@ python tools/simulate_injection.py --db ~/.eidolon/trace.db --request-id <reques
 
 It replays the turn's recorded `context_retrieval` event through `core/context_formatter.py`'s `ContextFormatter` — the same formatter `prefetch()` itself calls — so the output can never drift from what actually happened.
 
-## Turn Detail Dashboard
+## Dashboard
 
-A small read-only web page (server-rendered Jinja2 + [htmx](https://htmx.org), vendored locally — no build step, no CDN dependency) that shows *everything* that happened during one turn, for the "why didn't this work as expected" case: which topic was active before/after, the user message and AI response, then a step-by-step account of what fired — topic detection, extraction, every embedding call, retrieval + scoring, and, conditionally, whatever the turn triggered (fact consolidation, topic close/summarize, relabel, cluster consolidation).
-
-It works at two levels, degrading gracefully rather than requiring debug mode:
-
-- **Skeleton** (always available): real message text and topic linkage (`messages.request_id`, always-on — see [Operational Metrics](#operational-metrics)), plus which steps ran with their timing/success from `events`/`llm_calls`/`embedding_calls`. No `debug.enabled` required.
-- **Rich** (only for turns that ran while `debug.enabled: true`): the full [Debug Tracing](#debug-tracing) payload per step — prompts, responses, retrieval score breakdowns — shown instead of the skeleton whenever it exists for that turn.
-
-`request_id` is the single correlation key across both tiers and every table — minted once per turn (`core/__init__.py`'s `store_turn`) and threaded into everything it triggers, so a step's mere presence or absence for that id already answers "did this happen."
-
-Part of `eidolon-server` (see [Deployment Modes](#deployment-modes)) rather than a separate process or container: it's mounted under `/dashboard` on the same `tools/serve.py`, sharing that one process's `Eidolon`/storage instance instead of opening a second, independent connection to the database. That's deliberate — the moment write actions land here (correcting a fact, closing a topic on demand), they need to go through core's real orchestration (`TopicSummarizer`, `ClusterConsolidator`, ...), not a raw database write, and the only way to guarantee that without a second live writer racing the first is to have exactly one process ever touch the database through core. Read-only for now, `server`-deployment-mode only (there's no separately-addressable core process to mount it on in `embedded` mode).
-
-Reachable at `http://<server-host>:8420/dashboard/` once `eidolon-server` is running — nothing extra to start. Gated by its own optional HTTP Basic auth, independent of the RPC API's bearer token (skipped entirely if unset — same "binds to localhost by default" threat model `tools/serve.py` already uses for its own default host):
+A small read-only web app (server-rendered Jinja2 + [htmx](https://htmx.org)) mounted on `eidolon-server` under `/dashboard` — six pages covering per-turn request replay, performance/reliability, retrieval quality & weighting, prompt/pipeline quality, topic lifecycle, and cluster dynamics. Each degrades gracefully between an always-on tier (real production data) and a richer debug-gated tier (full [Debug Tracing](#debug-tracing) payloads) rather than requiring `debug.enabled` outright.
 
 ```bash
 EIDOLON_DASHBOARD_PASSWORD=... uv run python tools/serve.py --config eidolon.yaml
 ```
+
+See [`tools/dashboard/README.md`](tools/dashboard/README.md) for what each page shows, which tier it needs, and the shared architecture behind them.
 
 ## Development
 
@@ -412,7 +403,7 @@ Both are configured in `pyproject.toml` and installed via the `dev` extra
 | Phase | Status | What |
 |---|---|---|
 | **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, batch facts consolidation, 419+ tests |
-| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage acceleration ✅, Postgres/pgvector storage backend ✅, core-as-a-service deployment mode ✅, topic detection & summarization review, fact consolidation hardening — see [`ROADMAP.md`](ROADMAP.md); 1072+ tests |
+| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage acceleration ✅, Postgres/pgvector storage backend ✅, core-as-a-service deployment mode ✅, six-page insight dashboard ✅, topic detection & summarization review, fact consolidation hardening — see [`ROADMAP.md`](ROADMAP.md); 1072+ tests |
 | **Phase 3** | ⏳ TBD | Topic-Only Mode, production deployment, performance optimization |
 
 ## Roadmap
