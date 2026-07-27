@@ -26,11 +26,20 @@ from core.interfaces import StorageProvider, TraceReader
 
 
 @dataclass
+class FallbackContinueExample:
+    request_id: str
+    created_at: object
+    message_preview: str
+    response_preview: str
+
+
+@dataclass
 class ContinueFallbackStats:
     total_calls: int
     literal_continue: int
     fallback_continue: int
     new_topic: int
+    examples: list[FallbackContinueExample] = field(default_factory=list)
 
 
 @dataclass
@@ -114,7 +123,7 @@ class PromptQualityReader:
         return PromptQualitySummary(
             since=since,
             total_topic_detection_calls=len(detection_events),
-            continue_fallback=self._continue_fallback_stats(detection_events),
+            continue_fallback=self._continue_fallback_stats(detection_events, top_n),
             relabel_flip_flops=self._relabel_flip_flops(relabel_events, top_n),
             item_type_counts=self._type_counts(extraction_events, "item_type"),
             attribution_type_counts=self._type_counts(extraction_events, "attribution_type"),
@@ -124,28 +133,48 @@ class PromptQualityReader:
         )
 
     @staticmethod
-    def _continue_fallback_stats(detection_events: list[dict]) -> ContinueFallbackStats:
+    def _continue_fallback_stats(detection_events: list[dict], top_n: int) -> ContinueFallbackStats:
         """``fallback_continue`` = the LLM's raw response wasn't the
         literal string "CONTINUE" but still got parsed into one — see
         ``core/detection/topic_detector.py``'s ``_parse_detection_response``,
-        which defaults to CONTINUE for any unrecognized text."""
+        which defaults to CONTINUE for any unrecognized text. ``examples``
+        keeps the most recent occurrences (with a link-able ``request_id``)
+        so a spike in this count can actually be investigated instead of
+        just observed."""
         literal_continue = 0
         continue_total = 0
         new_topic = 0
+        examples: list[FallbackContinueExample] = []
         for e in detection_events:
             payload = e["payload"]
             if payload.get("result_type") == "CONTINUE":
                 continue_total += 1
                 if payload.get("response", "").strip().upper() == "CONTINUE":
                     literal_continue += 1
+                else:
+                    examples.append(
+                        FallbackContinueExample(
+                            request_id=e["request_id"],
+                            created_at=e["created_at"],
+                            message_preview=PromptQualityReader._preview(payload.get("message", "")),
+                            response_preview=PromptQualityReader._preview(payload.get("response", "")),
+                        )
+                    )
             elif payload.get("result_type") == "NEW_TOPIC":
                 new_topic += 1
+        examples.reverse()  # events arrive oldest-first; show most recent first
         return ContinueFallbackStats(
             total_calls=len(detection_events),
             literal_continue=literal_continue,
             fallback_continue=continue_total - literal_continue,
             new_topic=new_topic,
+            examples=examples[:top_n],
         )
+
+    @staticmethod
+    def _preview(text: str, limit: int = 160) -> str:
+        text = " ".join(text.split())
+        return text if len(text) <= limit else text[:limit] + "…"
 
     @staticmethod
     def _relabel_flip_flops(relabel_events: list[dict], top_n: int) -> list[RelabelFlipFlop]:

@@ -319,8 +319,11 @@ class TestPromptQuality:
     def test_renders_fallback_flip_flop_churn_and_outlier(self, storage: MockStorage):
         trace = _TraceReaderWithData(events_of_type={
             "topic_detection": [
-                {"payload": {"response": "CONTINUE", "result_type": "CONTINUE"}},
-                {"payload": {"response": "sure, let's keep going", "result_type": "CONTINUE"}},
+                {"payload": {"response": "CONTINUE", "result_type": "CONTINUE"}, "request_id": "req-a", "created_at": "t1"},
+                {
+                    "payload": {"response": "sure, let's keep going", "result_type": "CONTINUE", "message": "what now"},
+                    "request_id": "req-b", "created_at": "t2",
+                },
             ],
             "topic_relabel": [
                 {"payload": {"topic_id": 1, "label": "Weekend trip"}},
@@ -340,6 +343,8 @@ class TestPromptQuality:
         assert "Grocery list" in response.text  # relabel flip-flop
         assert "typo_cat" in response.text  # category outlier
         assert "role" in response.text  # fact churn
+        assert "what now" in response.text  # fallback example message preview
+        assert "/turns/req-b" in response.text  # fallback example turn link
 
     def test_window_select_reflects_query_param(self, client: TestClient):
         response = client.get("/prompt-quality", params={"window": "1h"})

@@ -44,6 +44,23 @@
             <tr><td>NEW_TOPIC</td><td>{{ summary.continue_fallback.new_topic }}</td></tr>
           </tbody>
         </table>
+        {% if summary.continue_fallback.examples %}
+        <h3>Recent fallback calls</h3>
+        <p class="muted">Most recent first. Open a turn for the full prompt/response.</p>
+        <table>
+          <thead><tr><th>Time</th><th>Message</th><th>Raw response</th><th></th></tr></thead>
+          <tbody>
+            {% for ex in summary.continue_fallback.examples %}
+            <tr>
+              <td class="muted">{{ ex.created_at }}</td>
+              <td>{{ ex.message_preview }}</td>
+              <td>{{ ex.response_preview }}</td>
+              <td><a href="{{ url_for('dashboard_turn_detail', request_id=ex.request_id) }}">View turn →</a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
       </div>
       <div style="flex: 1; min-width: 280px;">
         <h2>Relabel flip-flops</h2>

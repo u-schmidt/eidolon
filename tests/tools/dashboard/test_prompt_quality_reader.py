@@ -32,8 +32,14 @@ class FakeTraceReader:
         return self._events_by_type.get(event_type, [])
 
 
-def _detection_event(response: str, result_type: str) -> dict:
-    return {"payload": {"response": response, "result_type": result_type}}
+def _detection_event(
+    response: str, result_type: str, *, request_id: str = "req-1", created_at: str = "2026-07-27 10:00:00", message: str = "hello",
+) -> dict:
+    return {
+        "payload": {"response": response, "result_type": result_type, "message": message},
+        "request_id": request_id,
+        "created_at": created_at,
+    }
 
 
 def _relabel_event(topic_id: int, label: str | None) -> dict:
@@ -68,6 +74,40 @@ class TestContinueFallback:
         assert stats.literal_continue == 2
         assert stats.fallback_continue == 1
         assert stats.new_topic == 1
+
+    def test_examples_capture_request_id_and_previews_for_investigation(self):
+        events = [
+            _detection_event(
+                "CONTINUE", "CONTINUE", request_id="req-early", created_at="2026-07-27 09:00:00", message="first",
+            ),
+            _detection_event(
+                "uh, sure, let's keep going and also write way more than a hundred and sixty characters "
+                "of unrelated text so the preview truncation logic actually has something to truncate here",
+                "CONTINUE", request_id="req-late", created_at="2026-07-27 10:00:00", message="second message",
+            ),
+        ]
+        reader = PromptQualityReader(FakeTraceReader({"topic_detection": events}), MockStorage(), [])
+
+        examples = reader.summary(_NOW).continue_fallback.examples
+
+        assert len(examples) == 1
+        assert examples[0].request_id == "req-late"
+        assert examples[0].created_at == "2026-07-27 10:00:00"
+        assert examples[0].message_preview == "second message"
+        assert examples[0].response_preview.endswith("…")
+        assert len(examples[0].response_preview) == 161  # 160 chars + ellipsis
+
+    def test_examples_most_recent_first_and_capped_at_top_n(self):
+        events = [
+            _detection_event("fallback A", "CONTINUE", request_id="req-a", created_at="t1"),
+            _detection_event("fallback B", "CONTINUE", request_id="req-b", created_at="t2"),
+            _detection_event("fallback C", "CONTINUE", request_id="req-c", created_at="t3"),
+        ]
+        reader = PromptQualityReader(FakeTraceReader({"topic_detection": events}), MockStorage(), [])
+
+        examples = reader.summary(_NOW, top_n=2).continue_fallback.examples
+
+        assert [e.request_id for e in examples] == ["req-c", "req-b"]
 
 
 class TestRelabelFlipFlops:
@@ -200,6 +240,7 @@ class TestEmptyWindow:
 
         assert summary.total_topic_detection_calls == 0
         assert summary.continue_fallback.total_calls == 0
+        assert summary.continue_fallback.examples == []
         assert summary.relabel_flip_flops == []
         assert summary.item_type_counts == []
         assert summary.attribution_type_counts == []
