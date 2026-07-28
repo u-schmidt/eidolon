@@ -1,8 +1,8 @@
-"""Tests for tools/tui/phases.py — turn -> (prefetch, sync_turn) split."""
+"""Tests for tools/dashboard/phases.py — turn -> (prefetch, sync_turn) split."""
 
 from __future__ import annotations
 
-from tools.tui.phases import PREFETCH, SYNC_TURN, classify, split_by_phase
+from tools.dashboard.phases import PREFETCH, SYNC_TURN, classify, split_by_phase
 
 
 def _event(event_type: str, **payload) -> dict:

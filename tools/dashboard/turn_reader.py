@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from core.interfaces import MetricsReader, StorageProvider, TraceReader
-from tools.tui.phases import classify as _classify_phase
+from tools.dashboard.phases import classify as _classify_phase
 
 _PREVIEW_MAX_CHARS = 80
 
@@ -31,7 +31,7 @@ _PREVIEW_MAX_CHARS = 80
 # the raw identifier stays on TraceStep.event_type/SkeletonStep.kind for
 # anything that still needs it (e.g. the retrieval_scoring_summary
 # template dispatch). Unmapped identifiers fall back to the raw string
-# rather than disappearing — same principle tools/tui/phases.py's
+# rather than disappearing — same principle tools/dashboard/phases.py's
 # classify() already uses for its own unknown-event-type fallback.
 _STEP_LABELS: dict[str, str] = {
     "topic_detection": "Detect topic change",
@@ -138,7 +138,7 @@ class TraceStep:
     duration_ms: float | None
     created_at: object
     display_label: str
-    phase: str  # PREFETCH | SYNC_TURN, via tools.tui.phases.classify()
+    phase: str  # PREFETCH | SYNC_TURN, via tools.dashboard.phases.classify()
     start_offset_ms: float | None  # ms from the turn's earliest timed step; None if unknown
 
 

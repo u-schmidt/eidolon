@@ -6,6 +6,17 @@ calls in time: prefetch() before the LLM answers, sync_turn() after.
 There's no separate correlation field for which phase an event belongs
 to — it doesn't need one, since the two phases produce disjoint, static
 sets of event_types. This module is that static classification.
+
+Lives in ``tools/dashboard/`` (not ``tools/tui/``, where it originated)
+because the turn-detail dashboard's timing waterfall
+(``tools/dashboard/turn_reader.py``) now needs it too, and this whole
+directory — unlike ``tools/tui/``, which needs the optional ``textual``
+dependency the server image doesn't install — is what actually ships in
+``deploy/server/Dockerfile`` (``COPY tools/dashboard/ tools/dashboard/``).
+This module itself has zero dependencies either way, so
+``tools/tui/screens/turn_detail.py`` importing it from here is no
+heavier than the reverse would have been — only the deployed image's
+COPY list makes the direction matter.
 """
 
 from __future__ import annotations

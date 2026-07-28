@@ -8,8 +8,8 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
+from tools.dashboard.phases import PREFETCH, SYNC_TURN, split_by_phase
 from tools.trace import TurnSummary
-from tools.tui.phases import PREFETCH, SYNC_TURN, split_by_phase
 from tools.tui.screens.phase_steps import PhaseStepsScreen
 
 if TYPE_CHECKING:
