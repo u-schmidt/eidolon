@@ -141,14 +141,16 @@ You > /consolidate
 
 ## Tool Calls
 
-The Hermes adapter exposes two tools to the LLM (`EidolonMemoryProvider.get_tool_schemas()`):
+The Hermes adapter exposes four tools to the LLM (`EidolonMemoryProvider.get_tool_schemas()`, dispatched by `EidolonToolHandler`):
 
 | Tool | Effect |
 |---|---|
 | `eidolon_search` | Read-only. Runs associative retrieval for an explicit query, returning facts, related topics, and memory items as JSON. |
+| `eidolon_inspect_cluster` | Read-only. Looks inside a recurring-topic cluster shown in memory context (e.g. "Cluster #17") to see the full list of individual past topics it consolidates, each with its own summary and date — for when the cluster's consolidated summary isn't enough detail. |
+| `eidolon_inspect_topic` | Read-only. Looks inside one specific past topic to see every individual memory fragment extracted from it, not just the compact injected summary. |
 | `eidolon_correct_fact` | Writes directly. Upserts or deletes one `(category, key)` fact immediately, bypassing consolidation — for when the user explicitly says a remembered fact is wrong or should be forgotten. Omitting `value` deletes the fact. |
 
-`eidolon_correct_fact` is a deliberately narrow write surface: it can only touch the curated facts profile, not `memory_items` or topics. A manual correction can still be silently revised or reverted by the next automatic consolidation pass, since `FactConsolidator` has no concept of "this fact was manually pinned" — an accepted tradeoff, not a bug.
+`eidolon_correct_fact` is a deliberately narrow write surface: it can only touch the curated facts profile, not `memory_items` or topics. A manual correction can still be silently revised or reverted by the next automatic consolidation pass, since `FactConsolidator` has no concept of "this fact was manually pinned" — an accepted tradeoff, not a bug. The two inspect tools are the read-side counterpart — an escape hatch for when the compact summaries injected into context aren't enough, without giving the LLM any write access beyond `eidolon_correct_fact`.
 
 ## Quick Start
 
