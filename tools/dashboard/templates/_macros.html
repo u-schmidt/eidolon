@@ -23,7 +23,8 @@
   {% if page.has_prev %}
     {% set prev_qs = dict(ns.params) %}
     {% set _ = prev_qs.update({'page': page.page - 1}) %}
-    <a href="{{ base }}?{{ prev_qs | urlencode }}">&larr; Prev</a>
+    <a href="{{ base }}?{{ prev_qs | urlencode }}"
+       hx-get="{{ base }}?{{ prev_qs | urlencode }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML">&larr; Prev</a>
   {% else %}
     <span class="muted">&larr; Prev</span>
   {% endif %}
@@ -31,9 +32,112 @@
   {% if page.has_next %}
     {% set next_qs = dict(ns.params) %}
     {% set _ = next_qs.update({'page': page.page + 1}) %}
-    <a href="{{ base }}?{{ next_qs | urlencode }}">Next &rarr;</a>
+    <a href="{{ base }}?{{ next_qs | urlencode }}"
+       hx-get="{{ base }}?{{ next_qs | urlencode }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML">Next &rarr;</a>
   {% else %}
     <span class="muted">Next &rarr;</span>
   {% endif %}
 </div>
+{% endmacro %}
+
+{# Inline SVG bar chart — one bar per value, auto-scaled.
+   items: list of objects with .label and .value attributes,
+          or dicts with "label"/"value" keys,
+          or (label, value) tuples.
+   width/height in px. #}
+{% macro bar_chart(items, width=200, height=40) %}
+{% if items %}
+  {% set vals = [] %}
+  {% for item in items %}
+    {% if item is mapping %}
+      {% set _ = vals.append(item.value) %}
+    {% elif item is iterable and item is not string %}
+      {% set _ = vals.append(item[1]) %}
+    {% else %}
+      {% set _ = vals.append(item.value) %}
+    {% endif %}
+  {% endfor %}
+  {% set max_val = vals | max %}
+  {% set max_val = max_val if max_val > 0 else 1 %}
+  {% set bar_w = (width / items | length) | round(1) %}
+  {% set gap = 1 %}
+  <svg width="{{ width }}" height="{{ height }}" class="sparkline" viewBox="0 0 {{ width }} {{ height }}">
+    {% for item in items %}
+      {% if item is mapping %}
+        {% set label = item.label %}
+        {% set val = item.value %}
+      {% elif item is iterable and item is not string %}
+        {% set label = item[0] %}
+        {% set val = item[1] %}
+      {% else %}
+        {% set label = item.label %}
+        {% set val = item.value %}
+      {% endif %}
+      {% set bar_h = (val / max_val * (height - 2)) | round(1) %}
+      {% set x = (loop.index0 * bar_w + gap / 2) | round(1) %}
+      {% set bw = (bar_w - gap) | round(1) %}
+      <rect x="{{ x }}" y="{{ height - bar_h - 1 }}" width="{{ bw }}" height="{{ bar_h }}" fill="var(--accent)" opacity="0.7"
+            title="{{ label }}: {{ val }}"/>
+    {% endfor %}
+  </svg>
+{% endif %}
+{% endmacro %}
+
+{# Inline SVG line chart — connects values as a polyline.
+   items: list of objects with .label and .value attributes,
+          or dicts with "label"/"value" keys,
+          or (label, value) tuples.
+   width/height in px. #}
+{% macro line_chart(items, width=120, height=30) %}
+{% if items and items | length > 1 %}
+  {% set vals = [] %}
+  {% for item in items %}
+    {% if item is mapping %}
+      {% set _ = vals.append(item.value) %}
+    {% elif item is iterable and item is not string %}
+      {% set _ = vals.append(item[1]) %}
+    {% else %}
+      {% set _ = vals.append(item.value) %}
+    {% endif %}
+  {% endfor %}
+  {% set max_val = vals | max %}
+  {% set max_val = max_val if max_val > 0 else 1 %}
+  {% set min_val = vals | min %}
+  {% set range = max_val - min_val if max_val > min_val else 1 %}
+  {% set step_x = (width - 4) / (items | length - 1) %}
+  {% set points = [] %}
+  {% for item in items %}
+    {% if item is mapping %}
+      {% set label = item.label %}
+      {% set val = item.value %}
+    {% elif item is iterable and item is not string %}
+      {% set label = item[0] %}
+      {% set val = item[1] %}
+    {% else %}
+      {% set label = item.label %}
+      {% set val = item.value %}
+    {% endif %}
+    {% set x = (2 + loop.index0 * step_x) | round(1) %}
+    {% set y = (height - 2 - (val - min_val) / range * (height - 4)) | round(1) %}
+    {% set _ = points.append("%s,%s" | format(x, y)) %}
+  {% endfor %}
+  <svg width="{{ width }}" height="{{ height }}" class="sparkline" viewBox="0 0 {{ width }} {{ height }}">
+    <polyline fill="none" stroke="var(--accent)" stroke-width="1.5" points="{{ points | join(' ') }}"/>
+    {% for item in items %}
+      {% if item is mapping %}
+        {% set label = item.label %}
+        {% set val = item.value %}
+      {% elif item is iterable and item is not string %}
+        {% set label = item[0] %}
+        {% set val = item[1] %}
+      {% else %}
+        {% set label = item.label %}
+        {% set val = item.value %}
+      {% endif %}
+      {% set x = (2 + loop.index0 * step_x) | round(1) %}
+      {% set y = (height - 2 - (val - min_val) / range * (height - 4)) | round(1) %}
+      <circle cx="{{ x }}" cy="{{ y }}" r="1.5" fill="var(--accent)" title="{{ label }}: {{ val }}"/>
+    {% endfor %}
+  </svg>
+{% endif %}
 {% endmacro %}

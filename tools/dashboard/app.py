@@ -73,8 +73,9 @@ def create_dashboard_router(
     @router.get("/", response_class=HTMLResponse, name="dashboard_index")
     def landing(request: Request) -> HTMLResponse:
         recent = turn_reader.recent_turns(limit=5)
+        counts = browse_reader.overview_counts()
         return _templates.TemplateResponse(
-            request, "index.html", {"recent_turns": recent},
+            request, "index.html", {"recent_turns": recent, "counts": counts},
         )
 
     @router.get("/turns", response_class=HTMLResponse, name="dashboard_turns_list")
@@ -167,13 +168,14 @@ def create_dashboard_router(
 
     @router.get("/memory-items", response_class=HTMLResponse, name="dashboard_memory_items")
     def memory_items(
-        request: Request, page: int = 1, item_type: str | None = None, topic_id: int | None = None,
+        request: Request, page: int = 1, item_type: str | None = None, topic_id: str | None = None,
     ) -> HTMLResponse:
         item_type = item_type or None
-        result = browse_reader.memory_items(page, item_type=item_type, topic_id=topic_id)
+        topic_id_int = int(topic_id) if topic_id else None
+        result = browse_reader.memory_items(page, item_type=item_type, topic_id=topic_id_int)
         return _templates.TemplateResponse(
             request, "browse_memory_items.html",
-            {"page": result, "item_type": item_type or "", "topic_id": topic_id},
+            {"page": result, "item_type": item_type or "", "topic_id": topic_id_int},
         )
 
     @router.get("/clusters", response_class=HTMLResponse, name="dashboard_clusters")

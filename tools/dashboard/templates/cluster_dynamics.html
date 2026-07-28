@@ -1,6 +1,13 @@
 {% extends "base.html" %}
 {% from "_macros.html" import window_selector with context %}
 {% block title %}Eidolon — Cluster Dynamics{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <span>Cluster Dynamics</span>
+  </div>
+{% endblock %}
 {% block content %}
   <h1>Cluster Dynamics</h1>
   <p class="muted">Sourced from <code>cluster_consolidation</code> debug trace events — only available for turns that ran with <code>debug.enabled: true</code>.</p>
@@ -8,7 +15,7 @@
   {{ window_selector('dashboard_cluster_dynamics', window, windows) }}
 
   {% if summary.decisions.total_calls == 0 %}
-    <div class="banner">
+    <div class="banner card-accent">
       No <code>cluster_consolidation</code> events in this window — either <code>debug.enabled</code> was off,
       clustering is disabled, or there was no clustering activity. Try a wider window.
     </div>

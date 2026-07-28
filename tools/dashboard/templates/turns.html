@@ -1,12 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Eidolon — Turns{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <span>Turns</span>
+  </div>
+{% endblock %}
 {% block content %}
   <h1>Turns</h1>
-  <form method="get" action="{{ url_for('dashboard_turns_list') }}" class="row" style="margin-bottom: 1rem; align-items: center;">
+  <form method="get" action="{{ url_for('dashboard_turns_list') }}" class="row" style="margin-bottom: 1rem; align-items: center;"
+        hx-get="{{ url_for('dashboard_turns_list') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML">
     <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
     <button type="submit">Filter</button>
   </form>
 
+  <div id="results">
   {% if not turns %}
     <p class="muted">No turns found{% if peer_id %} for peer_id "{{ peer_id }}"{% endif %}. Run a few turns through Eidolon first.</p>
   {% else %}
@@ -17,7 +26,7 @@
       <tbody>
         {% for t in turns %}
         <tr>
-          <td class="muted">{{ t.created_at }}</td>
+          <td><span class="timeago" title="{{ t.created_at }}">{{ t.created_at }}</span></td>
           <td>{{ t.peer_id or "—" }}</td>
           <td><a href="{{ url_for('dashboard_turn_detail', request_id=t.request_id) }}">{{ t.preview }}</a></td>
           <td class="muted">{{ t.topic_id if t.topic_id is not none else "—" }}</td>
@@ -26,4 +35,5 @@
       </tbody>
     </table>
   {% endif %}
+  </div>
 {% endblock %}

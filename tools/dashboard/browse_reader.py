@@ -73,6 +73,18 @@ class ClusterRow:
     created_at: object
 
 
+@dataclass
+class OverviewCounts:
+    """Aggregate counts for the landing page's at-a-glance cards."""
+
+    total_turns: int
+    total_topics: int
+    active_topics: int
+    total_facts: int
+    total_memory_items: int
+    total_clusters: int
+
+
 class BrowseReader:
     """Read-only pagination over ``StorageProvider`` for the dashboard's
     four browse pages (see ``tools/dashboard/app.py``).
@@ -85,6 +97,19 @@ class BrowseReader:
 
     def __init__(self, storage: StorageProvider) -> None:
         self._storage = storage
+
+    def overview_counts(self) -> OverviewCounts:
+        """Aggregate counts for the landing page — always-on, sourced
+        straight from the primary storage tables."""
+        topics = self._storage.list_topics()
+        return OverviewCounts(
+            total_turns=len(self._storage.get_recent_turns(limit=10_000)),
+            total_topics=len(topics),
+            active_topics=sum(1 for t in topics if t.get("status") == "active"),
+            total_facts=len(self._storage.get_all_facts()),
+            total_memory_items=len(self._storage.list_memory_items()),
+            total_clusters=len(self._storage.list_clusters()),
+        )
 
     def topics(self, page: int, status: str | None = None, peer_id: str | None = None) -> Page[TopicRow]:
         rows = self._storage.list_topics(status=status, peer_id=peer_id)

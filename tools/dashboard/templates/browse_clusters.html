@@ -1,15 +1,24 @@
 {% extends "base.html" %}
 {% from "_macros.html" import pagination with context %}
 {% block title %}Eidolon — Clusters{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <span>Clusters</span>
+  </div>
+{% endblock %}
 {% block content %}
   <h1>Clusters</h1>
   <p class="muted">Every stored topic cluster, newest first — always-on, straight from the <code>topic_clusters</code> table.</p>
 
-  <form method="get" action="{{ url_for('dashboard_clusters') }}" class="row" style="margin-bottom: 1rem; align-items: center;">
+  <form method="get" action="{{ url_for('dashboard_clusters') }}" class="row" style="margin-bottom: 1rem; align-items: center;"
+        hx-get="{{ url_for('dashboard_clusters') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML">
     <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
     <button type="submit">Filter</button>
   </form>
 
+  <div id="results">
   {% if not page.items %}
     <p class="muted">No clusters found{% if peer_id %} matching this filter{% endif %}.</p>
   {% else %}
@@ -25,11 +34,12 @@
           <td class="muted">{{ c.peer_id }}</td>
           <td>{{ c.summary_preview or "—" }}</td>
           <td>{{ c.topic_count }}</td>
-          <td class="muted">{{ c.created_at }}</td>
+          <td><span class="timeago" title="{{ c.created_at }}">{{ c.created_at }}</span></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {{ pagination('dashboard_clusters', page, {'peer_id': peer_id}) }}
   {% endif %}
+  </div>
 {% endblock %}

@@ -1,5 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Turn {{ detail.header.request_id }}{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <a href="{{ url_for('dashboard_turns_list') }}">Turns</a>
+    <span class="sep">›</span>
+    <span>{{ detail.header.request_id[:16] }}…</span>
+  </div>
+{% endblock %}
 {% block content %}
   <p><a href="{{ url_for('dashboard_turns_list') }}">&larr; back to turns</a></p>
 
@@ -9,7 +18,7 @@
         <div class="field"><span class="label">Request</span>{{ detail.header.request_id }}</div>
         <div class="field"><span class="label">Peer</span>{{ detail.header.peer_id or "—" }}</div>
         <div class="field"><span class="label">Session</span>{{ detail.header.session_id or "—" }}</div>
-        <div class="field"><span class="label">When</span>{{ detail.header.created_at }}</div>
+        <div class="field"><span class="label">When</span><span class="timeago" title="{{ detail.header.created_at }}">{{ detail.header.created_at }}</span></div>
       </div>
       {% if detail.header.topic %}
       <div class="field">
@@ -46,7 +55,7 @@
           <button type="button" class="step-list-item{{ ' active' if loop.first }}" data-step="{{ loop.index0 }}">
             <strong>{{ step.event_type }}</strong>
             <div class="muted">
-              {{ "%.1f"|format(step.duration_ms) + "ms — " if step.duration_ms is not none else "" }}{{ step.created_at }}
+              {{ "%.1f"|format(step.duration_ms) + "ms — " if step.duration_ms is not none else "" }}<span class="timeago" title="{{ step.created_at }}">{{ step.created_at }}</span>
             </div>
           </button>
           {% endfor %}
@@ -67,7 +76,7 @@
       </div>
     {% endif %}
   {% else %}
-    <div class="banner">
+    <div class="banner card-accent">
       No rich trace data for this turn — either <code>debug.enabled</code> was off when it ran, or it ran
       before debug tracing was ever turned on. Showing the always-on timing/success skeleton instead.
     </div>
@@ -80,7 +89,7 @@
           <button type="button" class="step-list-item{{ ' active' if loop.first }}" data-step="{{ loop.index0 }}">
             <span class="muted">{{ step.kind }}</span> <strong>{{ step.label }}</strong>
             <div class="muted">
-              {{ "%.1f"|format(step.duration_ms) + "ms — " if step.duration_ms is not none else "" }}{{ step.created_at }}
+              {{ "%.1f"|format(step.duration_ms) + "ms — " if step.duration_ms is not none else "" }}<span class="timeago" title="{{ step.created_at }}">{{ step.created_at }}</span>
             </div>
             {% if step.kind == "event" %}
               <span class="badge err">error</span>
@@ -102,7 +111,7 @@
                 <span class="label">Duration</span>
                 {{ "%.1f"|format(step.duration_ms) + "ms" if step.duration_ms is not none else "—" }}
               </div>
-              <div class="field"><span class="label">When</span>{{ step.created_at }}</div>
+              <div class="field"><span class="label">When</span><span class="timeago" title="{{ step.created_at }}">{{ step.created_at }}</span></div>
               {% if step.detail %}
                 <div class="field"><span class="label">Detail</span></div>
                 <div class="muted">{{ step.detail }}</div>

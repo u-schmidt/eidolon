@@ -1,11 +1,19 @@
 {% extends "base.html" %}
 {% from "_macros.html" import pagination with context %}
 {% block title %}Eidolon — Memory Items{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <span>Memory Items</span>
+  </div>
+{% endblock %}
 {% block content %}
   <h1>Memory Items</h1>
   <p class="muted">Every extracted memory item, newest first — always-on, straight from the <code>memory_items</code> table.</p>
 
-  <form method="get" action="{{ url_for('dashboard_memory_items') }}" class="row" style="margin-bottom: 1rem; align-items: center;">
+  <form method="get" action="{{ url_for('dashboard_memory_items') }}" class="row" style="margin-bottom: 1rem; align-items: center;"
+        hx-get="{{ url_for('dashboard_memory_items') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML">
     <select name="item_type">
       <option value=""{{ ' selected' if not item_type }}>All types</option>
       <option value="essence"{{ ' selected' if item_type == 'essence' }}>essence</option>
@@ -17,6 +25,7 @@
     <button type="submit">Filter</button>
   </form>
 
+  <div id="results">
   {% if not page.items %}
     <p class="muted">No memory items found{% if item_type or topic_id %} matching this filter{% endif %}.</p>
   {% else %}
@@ -34,11 +43,12 @@
           <td class="muted">{{ i.subject_peer }}</td>
           <td class="muted">{{ i.attribution_type }}</td>
           <td class="muted">{{ i.topic_id if i.topic_id is not none else "—" }}</td>
-          <td class="muted">{{ i.timestamp }}</td>
+          <td><span class="timeago" title="{{ i.timestamp }}">{{ i.timestamp }}</span></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {{ pagination('dashboard_memory_items', page, {'item_type': item_type, 'topic_id': topic_id}) }}
   {% endif %}
+  </div>
 {% endblock %}

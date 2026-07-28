@@ -1,6 +1,13 @@
 {% extends "base.html" %}
-{% from "_macros.html" import window_selector with context %}
+{% from "_macros.html" import window_selector, bar_chart with context %}
 {% block title %}Eidolon — Topic Lifecycle{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <span>Topic Lifecycle</span>
+  </div>
+{% endblock %}
 {% block content %}
   <h1>Topic Lifecycle</h1>
   <p class="muted">Always-on — sourced from <code>topics.created_at</code>/<code>closed_at</code>/<code>message_count</code>. The stale-sweep split additionally needs <code>debug.enabled: true</code> (<code>stale_topic_cleanup</code> trace events).</p>
@@ -8,7 +15,7 @@
   {{ window_selector('dashboard_topic_lifecycle', window, windows) }}
 
   {% if summary.lifespan.total_closed == 0 %}
-    <div class="banner">
+    <div class="banner card-accent">
       No topics closed in this window. Try a wider window.
     </div>
   {% else %}
@@ -46,6 +53,14 @@
     {% if not summary.shortest_lived %}
       <p class="muted">No topics with parseable lifespans in this window.</p>
     {% else %}
+      {% set lifespan_bars = [] %}
+      {% for s in summary.shortest_lived[:10] %}
+        {% set _ = lifespan_bars.append((s.label, s.lifespan_hours)) %}
+      {% endfor %}
+      <div class="sparkline-card">
+        <h3>Lifespan (hours) — shortest 10</h3>
+        {{ bar_chart(lifespan_bars, 500, 50) }}
+      </div>
       <table>
         <thead><tr><th>Topic</th><th>Label</th><th>Lifespan</th><th>Messages</th></tr></thead>
         <tbody>

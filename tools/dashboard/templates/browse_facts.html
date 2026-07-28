@@ -1,16 +1,25 @@
 {% extends "base.html" %}
 {% from "_macros.html" import pagination with context %}
 {% block title %}Eidolon — Facts{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <span>Facts</span>
+  </div>
+{% endblock %}
 {% block content %}
   <h1>Facts</h1>
   <p class="muted">Every stored fact, sorted by peer/category/key — always-on, straight from the <code>facts</code> table.</p>
 
-  <form method="get" action="{{ url_for('dashboard_facts') }}" class="row" style="margin-bottom: 1rem; align-items: center;">
+  <form method="get" action="{{ url_for('dashboard_facts') }}" class="row" style="margin-bottom: 1rem; align-items: center;"
+        hx-get="{{ url_for('dashboard_facts') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML">
     <input type="text" name="category" value="{{ category }}" placeholder="filter by category">
     <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
     <button type="submit">Filter</button>
   </form>
 
+  <div id="results">
   {% if not page.items %}
     <p class="muted">No facts found{% if category or peer_id %} matching this filter{% endif %}.</p>
   {% else %}
@@ -27,11 +36,12 @@
           <td>{{ f.value }}</td>
           <td class="muted">{{ f.importance }}</td>
           <td class="muted">{{ f.source }}</td>
-          <td class="muted">{{ f.created_at }}</td>
+          <td><span class="timeago" title="{{ f.created_at }}">{{ f.created_at }}</span></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {{ pagination('dashboard_facts', page, {'category': category, 'peer_id': peer_id}) }}
   {% endif %}
+  </div>
 {% endblock %}

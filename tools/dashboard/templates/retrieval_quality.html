@@ -1,6 +1,13 @@
 {% extends "base.html" %}
 {% from "_macros.html" import window_selector with context %}
 {% block title %}Eidolon — Retrieval Quality{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <span>Retrieval Quality</span>
+  </div>
+{% endblock %}
 {% block content %}
   <h1>Retrieval Quality &amp; Weighting</h1>
   <p class="muted">Sourced from <code>retrieval_scoring_summary</code>/<code>context_retrieval</code> debug trace events — only available for turns that ran with <code>debug.enabled: true</code>.</p>
@@ -8,7 +15,7 @@
   {{ window_selector('dashboard_retrieval_quality', window, windows) }}
 
   {% if summary.total_events == 0 %}
-    <div class="banner">
+    <div class="banner card-accent">
       No <code>retrieval_scoring_summary</code> events in this window — either <code>debug.enabled</code> was off
       the whole time, or there was no retrieval traffic. Try a wider window, or turn on debug tracing and use
       Eidolon for a bit.

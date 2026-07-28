@@ -1,10 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Eidolon — Overview{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs"><span>Dashboard</span></div>
+{% endblock %}
 {% block content %}
   <h1>Overview</h1>
   <p class="muted">Read-only inspection views over Eidolon's stored turns, topics, and traces.</p>
 
-  <div class="card">
+  {% if counts %}
+  <div class="stat-grid">
+    <div class="stat-card">
+      <span class="stat-value">{{ counts.total_turns }}</span>
+      <span class="stat-label">Turns</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ counts.total_topics }}</span>
+      <span class="stat-label">Topics</span>
+      <span class="stat-detail">{{ counts.active_topics }} active</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ counts.total_facts }}</span>
+      <span class="stat-label">Facts</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ counts.total_memory_items }}</span>
+      <span class="stat-label">Memory Items</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">{{ counts.total_clusters }}</span>
+      <span class="stat-label">Clusters</span>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card card-neutral">
     <h2 style="margin-top: 0;"><a href="{{ url_for('dashboard_turns_list') }}">Turn Inspector</a></h2>
     <p>Step-by-step replay of a single turn — topic detection, extraction, retrieval scoring, and
       whatever it conditionally triggered (fact consolidation, topic close, clustering), joined by
@@ -12,7 +41,7 @@
     <a href="{{ url_for('dashboard_turns_list') }}">Browse turns &rarr;</a>
   </div>
 
-  <div class="card">
+  <div class="card card-neutral">
     <h2 style="margin-top: 0;">Browse stored data</h2>
     <p>Plain paginated/filterable views over the four core tables — for when you just want to look
       at a row, not read an aggregate.</p>
@@ -28,21 +57,21 @@
   {% if not recent_turns %}
     <p class="muted">No turns found. Run a few turns through Eidolon first.</p>
   {% else %}
-    <table>
-      <thead>
-        <tr><th>When</th><th>Peer</th><th>Message</th><th>Topic</th></tr>
-      </thead>
-      <tbody>
-        {% for t in recent_turns %}
-        <tr>
-          <td class="muted">{{ t.created_at }}</td>
-          <td>{{ t.peer_id or "—" }}</td>
-          <td><a href="{{ url_for('dashboard_turn_detail', request_id=t.request_id) }}">{{ t.preview }}</a></td>
-          <td class="muted">{{ t.topic_id if t.topic_id is not none else "—" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="turn-card-grid">
+      {% for t in recent_turns %}
+      <a href="{{ url_for('dashboard_turn_detail', request_id=t.request_id) }}" class="turn-card">
+        <div class="turn-card-header">
+          <span class="turn-card-peer">{{ t.peer_id or "—" }}</span>
+          <span class="turn-card-time timeago" title="{{ t.created_at }}">{{ t.created_at }}</span>
+        </div>
+        <div class="turn-card-message">{{ t.preview }}</div>
+        <div class="turn-card-footer">
+          <span class="muted">Topic #{{ t.topic_id if t.topic_id is not none else "—" }}</span>
+          <span class="turn-card-arrow">&rarr;</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
     <p><a href="{{ url_for('dashboard_turns_list') }}">See all turns &rarr;</a></p>
   {% endif %}
 {% endblock %}

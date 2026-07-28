@@ -1,6 +1,13 @@
 {% extends "base.html" %}
-{% from "_macros.html" import window_selector with context %}
+{% from "_macros.html" import window_selector, bar_chart, line_chart with context %}
 {% block title %}Eidolon — Performance{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <span>Performance</span>
+  </div>
+{% endblock %}
 {% block content %}
   <h1>Performance &amp; Reliability</h1>
   <p class="muted">Always-on — sourced from <code>events</code>/<code>llm_calls</code>/<code>embedding_calls</code>, no debug tracing needed.</p>
@@ -13,7 +20,7 @@
   {% else %}
     <table>
       <thead>
-        <tr><th>Call type</th><th>Count</th><th>Error rate</th><th>p50</th><th>p95</th><th>p99</th></tr>
+        <tr><th>Call type</th><th>Count</th><th>Error rate</th><th>p50</th><th>p95</th><th>p99</th><th>Latency</th></tr>
       </thead>
       <tbody>
         {% for s in summary.call_type_stats %}
@@ -27,9 +34,10 @@
               <span class="badge ok">0%</span>
             {% endif %}
           </td>
-          <td>{{ "%.1f"|format(s.p50_ms) }}ms</td>
-          <td>{{ "%.1f"|format(s.p95_ms) }}ms</td>
-          <td>{{ "%.1f"|format(s.p99_ms) }}ms</td>
+          <td>{{ "%.0f"|format(s.p50_ms) }}ms</td>
+          <td>{{ "%.0f"|format(s.p95_ms) }}ms</td>
+          <td>{{ "%.0f"|format(s.p99_ms) }}ms</td>
+          <td>{{ line_chart([("p50", s.p50_ms), ("p95", s.p95_ms), ("p99", s.p99_ms)], 80, 24) }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -56,8 +64,8 @@
               <span class="badge ok">0%</span>
             {% endif %}
           </td>
-          <td>{{ "%.1f"|format(s.p50_ms) }}ms</td>
-          <td>{{ "%.1f"|format(s.p95_ms) }}ms</td>
+          <td>{{ "%.0f"|format(s.p50_ms) }}ms</td>
+          <td>{{ "%.0f"|format(s.p95_ms) }}ms</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -68,6 +76,14 @@
   {% if not summary.hourly_throughput %}
     <p class="muted">No LLM calls in this window.</p>
   {% else %}
+    {% set buckets = [] %}
+    {% for b in summary.hourly_throughput %}
+      {% set _ = buckets.append((b.hour, b.llm_call_count)) %}
+    {% endfor %}
+    <div class="sparkline-card">
+      <h3>LLM calls per hour</h3>
+      {{ bar_chart(buckets, 600, 60) }}
+    </div>
     <table>
       <thead><tr><th>Hour</th><th>LLM calls</th></tr></thead>
       <tbody>
