@@ -103,7 +103,7 @@ class BrowseReader:
         straight from the primary storage tables."""
         topics = self._storage.list_topics()
         return OverviewCounts(
-            total_turns=len(self._storage.get_recent_turns(limit=10_000)),
+            total_turns=self._storage.count_recent_turns(),
             total_topics=len(topics),
             active_topics=sum(1 for t in topics if t.get("status") == "active"),
             total_facts=len(self._storage.get_all_facts()),

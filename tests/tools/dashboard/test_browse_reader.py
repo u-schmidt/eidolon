@@ -12,6 +12,31 @@ from tests.mocks import MockStorage
 from tools.dashboard.browse_reader import BrowseReader
 
 
+class TestOverviewCounts:
+    def test_aggregates_counts_across_all_entities(self):
+        storage = MockStorage()
+        t1 = storage.create_topic("Open", peer_id="u1")
+        t2 = storage.create_topic("Closed", peer_id="u1")
+        storage.close_topic(t2, "done")
+        storage.facts.append(Fact(peer_id="u1", category="basic", key="name", value="Alex", source="user"))
+        storage.store_memory_item(MemoryItem(
+            content="a", item_type="fact", source_peer="u1", subject_peer="u1",
+            attribution_type="self_statement", topic_id=t1,
+        ))
+        storage.create_cluster("u1", "Bike", "summary")
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        reader = BrowseReader(storage)
+
+        counts = reader.overview_counts()
+
+        assert counts.total_turns == 1
+        assert counts.total_topics == 2
+        assert counts.active_topics == 1
+        assert counts.total_facts == 1
+        assert counts.total_memory_items == 1
+        assert counts.total_clusters == 1
+
+
 class TestTopics:
     def test_lists_all_topics_by_default(self):
         storage = MockStorage()

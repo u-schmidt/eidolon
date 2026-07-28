@@ -13,7 +13,7 @@
   <p class="muted">Every stored topic cluster, newest first — always-on, straight from the <code>topic_clusters</code> table.</p>
 
   <form method="get" action="{{ url_for('dashboard_clusters') }}" class="row" style="margin-bottom: 1rem; align-items: center;"
-        hx-get="{{ url_for('dashboard_clusters') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML">
+        hx-get="{{ url_for('dashboard_clusters') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML" hx-push-url="true">
     <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
     <button type="submit">Filter</button>
   </form>

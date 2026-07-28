@@ -13,7 +13,7 @@
   <p class="muted">Every stored fact, sorted by peer/category/key — always-on, straight from the <code>facts</code> table.</p>
 
   <form method="get" action="{{ url_for('dashboard_facts') }}" class="row" style="margin-bottom: 1rem; align-items: center;"
-        hx-get="{{ url_for('dashboard_facts') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML">
+        hx-get="{{ url_for('dashboard_facts') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML" hx-push-url="true">
     <input type="text" name="category" value="{{ category }}" placeholder="filter by category">
     <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
     <button type="submit">Filter</button>

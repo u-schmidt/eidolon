@@ -1309,3 +1309,15 @@ class SqliteStore:
             {"request_id": r[0], "peer_id": r[1], "topic_id": r[2], "content": r[3], "created_at": r[4]}
             for r in rows
         ]
+
+    def count_recent_turns(self, peer_id: str | None = None) -> int:
+        if peer_id is not None:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE role = 'user' AND request_id IS NOT NULL AND peer_id = ?",
+                (peer_id,),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE role = 'user' AND request_id IS NOT NULL",
+            ).fetchone()
+        return row[0]

@@ -430,6 +430,13 @@ class MockStorage:
             for m in reversed(matching[-limit:])
         ]
 
+    def count_recent_turns(self, peer_id: str | None = None) -> int:
+        return sum(
+            1 for m in self.messages
+            if m["role"] == "user" and m["request_id"] is not None
+            and (peer_id is None or m["peer_id"] == peer_id)
+        )
+
     def get_stale_active_topics(self, cutoff, peer_id: str | None = None) -> list[dict]:
         # Staleness itself is exercised against the real SqliteStore
         # (tests/core/test_sqlite_store.py); here `stale_topic_ids` lets a

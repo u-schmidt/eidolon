@@ -13,7 +13,7 @@
   <p class="muted">Every stored topic, newest first — always-on, straight from the <code>topics</code> table.</p>
 
   <form method="get" action="{{ url_for('dashboard_topics') }}" class="row" style="margin-bottom: 1rem; align-items: center;"
-        hx-get="{{ url_for('dashboard_topics') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML">
+        hx-get="{{ url_for('dashboard_topics') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML" hx-push-url="true">
     <select name="status">
       <option value=""{{ ' selected' if not status }}>All statuses</option>
       <option value="active"{{ ' selected' if status == 'active' }}>Active</option>

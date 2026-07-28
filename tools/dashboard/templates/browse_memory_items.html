@@ -13,7 +13,7 @@
   <p class="muted">Every extracted memory item, newest first — always-on, straight from the <code>memory_items</code> table.</p>
 
   <form method="get" action="{{ url_for('dashboard_memory_items') }}" class="row" style="margin-bottom: 1rem; align-items: center;"
-        hx-get="{{ url_for('dashboard_memory_items') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML">
+        hx-get="{{ url_for('dashboard_memory_items') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML" hx-push-url="true">
     <select name="item_type">
       <option value=""{{ ' selected' if not item_type }}>All types</option>
       <option value="essence"{{ ' selected' if item_type == 'essence' }}>essence</option>

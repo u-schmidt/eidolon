@@ -512,6 +512,13 @@ class StorageProvider(Protocol):
         (``tools/dashboard/turn_reader.py``)."""
         ...
 
+    def count_recent_turns(self, peer_id: str | None = None) -> int:
+        """Return the total count of turns matching ``get_recent_turns``'s
+        same criteria (``role='user'`` messages with a ``request_id``,
+        optionally scoped to one peer) — without paging through the rows
+        themselves. Powers the dashboard landing page's turn count."""
+        ...
+
 
 class LLMProvider(Protocol):
     """Abstract LLM backend.

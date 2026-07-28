@@ -535,6 +535,10 @@ class TestBrowseMemoryItems:
         assert "a fact" in response.text
         assert "other topic" not in response.text
 
+    def test_non_numeric_topic_id_ignored_rather_than_500(self, client: TestClient):
+        response = client.get("/memory-items", params={"topic_id": "not-a-number"})
+        assert response.status_code == 200
+
 
 class TestBrowseClusters:
     def test_renders_empty_state(self, client: TestClient):

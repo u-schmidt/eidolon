@@ -171,7 +171,13 @@ def create_dashboard_router(
         request: Request, page: int = 1, item_type: str | None = None, topic_id: str | None = None,
     ) -> HTMLResponse:
         item_type = item_type or None
-        topic_id_int = int(topic_id) if topic_id else None
+        try:
+            topic_id_int = int(topic_id) if topic_id else None
+        except ValueError:
+            # A non-numeric topic_id filter (e.g. stray text in the input
+            # box) means "no valid filter", not a 500 — same treatment as
+            # any other unmatched/blank filter on this page.
+            topic_id_int = None
         result = browse_reader.memory_items(page, item_type=item_type, topic_id=topic_id_int)
         return _templates.TemplateResponse(
             request, "browse_memory_items.html",

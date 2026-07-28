@@ -911,6 +911,34 @@ class TestGetRecentTurns:
         assert [t["request_id"] for t in turns] == ["req1"]
 
 
+class TestCountRecentTurns:
+    def test_counts_user_messages_with_request_id(self, store: StorageProvider):
+        store.store_message(turn_id=1, role="user", content="first", peer_id="user", request_id="req1")
+        store.store_message(turn_id=1, role="ai", content="first reply", peer_id="ai", request_id="req1")
+        store.store_message(turn_id=2, role="user", content="second", peer_id="user", request_id="req2")
+
+        assert store.count_recent_turns() == 2
+
+    def test_excludes_messages_without_request_id(self, store: StorageProvider):
+        store.store_message(turn_id=1, role="user", content="untracked", peer_id="user")
+        assert store.count_recent_turns() == 0
+
+    def test_filters_by_peer_id(self, store: StorageProvider):
+        store.store_message(turn_id=1, role="user", content="mine", peer_id="user", request_id="req1")
+        store.store_message(turn_id=2, role="user", content="theirs", peer_id="telegram:999", request_id="req2")
+
+        assert store.count_recent_turns(peer_id="user") == 1
+
+    def test_zero_when_no_turns(self, store: StorageProvider):
+        assert store.count_recent_turns() == 0
+
+    def test_matches_get_recent_turns_length_when_under_limit(self, store: StorageProvider):
+        for i in range(5):
+            store.store_message(turn_id=i, role="user", content=f"msg {i}", peer_id="user", request_id=f"req{i}")
+
+        assert store.count_recent_turns() == len(store.get_recent_turns(100))
+
+
 class TestMemoryItems:
     def test_store_and_search(self, store: StorageProvider):
         item = MemoryItem(

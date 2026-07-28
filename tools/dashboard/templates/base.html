@@ -5,7 +5,7 @@
   <title>{% block title %}Eidolon — Turn Detail{% endblock %}</title>
   <script src="{{ url_for('dashboard-static', path='htmx.min.js') }}"></script>
   <script>
-    document.addEventListener('DOMContentLoaded', function () {
+    function applyTimeago() {
       document.querySelectorAll('.timeago').forEach(function (el) {
         var ts = el.getAttribute('title') || el.textContent;
         var date = new Date(ts);
@@ -19,7 +19,17 @@
         else rel = 'vor ' + Math.round(diff / 604800000) + ' Wochen';
         el.textContent = rel;
       });
-    });
+    }
+    document.addEventListener('DOMContentLoaded', applyTimeago);
+    // Pagination/filter interactions swap in fresh markup via htmx
+    // instead of a full page load — DOMContentLoaded won't fire again,
+    // so any newly-inserted .timeago elements need this re-run
+    // explicitly. Bound on document (not document.body — this script
+    // runs in <head>, before <body> exists yet); htmx:afterSwap bubbles
+    // up from the swapped target. Safe to call repeatedly: it always
+    // reads from the fixed title="" timestamp, never from its own prior
+    // output.
+    document.addEventListener('htmx:afterSwap', applyTimeago);
   </script>
   <style>
     :root {
@@ -165,15 +175,14 @@
     .sparkline-card h3 { font-size: 0.85rem; margin: 0 0 0.4rem; }
     .sparkline-card .sparkline { display: block; margin: 0 auto; }
 
-    /* htmx loading indicator */
-    .htmx-indicator { opacity: 0; transition: opacity 0.2s; }
-    .htmx-request .htmx-indicator { opacity: 1; }
-    .htmx-request.htmx-indicator { opacity: 1; }
+    /* dim stat/table content while an htmx request for it is in flight */
     .htmx-request .stat-grid,
     .htmx-request table { opacity: 0.6; transition: opacity 0.2s; }
 
     .detail-header {
-      position: sticky; top: 0; z-index: 1;
+      /* Not sticky: nav.top-nav is sticky at the same top:0/z-index
+         stack context now, and a second sticky element right below it
+         would overlap/hide behind the nav once both are pinned. */
       background: var(--bg); padding-top: 0.25rem; margin-bottom: 1rem;
     }
     .master-detail { display: flex; gap: 1rem; align-items: flex-start; }
