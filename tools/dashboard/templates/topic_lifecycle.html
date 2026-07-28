@@ -1,17 +1,11 @@
 {% extends "base.html" %}
+{% from "_macros.html" import window_selector with context %}
 {% block title %}Eidolon — Topic Lifecycle{% endblock %}
 {% block content %}
   <h1>Topic Lifecycle</h1>
   <p class="muted">Always-on — sourced from <code>topics.created_at</code>/<code>closed_at</code>/<code>message_count</code>. The stale-sweep split additionally needs <code>debug.enabled: true</code> (<code>stale_topic_cleanup</code> trace events).</p>
 
-  <form method="get" action="{{ url_for('dashboard_topic_lifecycle') }}" class="row" style="margin-bottom: 1.5rem; align-items: center;">
-    <label for="window" class="muted">Window</label>
-    <select name="window" id="window" onchange="this.form.submit()">
-      {% for w in windows %}
-      <option value="{{ w }}"{{ ' selected' if w == window }}>{{ w }}</option>
-      {% endfor %}
-    </select>
-  </form>
+  {{ window_selector('dashboard_topic_lifecycle', window, windows) }}
 
   {% if summary.lifespan.total_closed == 0 %}
     <div class="banner">

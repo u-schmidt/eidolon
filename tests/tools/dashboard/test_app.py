@@ -16,9 +16,10 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
-from core.models import Fact
+from core.models import Fact, MemoryItem
 from tests.mocks import MockStorage
 from tools.dashboard.app import DASHBOARD_STATIC_DIR, create_dashboard_router
+from tools.dashboard.browse_reader import BrowseReader
 from tools.dashboard.cluster_dynamics_reader import ClusterDynamicsReader
 from tools.dashboard.performance_reader import PerformanceReader
 from tools.dashboard.prompt_quality_reader import PromptQualityReader
@@ -83,10 +84,12 @@ def _wrap(
     prompt_quality_reader = PromptQualityReader(trace_reader or _FakeTraceReader(), storage, fact_categories or [])
     topic_lifecycle_reader = TopicLifecycleReader(trace_reader or _FakeTraceReader(), storage)
     cluster_dynamics_reader = ClusterDynamicsReader(trace_reader or _FakeTraceReader(), storage)
+    browse_reader = BrowseReader(storage)
     app.include_router(
         create_dashboard_router(
             turn_reader, performance_reader, retrieval_quality_reader,
             prompt_quality_reader, topic_lifecycle_reader, cluster_dynamics_reader,
+            browse_reader,
         )
     )
     app.mount("/static", StaticFiles(directory=str(DASHBOARD_STATIC_DIR)), name="dashboard-static")
@@ -445,3 +448,124 @@ class TestClusterDynamics:
         response = client.get("/")
         assert response.status_code == 200
         assert '/cluster-dynamics"' in response.text
+
+
+class TestBrowseTopics:
+    def test_renders_empty_state(self, client: TestClient):
+        response = client.get("/topics")
+        assert response.status_code == 200
+        assert "No topics found" in response.text
+
+    def test_renders_and_filters(self, storage: MockStorage):
+        tid = storage.create_topic("Bike trip", peer_id="u1")
+        storage.close_topic(tid, "done")
+        storage.create_topic("Open one", peer_id="u2")
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/topics", params={"status": "closed", "peer_id": "u1"})
+        assert response.status_code == 200
+        assert "Bike trip" in response.text
+        assert "Open one" not in response.text
+
+    def test_empty_filter_param_is_not_a_literal_match(self, storage: MockStorage):
+        # A submitted-but-blank <select>/pagination link carries status=""
+        # over the wire — must behave like "no filter", not "status equals
+        # the empty string" (which would hide every topic).
+        storage.create_topic("Only topic", peer_id="u1")
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/topics", params={"status": "", "peer_id": ""})
+        assert response.status_code == 200
+        assert "Only topic" in response.text
+
+
+class TestBrowseFacts:
+    def test_renders_empty_state(self, client: TestClient):
+        response = client.get("/facts")
+        assert response.status_code == 200
+        assert "No facts found" in response.text
+
+    def test_renders_and_filters(self, storage: MockStorage):
+        storage.facts.append(Fact(peer_id="u1", category="basic", key="name", value="Alex", source="user"))
+        storage.facts.append(Fact(peer_id="u1", category="work", key="role", value="engineer", source="ai"))
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/facts", params={"category": "work"})
+        assert response.status_code == 200
+        assert "engineer" in response.text
+        assert "Alex" not in response.text
+
+    def test_pagination_link_carries_filter_and_page(self, storage: MockStorage):
+        for i in range(60):
+            storage.facts.append(Fact(peer_id="u1", category="basic", key=f"k{i}", value="v", source="user"))
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/facts", params={"category": "basic"})
+        assert response.status_code == 200
+        assert "Page 1 of 2 (60 total)" in response.text
+        assert 'href="http://testserver/facts?category=basic&amp;page=2"' in response.text
+
+
+class TestBrowseMemoryItems:
+    def test_renders_empty_state(self, client: TestClient):
+        response = client.get("/memory-items")
+        assert response.status_code == 200
+        assert "No memory items found" in response.text
+
+    def test_renders_and_filters(self, storage: MockStorage):
+        t1 = storage.create_topic("First", peer_id="u1")
+        t2 = storage.create_topic("Second", peer_id="u1")
+        storage.store_memory_item(MemoryItem(
+            content="a fact", item_type="fact", source_peer="u1", subject_peer="u1",
+            attribution_type="self_statement", topic_id=t1,
+        ))
+        storage.store_memory_item(MemoryItem(
+            content="other topic", item_type="fact", source_peer="u1", subject_peer="u1",
+            attribution_type="self_statement", topic_id=t2,
+        ))
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/memory-items", params={"topic_id": t1})
+        assert response.status_code == 200
+        assert "a fact" in response.text
+        assert "other topic" not in response.text
+
+
+class TestBrowseClusters:
+    def test_renders_empty_state(self, client: TestClient):
+        response = client.get("/clusters")
+        assert response.status_code == 200
+        assert "No clusters found" in response.text
+
+    def test_renders_and_filters(self, storage: MockStorage):
+        storage.create_cluster("u1", "Bike", "a summary")
+        storage.create_cluster("u2", "Trip", "another summary")
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/clusters", params={"peer_id": "u1"})
+        assert response.status_code == 200
+        assert "Bike" in response.text
+        assert "Trip" not in response.text
+
+
+class TestNav:
+    def test_nav_shows_browse_and_insights_groups(self, client: TestClient):
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "Browse</span>" in response.text
+        assert "Insights</span>" in response.text
+        assert '/topics"' in response.text
+        assert '/facts"' in response.text
+        assert '/memory-items"' in response.text
+        assert '/clusters"' in response.text
+
+    def test_current_page_link_marked_active(self, client: TestClient):
+        response = client.get("/topics")
+        assert response.status_code == 200
+        assert 'class="nav-link active"' in response.text

@@ -611,6 +611,34 @@ class TestGetClosedTopicsSince:
         assert store.get_closed_topics_since(datetime(2020, 1, 1, tzinfo=UTC)) == []
 
 
+class TestListTopics:
+    def test_returns_every_topic_regardless_of_status(self, store: StorageProvider):
+        open_id = store.create_topic("Open", summary="", peer_id="user")
+        closed_id = store.create_topic("Closed", summary="", peer_id="user")
+        store.close_topic(closed_id, "wrapped up")
+
+        results = store.list_topics()
+
+        assert {t["id"] for t in results} == {open_id, closed_id}
+
+    def test_filters_by_status(self, store: StorageProvider):
+        open_id = store.create_topic("Open", summary="", peer_id="user")
+        closed_id = store.create_topic("Closed", summary="", peer_id="user")
+        store.close_topic(closed_id, "wrapped up")
+
+        assert [t["id"] for t in store.list_topics(status="closed")] == [closed_id]
+        assert [t["id"] for t in store.list_topics(status="active")] == [open_id]
+
+    def test_filters_by_peer_id(self, store: StorageProvider):
+        u1 = store.create_topic("Mine", summary="", peer_id="u1")
+        store.create_topic("Theirs", summary="", peer_id="u2")
+
+        assert [t["id"] for t in store.list_topics(peer_id="u1")] == [u1]
+
+    def test_empty_when_no_topics(self, store: StorageProvider):
+        assert store.list_topics() == []
+
+
 class TestClusters:
     def test_create_and_get_cluster(self, store: StorageProvider):
         cid = store.create_cluster("user", "Bike purchase", "User wants a new bike", tags=["bike"])
@@ -700,6 +728,23 @@ class TestClusters:
         events = tracer.events_of_type("retrieval_scoring_summary")
         assert len(events) == 1
         assert events[0]["payload"]["candidate_type"] == "cluster"
+
+
+class TestListClusters:
+    def test_returns_clusters_from_every_peer(self, store: StorageProvider):
+        c1 = store.create_cluster("u1", "Bike", "summary")
+        c2 = store.create_cluster("u2", "Trip", "summary")
+
+        assert {c["id"] for c in store.list_clusters()} == {c1, c2}
+
+    def test_filters_by_peer_id(self, store: StorageProvider):
+        mine = store.create_cluster("u1", "Bike", "summary")
+        store.create_cluster("u2", "Trip", "summary")
+
+        assert [c["id"] for c in store.list_clusters(peer_id="u1")] == [mine]
+
+    def test_empty_when_no_clusters(self, store: StorageProvider):
+        assert store.list_clusters() == []
 
 
 class TestSearchClusterCandidates:
@@ -1178,6 +1223,54 @@ class TestMemoryItemsByTopic:
     def test_empty_when_topic_has_no_items(self, store: StorageProvider):
         topic_id = store.create_topic("Empty", summary="", peer_id="user")
         assert store.get_memory_items_by_topic(topic_id) == []
+
+
+class TestListMemoryItems:
+    def test_returns_every_item_across_topics(self, store: StorageProvider):
+        t1 = store.create_topic("First", summary="", peer_id="user")
+        t2 = store.create_topic("Second", summary="", peer_id="user")
+        id1 = store.store_memory_item(MemoryItem(
+            content="a", item_type="fact", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=t1,
+        ))
+        id2 = store.store_memory_item(MemoryItem(
+            content="b", item_type="essence", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=t2,
+        ))
+
+        assert {item.id for item in store.list_memory_items()} == {id1, id2}
+
+    def test_filters_by_item_type(self, store: StorageProvider):
+        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        fact_id = store.store_memory_item(MemoryItem(
+            content="a fact", item_type="fact", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+        store.store_memory_item(MemoryItem(
+            content="an essence", item_type="essence", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+
+        results = store.list_memory_items(item_type="fact")
+        assert [item.id for item in results] == [fact_id]
+
+    def test_filters_by_topic_id(self, store: StorageProvider):
+        t1 = store.create_topic("First", summary="", peer_id="user")
+        t2 = store.create_topic("Second", summary="", peer_id="user")
+        id1 = store.store_memory_item(MemoryItem(
+            content="a", item_type="fact", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=t1,
+        ))
+        store.store_memory_item(MemoryItem(
+            content="b", item_type="fact", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=t2,
+        ))
+
+        results = store.list_memory_items(topic_id=t1)
+        assert [item.id for item in results] == [id1]
+
+    def test_empty_when_no_items(self, store: StorageProvider):
+        assert store.list_memory_items() == []
 
 
 class TestScoreBreakdownCharacterization:

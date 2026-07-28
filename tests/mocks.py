@@ -233,7 +233,8 @@ class MockStorage:
         tid = self._next_topic_id
         self._next_topic_id += 1
         self.topics[tid] = {"id": tid, "label": label, "summary": summary, "tags": tags or [],
-                           "status": "active", "peer_id": peer_id, "session_id": session_id}
+                           "status": "active", "peer_id": peer_id, "session_id": session_id,
+                           "cluster_id": None, "created_at": None, "closed_at": None, "message_count": 0}
         return tid
 
     def get_topic(self, topic_id: int) -> dict | None:
@@ -291,6 +292,16 @@ class MockStorage:
         # message_count values set them directly on self.topics[id].
         return [t for t in self.topics.values() if t["status"] == "closed"]
 
+    def list_topics(self, status: str | None = None, peer_id: str | None = None) -> list[dict]:
+        # Same "manually controllable double" philosophy as
+        # get_closed_topics_since — filters, doesn't try to replicate
+        # real ORDER BY created_at semantics.
+        return [
+            t for t in self.topics.values()
+            if (status is None or t["status"] == status)
+            and (peer_id is None or t.get("peer_id") == peer_id)
+        ]
+
     def create_cluster(self, peer_id: str, label: str, summary: str,
                        tags: list[str] | None = None, embedding: list[float] | None = None) -> int:
         cid = self._next_cluster_id
@@ -298,6 +309,7 @@ class MockStorage:
         self.clusters[cid] = {
             "id": cid, "peer_id": peer_id, "label": label, "summary": summary,
             "tags": tags or [], "topic_count": 0, "embedding": embedding,
+            "created_at": None, "updated_at": None,
         }
         return cid
 
@@ -339,6 +351,9 @@ class MockStorage:
     def get_clusters(self, peer_id: str) -> list[dict]:
         return [c for c in self.clusters.values() if c["peer_id"] == peer_id]
 
+    def list_clusters(self, peer_id: str | None = None) -> list[dict]:
+        return [c for c in self.clusters.values() if peer_id is None or c["peer_id"] == peer_id]
+
     def store_memory_item(self, item: MemoryItem) -> int:
         self.stored_items.append(item)
         item.id = len(self.stored_items)
@@ -370,6 +385,13 @@ class MockStorage:
 
     def get_memory_items_by_topic(self, topic_id: int) -> list[MemoryItem]:
         return [item for item in self.stored_items if item.topic_id == topic_id]
+
+    def list_memory_items(self, item_type: str | None = None, topic_id: int | None = None) -> list[MemoryItem]:
+        return [
+            item for item in self.stored_items
+            if (item_type is None or item.item_type == item_type)
+            and (topic_id is None or item.topic_id == topic_id)
+        ]
 
     def store_message(self, turn_id, role, content, peer_id, topic_id=None, request_id=None):
         msg = {

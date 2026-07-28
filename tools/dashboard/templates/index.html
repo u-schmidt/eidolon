@@ -12,6 +12,18 @@
     <a href="{{ url_for('dashboard_turns_list') }}">Browse turns &rarr;</a>
   </div>
 
+  <div class="card">
+    <h2 style="margin-top: 0;">Browse stored data</h2>
+    <p>Plain paginated/filterable views over the four core tables — for when you just want to look
+      at a row, not read an aggregate.</p>
+    <p>
+      <a href="{{ url_for('dashboard_topics') }}">Topics</a> &middot;
+      <a href="{{ url_for('dashboard_facts') }}">Facts</a> &middot;
+      <a href="{{ url_for('dashboard_memory_items') }}">Memory Items</a> &middot;
+      <a href="{{ url_for('dashboard_clusters') }}">Clusters</a>
+    </p>
+  </div>
+
   <h2>Recent activity</h2>
   {% if not recent_turns %}
     <p class="muted">No turns found. Run a few turns through Eidolon first.</p>

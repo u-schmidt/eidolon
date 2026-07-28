@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pagination with context %}
+{% block title %}Eidolon — Clusters{% endblock %}
+{% block content %}
+  <h1>Clusters</h1>
+  <p class="muted">Every stored topic cluster, newest first — always-on, straight from the <code>topic_clusters</code> table.</p>
+
+  <form method="get" action="{{ url_for('dashboard_clusters') }}" class="row" style="margin-bottom: 1rem; align-items: center;">
+    <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
+    <button type="submit">Filter</button>
+  </form>
+
+  {% if not page.items %}
+    <p class="muted">No clusters found{% if peer_id %} matching this filter{% endif %}.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Label</th><th>Peer</th><th>Summary</th><th>Topics</th><th>Created</th></tr>
+      </thead>
+      <tbody>
+        {% for c in page.items %}
+        <tr>
+          <td class="muted">#{{ c.id }}</td>
+          <td>{{ c.label or "—" }}</td>
+          <td class="muted">{{ c.peer_id }}</td>
+          <td>{{ c.summary_preview or "—" }}</td>
+          <td>{{ c.topic_count }}</td>
+          <td class="muted">{{ c.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {{ pagination('dashboard_clusters', page, {'peer_id': peer_id}) }}
+  {% endif %}
+{% endblock %}

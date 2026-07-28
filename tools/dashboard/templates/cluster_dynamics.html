@@ -1,17 +1,11 @@
 {% extends "base.html" %}
+{% from "_macros.html" import window_selector with context %}
 {% block title %}Eidolon — Cluster Dynamics{% endblock %}
 {% block content %}
   <h1>Cluster Dynamics</h1>
   <p class="muted">Sourced from <code>cluster_consolidation</code> debug trace events — only available for turns that ran with <code>debug.enabled: true</code>.</p>
 
-  <form method="get" action="{{ url_for('dashboard_cluster_dynamics') }}" class="row" style="margin-bottom: 1.5rem; align-items: center;">
-    <label for="window" class="muted">Window</label>
-    <select name="window" id="window" onchange="this.form.submit()">
-      {% for w in windows %}
-      <option value="{{ w }}"{{ ' selected' if w == window }}>{{ w }}</option>
-      {% endfor %}
-    </select>
-  </form>
+  {{ window_selector('dashboard_cluster_dynamics', window, windows) }}
 
   {% if summary.decisions.total_calls == 0 %}
     <div class="banner">

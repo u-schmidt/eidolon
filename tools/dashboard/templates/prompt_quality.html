@@ -1,17 +1,11 @@
 {% extends "base.html" %}
+{% from "_macros.html" import window_selector with context %}
 {% block title %}Eidolon — Prompt Quality{% endblock %}
 {% block content %}
   <h1>Prompt &amp; Pipeline Quality</h1>
   <p class="muted">Sourced from <code>topic_detection</code>/<code>topic_relabel</code>/<code>extraction</code>/<code>fact_consolidation</code>/<code>fact_correction</code> debug trace events — only available for turns that ran with <code>debug.enabled: true</code>.</p>
 
-  <form method="get" action="{{ url_for('dashboard_prompt_quality') }}" class="row" style="margin-bottom: 1.5rem; align-items: center;">
-    <label for="window" class="muted">Window</label>
-    <select name="window" id="window" onchange="this.form.submit()">
-      {% for w in windows %}
-      <option value="{{ w }}"{{ ' selected' if w == window }}>{{ w }}</option>
-      {% endfor %}
-    </select>
-  </form>
+  {{ window_selector('dashboard_prompt_quality', window, windows) }}
 
   {% if summary.total_topic_detection_calls == 0 %}
     <div class="banner">

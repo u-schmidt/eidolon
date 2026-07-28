@@ -1,0 +1,39 @@
+{% macro window_selector(route_name, window, windows) %}
+<form method="get" action="{{ url_for(route_name) }}" class="row" style="margin-bottom: 1rem; align-items: center;">
+  <label for="window" class="muted">Window</label>
+  <select name="window" id="window" onchange="this.form.submit()">
+    {% for w in windows %}
+    <option value="{{ w }}"{{ ' selected' if w == window }}>{{ w }}</option>
+    {% endfor %}
+  </select>
+</form>
+{% endmacro %}
+
+{# url_for() only resolves *path* params (e.g. Turn Detail's
+   {request_id}) — /topics etc. have none, so the query string (page +
+   active filters) has to be built by hand here rather than passed as
+   url_for() kwargs. #}
+{% macro pagination(route_name, page, extra_params) %}
+{% set base = url_for(route_name) %}
+{% set ns = namespace(params={}) %}
+{% for k, v in extra_params.items() %}
+  {% if v is not none and v != "" %}{% set _ = ns.params.update({k: v}) %}{% endif %}
+{% endfor %}
+<div class="row" style="align-items: center; margin-top: 1rem;">
+  {% if page.has_prev %}
+    {% set prev_qs = dict(ns.params) %}
+    {% set _ = prev_qs.update({'page': page.page - 1}) %}
+    <a href="{{ base }}?{{ prev_qs | urlencode }}">&larr; Prev</a>
+  {% else %}
+    <span class="muted">&larr; Prev</span>
+  {% endif %}
+  <span class="muted">Page {{ page.page }} of {{ page.total_pages }} ({{ page.total }} total)</span>
+  {% if page.has_next %}
+    {% set next_qs = dict(ns.params) %}
+    {% set _ = next_qs.update({'page': page.page + 1}) %}
+    <a href="{{ base }}?{{ next_qs | urlencode }}">Next &rarr;</a>
+  {% else %}
+    <span class="muted">Next &rarr;</span>
+  {% endif %}
+</div>
+{% endmacro %}

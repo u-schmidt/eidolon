@@ -1,17 +1,11 @@
 {% extends "base.html" %}
+{% from "_macros.html" import window_selector with context %}
 {% block title %}Eidolon — Retrieval Quality{% endblock %}
 {% block content %}
   <h1>Retrieval Quality &amp; Weighting</h1>
   <p class="muted">Sourced from <code>retrieval_scoring_summary</code>/<code>context_retrieval</code> debug trace events — only available for turns that ran with <code>debug.enabled: true</code>.</p>
 
-  <form method="get" action="{{ url_for('dashboard_retrieval_quality') }}" class="row" style="margin-bottom: 1.5rem; align-items: center;">
-    <label for="window" class="muted">Window</label>
-    <select name="window" id="window" onchange="this.form.submit()">
-      {% for w in windows %}
-      <option value="{{ w }}"{{ ' selected' if w == window }}>{{ w }}</option>
-      {% endfor %}
-    </select>
-  </form>
+  {{ window_selector('dashboard_retrieval_quality', window, windows) }}
 
   {% if summary.total_events == 0 %}
     <div class="banner">

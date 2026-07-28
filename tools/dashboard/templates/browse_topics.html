@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pagination with context %}
+{% block title %}Eidolon — Topics{% endblock %}
+{% block content %}
+  <h1>Topics</h1>
+  <p class="muted">Every stored topic, newest first — always-on, straight from the <code>topics</code> table.</p>
+
+  <form method="get" action="{{ url_for('dashboard_topics') }}" class="row" style="margin-bottom: 1rem; align-items: center;">
+    <select name="status">
+      <option value=""{{ ' selected' if not status }}>All statuses</option>
+      <option value="active"{{ ' selected' if status == 'active' }}>Active</option>
+      <option value="closed"{{ ' selected' if status == 'closed' }}>Closed</option>
+    </select>
+    <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
+    <button type="submit">Filter</button>
+  </form>
+
+  {% if not page.items %}
+    <p class="muted">No topics found{% if status or peer_id %} matching this filter{% endif %}.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Label</th><th>Status</th><th>Peer</th><th>Cluster</th><th>Messages</th><th>Created</th><th>Closed</th></tr>
+      </thead>
+      <tbody>
+        {% for t in page.items %}
+        <tr>
+          <td class="muted">#{{ t.id }}</td>
+          <td>{{ t.label or "—" }}</td>
+          <td>
+            {% if t.status == 'closed' %}
+              <span class="badge neutral">closed</span>
+            {% else %}
+              <span class="badge ok">active</span>
+            {% endif %}
+          </td>
+          <td class="muted">{{ t.peer_id }}</td>
+          <td class="muted">{{ t.cluster_id if t.cluster_id is not none else "—" }}</td>
+          <td>{{ t.message_count }}</td>
+          <td class="muted">{{ t.created_at }}</td>
+          <td class="muted">{{ t.closed_at or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {{ pagination('dashboard_topics', page, {'status': status, 'peer_id': peer_id}) }}
+  {% endif %}
+{% endblock %}

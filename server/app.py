@@ -43,6 +43,7 @@ from core.eidolon_client import EidolonClient
 from core.models import ContextBundle, EnvironmentSnapshot, PrefetchResult, TopicChange
 from server.auth import require_dashboard_password, require_token
 from tools.dashboard.app import DASHBOARD_STATIC_DIR, create_dashboard_router
+from tools.dashboard.browse_reader import BrowseReader
 from tools.dashboard.cluster_dynamics_reader import ClusterDynamicsReader
 from tools.dashboard.performance_reader import PerformanceReader
 from tools.dashboard.prompt_quality_reader import PromptQualityReader
@@ -59,6 +60,7 @@ def create_app(
     prompt_quality_reader: PromptQualityReader | None = None,
     topic_lifecycle_reader: TopicLifecycleReader | None = None,
     cluster_dynamics_reader: ClusterDynamicsReader | None = None,
+    browse_reader: BrowseReader | None = None,
 ) -> FastAPI:
     """Build the FastAPI app wrapping an already-constructed ``EidolonClient``.
 
@@ -68,11 +70,12 @@ def create_app(
 
     ``turn_reader``/``performance_reader``/``retrieval_quality_reader``/
     ``prompt_quality_reader``/``topic_lifecycle_reader``/
-    ``cluster_dynamics_reader`` are optional together: when given, the
-    dashboard is mounted under ``/dashboard``; when omitted (the default
-    — e.g. tests that only care about the RPC contract), the app is
-    exactly the RPC API and nothing else. Any one given without the
-    others is a caller bug, not a state worth validating for.
+    ``cluster_dynamics_reader``/``browse_reader`` are optional together:
+    when given, the dashboard is mounted under ``/dashboard``; when
+    omitted (the default — e.g. tests that only care about the RPC
+    contract), the app is exactly the RPC API and nothing else. Any one
+    given without the others is a caller bug, not a state worth
+    validating for.
     """
     app = FastAPI(title="Eidolon")
 
@@ -201,11 +204,13 @@ def create_app(
         and prompt_quality_reader is not None
         and topic_lifecycle_reader is not None
         and cluster_dynamics_reader is not None
+        and browse_reader is not None
     ):
         app.include_router(
             create_dashboard_router(
                 turn_reader, performance_reader, retrieval_quality_reader,
                 prompt_quality_reader, topic_lifecycle_reader, cluster_dynamics_reader,
+                browse_reader,
             ),
             prefix="/dashboard",
             dependencies=[Depends(require_dashboard_password)],

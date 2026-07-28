@@ -57,11 +57,16 @@
       padding: 0.35rem 0.8rem; cursor: pointer;
     }
     nav.top-nav {
-      display: flex; gap: 1.25rem; align-items: baseline; margin-bottom: 1.25rem;
+      display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.25rem;
       padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
+    }
+    nav.top-nav .nav-group { display: flex; gap: 1.25rem; align-items: baseline; flex-wrap: wrap; }
+    nav.top-nav .nav-group-label {
+      color: var(--muted); font-size: 0.75rem; text-transform: uppercase; margin-right: 0.15rem;
     }
     nav.top-nav a.nav-link { color: var(--fg); font-weight: 500; }
     nav.top-nav a.nav-link:hover { color: var(--accent); }
+    nav.top-nav a.nav-link.active { color: var(--accent); }
 
     .detail-header {
       position: sticky; top: 0; z-index: 1;
@@ -81,15 +86,26 @@
   </style>
 </head>
 <body>
+  {% set current_route = request.scope.get('route').name if request.scope.get('route') else '' %}
   <nav class="top-nav">
     <strong>Eidolon Dashboard</strong>
-    <a class="nav-link" href="{{ url_for('dashboard_index') }}">Overview</a>
-    <a class="nav-link" href="{{ url_for('dashboard_turns_list') }}">Turns</a>
-    <a class="nav-link" href="{{ url_for('dashboard_performance') }}">Performance</a>
-    <a class="nav-link" href="{{ url_for('dashboard_retrieval_quality') }}">Retrieval Quality</a>
-    <a class="nav-link" href="{{ url_for('dashboard_prompt_quality') }}">Prompt Quality</a>
-    <a class="nav-link" href="{{ url_for('dashboard_topic_lifecycle') }}">Topic Lifecycle</a>
-    <a class="nav-link" href="{{ url_for('dashboard_cluster_dynamics') }}">Cluster Dynamics</a>
+    <div class="nav-group">
+      <span class="nav-group-label">Browse</span>
+      <a class="nav-link{{ ' active' if current_route == 'dashboard_index' }}" href="{{ url_for('dashboard_index') }}">Overview</a>
+      <a class="nav-link{{ ' active' if current_route == 'dashboard_turns_list' }}" href="{{ url_for('dashboard_turns_list') }}">Turns</a>
+      <a class="nav-link{{ ' active' if current_route == 'dashboard_topics' }}" href="{{ url_for('dashboard_topics') }}">Topics</a>
+      <a class="nav-link{{ ' active' if current_route == 'dashboard_facts' }}" href="{{ url_for('dashboard_facts') }}">Facts</a>
+      <a class="nav-link{{ ' active' if current_route == 'dashboard_memory_items' }}" href="{{ url_for('dashboard_memory_items') }}">Memory Items</a>
+      <a class="nav-link{{ ' active' if current_route == 'dashboard_clusters' }}" href="{{ url_for('dashboard_clusters') }}">Clusters</a>
+    </div>
+    <div class="nav-group">
+      <span class="nav-group-label">Insights</span>
+      <a class="nav-link{{ ' active' if current_route == 'dashboard_performance' }}" href="{{ url_for('dashboard_performance') }}">Performance</a>
+      <a class="nav-link{{ ' active' if current_route == 'dashboard_retrieval_quality' }}" href="{{ url_for('dashboard_retrieval_quality') }}">Retrieval Quality</a>
+      <a class="nav-link{{ ' active' if current_route == 'dashboard_prompt_quality' }}" href="{{ url_for('dashboard_prompt_quality') }}">Prompt Quality</a>
+      <a class="nav-link{{ ' active' if current_route == 'dashboard_topic_lifecycle' }}" href="{{ url_for('dashboard_topic_lifecycle') }}">Topic Lifecycle</a>
+      <a class="nav-link{{ ' active' if current_route == 'dashboard_cluster_dynamics' }}" href="{{ url_for('dashboard_cluster_dynamics') }}">Cluster Dynamics</a>
+    </div>
   </nav>
   {% block content %}{% endblock %}
 </body>

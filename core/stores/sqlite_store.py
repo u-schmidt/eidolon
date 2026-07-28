@@ -413,6 +413,37 @@ class SqliteStore:
             })
         return result
 
+    def list_topics(self, status: str | None = None, peer_id: str | None = None) -> list[dict]:
+        query = (
+            "SELECT id, label, status, peer_id, cluster_id, created_at, closed_at, message_count "
+            "FROM topics"
+        )
+        conditions = []
+        params: list[str] = []
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status)
+        if peer_id is not None:
+            conditions.append("peer_id = ?")
+            params.append(peer_id)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY created_at DESC, id DESC"
+        rows = self._conn.execute(query, params).fetchall()
+        return [
+            {
+                "id": row[0],
+                "label": row[1],
+                "status": row[2],
+                "peer_id": row[3],
+                "cluster_id": row[4],
+                "created_at": row[5],
+                "closed_at": row[6],
+                "message_count": row[7],
+            }
+            for row in rows
+        ]
+
     def update_topic_embedding(
         self, topic_id: int, embedding: list[float]
     ) -> None:
@@ -600,6 +631,31 @@ class SqliteStore:
             "FROM topic_clusters WHERE peer_id = ? ORDER BY id",
             (peer_id,),
         ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "peer_id": row[1],
+                "label": row[2],
+                "summary": row[3],
+                "tags": json.loads(row[4]),
+                "topic_count": row[5],
+                "created_at": row[6],
+                "updated_at": row[7],
+            }
+            for row in rows
+        ]
+
+    def list_clusters(self, peer_id: str | None = None) -> list[dict]:
+        query = (
+            "SELECT id, peer_id, label, summary, tags, topic_count, created_at, updated_at "
+            "FROM topic_clusters"
+        )
+        params: list[str] = []
+        if peer_id is not None:
+            query += " WHERE peer_id = ?"
+            params.append(peer_id)
+        query += " ORDER BY created_at DESC, id DESC"
+        rows = self._conn.execute(query, params).fetchall()
         return [
             {
                 "id": row[0],
@@ -1122,6 +1178,31 @@ class SqliteStore:
             "FROM memory_items WHERE topic_id = ? ORDER BY id ASC",
             (topic_id,),
         ).fetchall()
+        return [
+            MemoryItem(
+                id=r[0], content=r[1], item_type=r[2], source_peer=r[3], subject_peer=r[4],
+                attribution_type=r[5], topic_id=r[6], message_id=r[7], timestamp=r[8],
+            )
+            for r in rows
+        ]
+
+    def list_memory_items(self, item_type: str | None = None, topic_id: int | None = None) -> list[MemoryItem]:
+        query = (
+            "SELECT id, content, item_type, source_peer, subject_peer, "
+            "attribution_type, topic_id, message_id, created_at FROM memory_items"
+        )
+        conditions = []
+        params: list = []
+        if item_type is not None:
+            conditions.append("item_type = ?")
+            params.append(item_type)
+        if topic_id is not None:
+            conditions.append("topic_id = ?")
+            params.append(topic_id)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY id DESC"
+        rows = self._conn.execute(query, params).fetchall()
         return [
             MemoryItem(
                 id=r[0], content=r[1], item_type=r[2], source_peer=r[3], subject_peer=r[4],

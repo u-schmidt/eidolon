@@ -1,17 +1,11 @@
 {% extends "base.html" %}
+{% from "_macros.html" import window_selector with context %}
 {% block title %}Eidolon — Performance{% endblock %}
 {% block content %}
   <h1>Performance &amp; Reliability</h1>
   <p class="muted">Always-on — sourced from <code>events</code>/<code>llm_calls</code>/<code>embedding_calls</code>, no debug tracing needed.</p>
 
-  <form method="get" action="{{ url_for('dashboard_performance') }}" class="row" style="margin-bottom: 1.5rem; align-items: center;">
-    <label for="window" class="muted">Window</label>
-    <select name="window" id="window" onchange="this.form.submit()">
-      {% for w in windows %}
-      <option value="{{ w }}"{{ ' selected' if w == window }}>{{ w }}</option>
-      {% endfor %}
-    </select>
-  </form>
+  {{ window_selector('dashboard_performance', window, windows) }}
 
   <h2>Latency by call type</h2>
   {% if not summary.call_type_stats %}

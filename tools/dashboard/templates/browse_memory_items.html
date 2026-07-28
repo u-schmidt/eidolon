@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pagination with context %}
+{% block title %}Eidolon — Memory Items{% endblock %}
+{% block content %}
+  <h1>Memory Items</h1>
+  <p class="muted">Every extracted memory item, newest first — always-on, straight from the <code>memory_items</code> table.</p>
+
+  <form method="get" action="{{ url_for('dashboard_memory_items') }}" class="row" style="margin-bottom: 1rem; align-items: center;">
+    <select name="item_type">
+      <option value=""{{ ' selected' if not item_type }}>All types</option>
+      <option value="essence"{{ ' selected' if item_type == 'essence' }}>essence</option>
+      <option value="fact"{{ ' selected' if item_type == 'fact' }}>fact</option>
+      <option value="surprise"{{ ' selected' if item_type == 'surprise' }}>surprise</option>
+      <option value="feeling"{{ ' selected' if item_type == 'feeling' }}>feeling</option>
+    </select>
+    <input type="text" name="topic_id" value="{{ topic_id if topic_id is not none else '' }}" placeholder="filter by topic_id">
+    <button type="submit">Filter</button>
+  </form>
+
+  {% if not page.items %}
+    <p class="muted">No memory items found{% if item_type or topic_id %} matching this filter{% endif %}.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Type</th><th>Content</th><th>Source</th><th>Subject</th><th>Attribution</th><th>Topic</th><th>Created</th></tr>
+      </thead>
+      <tbody>
+        {% for i in page.items %}
+        <tr>
+          <td class="muted">#{{ i.id }}</td>
+          <td><span class="badge neutral">{{ i.item_type }}</span></td>
+          <td>{{ i.content }}</td>
+          <td class="muted">{{ i.source_peer }}</td>
+          <td class="muted">{{ i.subject_peer }}</td>
+          <td class="muted">{{ i.attribution_type }}</td>
+          <td class="muted">{{ i.topic_id if i.topic_id is not none else "—" }}</td>
+          <td class="muted">{{ i.timestamp }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {{ pagination('dashboard_memory_items', page, {'item_type': item_type, 'topic_id': topic_id}) }}
+  {% endif %}
+{% endblock %}

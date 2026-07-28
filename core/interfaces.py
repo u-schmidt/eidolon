@@ -252,11 +252,34 @@ class StorageProvider(Protocol):
         """
         ...
 
+    def list_topics(self, status: str | None = None, peer_id: str | None = None) -> list[dict]:
+        """Return every topic across every peer, newest first, optionally
+        filtered by ``status`` (``'active'``/``'closed'``) and/or
+        ``peer_id``.
+
+        Bulk, unscoped, no time constraint — none of the existing
+        topic-read methods cover this: ``get_recent_topics`` is
+        recency-limited and unclustered-only, ``get_stale_active_topics``
+        is active-only, ``get_closed_topics_since`` is closed-and-time-
+        windowed. Powers the dashboard's topic browse page.
+        """
+        ...
+
     # ── Topic Clusters ─────────────────────────────────────
 
     def get_clusters(self, peer_id: str) -> list[dict]:
         """Return every cluster for ``peer_id``, unscored — the full set,
         not just ones relevant to some query. Mirrors ``get_facts``."""
+        ...
+
+    def list_clusters(self, peer_id: str | None = None) -> list[dict]:
+        """Return every cluster, across every peer or one peer's if
+        given, newest first.
+
+        Bulk, optionally-scoped counterpart to ``get_clusters`` (always
+        ``peer_id``-required) — mirrors ``get_all_facts``'s relationship
+        to ``get_facts``. Powers the dashboard's cluster browse page.
+        """
         ...
 
     def create_cluster(
@@ -434,6 +457,16 @@ class StorageProvider(Protocol):
         No join needed — memory items carry their own ``topic_id`` column,
         set at extraction time. Feeds both ``TopicSummarizer``'s primary
         summarization input and the ``eidolon_inspect_topic`` tool.
+        """
+        ...
+
+    def list_memory_items(self, item_type: str | None = None, topic_id: int | None = None) -> list[MemoryItem]:
+        """Return every memory item across every peer/topic, newest
+        first, optionally filtered by ``item_type``/``topic_id``.
+
+        Bulk, unscoped counterpart to ``get_memory_items_by_topic``
+        (topic-scoped) and ``search_memory_items`` (relevance-ranked, not
+        a plain listing). Powers the dashboard's memory-item browse page.
         """
         ...
 
