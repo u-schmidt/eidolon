@@ -144,6 +144,26 @@ consolidation. 400+ tests.
   everything required. Directly (if partially) answers two of the
   "Ideas / open questions" below — see the "insights/monitoring tool"
   and "usefulness scoring" entries.
+- ✅ **Dashboard browse pages + presentation polish** — a follow-up to
+  the insight pages above: those only ever summarize topics/facts/
+  memory items/clusters, never let you look at a row directly, so four
+  new pages (`/topics`, `/facts`, `/memory-items`, `/clusters`) add
+  plain paginated/filterable table views, backed by three new bulk
+  `StorageProvider` reads (`list_topics`/`list_memory_items`/
+  `list_clusters`) and a `BrowseReader` composition class. Landed
+  alongside a nav/presentation pass — nav grouped into "Browse"/
+  "Insights" with an active-page indicator, a shared `_macros.html`
+  (`window_selector()`/`pagination()`), breadcrumbs, htmx-driven
+  pagination/filtering, sparkline/bar charts, and landing-page stat
+  cards. A follow-up pass then fixed several regressions the polish
+  commit introduced (a filter-input crash, `.timeago` relative
+  timestamps silently breaking after any htmx swap, pagination/filters
+  not updating the browser URL) and replaced the landing page's turn
+  count — originally `len(get_recent_turns(limit=10_000))`, fetching up
+  to 10k full message rows just to count them — with a real
+  `StorageProvider.count_recent_turns()`. See
+  [`tools/dashboard/README.md`](tools/dashboard/README.md)'s "Browse
+  pages" section and "Adding a new page" for the two page shapes.
 - 🚧 **Fact consolidation hardening** — `FactConsolidator` already ships
   and works (Phase 1); ongoing work is about improving edge cases like
   the boundary between "essence" and "fact" classification during
@@ -316,12 +336,16 @@ lost. Pick up and scope properly when one of these becomes a priority.
 - **The insights/monitoring tool, revisited** — **shipped, in a
   different shape than originally sketched here**: not a standalone tool
   talking to `eidolon-server` over `EidolonClient` or connecting to
-  Postgres directly, but six pages mounted directly on `eidolon-server`
-  itself under `/dashboard` (see the shipped dashboard entry above) —
-  simpler, since it reuses the one process that already owns the only
-  live write path through core, rather than standing up a second
-  consumer of the storage layer. Covers most of what this entry
-  originally asked for.
+  Postgres directly, but pages mounted directly on `eidolon-server`
+  itself under `/dashboard` (see the two shipped dashboard entries
+  above) — simpler, since it reuses the one process that already owns
+  the only live write path through core, rather than standing up a
+  second consumer of the storage layer. The browse pages in particular
+  directly answer the original catalogue's inventory-style questions
+  ("how many topics/facts/memory items exist right now," "which topics
+  are active vs. closed") that the six insight pages alone didn't cover
+  — those only ever summarize, never list a raw row. Covers most of
+  what this entry originally asked for.
 
 ## Shipped ahead of schedule
 

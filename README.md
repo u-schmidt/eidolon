@@ -362,7 +362,7 @@ It replays the turn's recorded `context_retrieval` event through `core/context_f
 
 ## Dashboard
 
-A small read-only web app (server-rendered Jinja2 + [htmx](https://htmx.org)) mounted on `eidolon-server` under `/dashboard` — six pages covering per-turn request replay, performance/reliability, retrieval quality & weighting, prompt/pipeline quality, topic lifecycle, and cluster dynamics. Each degrades gracefully between an always-on tier (real production data) and a richer debug-gated tier (full [Debug Tracing](#debug-tracing) payloads) rather than requiring `debug.enabled` outright.
+A small read-only web app (server-rendered Jinja2 + [htmx](https://htmx.org)) mounted on `eidolon-server` under `/dashboard` — per-turn request replay, four paginated/filterable browse views over topics/facts/memory items/clusters, and five aggregate reports (performance/reliability, retrieval quality & weighting, prompt/pipeline quality, topic lifecycle, cluster dynamics). Each degrades gracefully between an always-on tier (real production data) and a richer debug-gated tier (full [Debug Tracing](#debug-tracing) payloads) rather than requiring `debug.enabled` outright.
 
 ```bash
 EIDOLON_DASHBOARD_PASSWORD=... uv run python tools/serve.py --config eidolon.yaml
@@ -403,7 +403,7 @@ Both are configured in `pyproject.toml` and installed via the `dev` extra
 | Phase | Status | What |
 |---|---|---|
 | **Phase 1** | ✅ Complete | Core library, providers, config, CLI, Hermes adapter, debug tracing + TUI, batch facts consolidation, 419+ tests |
-| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage acceleration ✅, Postgres/pgvector storage backend ✅, core-as-a-service deployment mode ✅, six-page insight dashboard ✅, topic detection & summarization review, fact consolidation hardening — see [`ROADMAP.md`](ROADMAP.md); 1072+ tests |
+| **Phase 2** | 🚧 In progress | Quality/eval infrastructure ✅, recurring-topic clustering ✅, storage acceleration ✅, Postgres/pgvector storage backend ✅, core-as-a-service deployment mode ✅, insight dashboard ✅ (five aggregate reports + turn replay + four browse pages), topic detection & summarization review, fact consolidation hardening — see [`ROADMAP.md`](ROADMAP.md); 1131+ tests |
 | **Phase 3** | ⏳ TBD | Topic-Only Mode, production deployment, performance optimization |
 
 ## Roadmap
