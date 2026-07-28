@@ -622,6 +622,31 @@ class TestEidolonTracing:
         assert event["payload"]["new_topic_label"] == "Bello Features"
         assert event["payload"]["new_topic_id"] is not None
 
+    def test_prepare_context_records_prefetch_complete_event(self):
+        storage = MockStorage()
+        llm = MockLLM(detection_response="CONTINUE")
+        embedder = MockEmbedder()
+        tracer = SpyTracer()
+        eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
+
+        eidolon.prepare_context(
+            message="jep, mach weiter",
+            peer_id="user",
+            environment=EnvironmentSnapshot(),
+            active_topic_id=1,
+            session_id="sess1",
+            request_id="req1",
+        )
+
+        events = tracer.events_of_type("prefetch_complete")
+        assert len(events) == 1
+        event = events[0]
+        assert event["request_id"] == "req1"
+        assert event["session_id"] == "sess1"
+        assert event["duration_ms"] is not None
+        assert event["payload"]["message"] == "jep, mach weiter"
+        assert event["payload"]["topic_change_type"] == "CONTINUE"
+
     def test_detect_topic_honors_caller_supplied_request_id(self):
         storage = MockStorage()
         llm = MockLLM()

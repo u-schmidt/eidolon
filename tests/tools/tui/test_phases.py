@@ -19,6 +19,9 @@ class TestClassify:
     def test_context_retrieval_is_prefetch(self):
         assert classify(_event("context_retrieval")) == PREFETCH
 
+    def test_prefetch_complete_is_prefetch(self):
+        assert classify(_event("prefetch_complete")) == PREFETCH
+
     def test_embedding_retrieval_query_is_prefetch(self):
         assert classify(_event("embedding", purpose="retrieval_query")) == PREFETCH
 

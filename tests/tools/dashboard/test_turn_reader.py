@@ -92,8 +92,8 @@ class TestGet:
         assert detail.header.topic.label == "Gym talk"
 
         kinds = {(s.kind, s.label) for s in detail.skeleton_steps}
-        assert ("llm_call", "topic_detection") in kinds
-        assert ("event", "extraction") in kinds
+        assert ("llm_call", "Detect topic change") in kinds
+        assert ("event", "Extract memory fragments") in kinds
 
     def test_rich_mode_when_trace_data_present(self):
         reader, storage, metrics, trace = _build_turn_reader()
@@ -118,6 +118,79 @@ class TestGet:
         detail = reader.get("req1")
         assert detail is not None
         assert detail.header.topic is None
+
+
+class TestTimingWaterfall:
+    def test_phase_classification_and_offsets(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace.events["req1"] = [
+            {
+                "event_type": "prefetch_complete", "payload": {}, "duration_ms": 1000.0,
+                "session_id": None, "created_at": "2026-01-01T00:00:01.000000",
+            },
+            {
+                "event_type": "turn_complete", "payload": {}, "duration_ms": 500.0,
+                "session_id": None, "created_at": "2026-01-01T00:00:03.000000",
+            },
+        ]
+
+        detail = reader.get("req1")
+        assert detail is not None
+        prefetch_step = next(s for s in detail.trace_steps if s.event_type == "prefetch_complete")
+        sync_step = next(s for s in detail.trace_steps if s.event_type == "turn_complete")
+
+        assert prefetch_step.phase == "prefetch"
+        assert sync_step.phase == "sync_turn"
+        # prefetch_complete starts earliest (00:00:00.000) -> offset 0;
+        # turn_complete starts at 00:00:02.500 -> 2500ms after the anchor.
+        assert prefetch_step.start_offset_ms == 0.0
+        assert sync_step.start_offset_ms == 2500.0
+        # turn_complete: starts at +2500ms, runs 500ms -> ends at +3000ms,
+        # the latest end of any step, so that's the timeline scale.
+        assert detail.timeline_total_ms == 3000.0
+
+    def test_start_offset_none_when_created_at_unparseable(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace.events["req1"] = [
+            {"event_type": "topic_detection", "payload": {}, "duration_ms": 5.0,
+             "session_id": None, "created_at": "not-a-timestamp"},
+        ]
+
+        detail = reader.get("req1")
+        assert detail is not None
+        assert detail.trace_steps[0].start_offset_ms is None
+
+    def test_prefetch_and_sync_duration_pulled_from_wrapping_events(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace.events["req1"] = [
+            {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
+             "session_id": None, "created_at": "t1"},
+            {"event_type": "extraction", "payload": {}, "duration_ms": 999.0,
+             "session_id": None, "created_at": "t2"},
+            {"event_type": "turn_complete", "payload": {}, "duration_ms": 80.0,
+             "session_id": None, "created_at": "t3"},
+        ]
+
+        detail = reader.get("req1")
+        assert detail is not None
+        assert detail.prefetch_duration_ms == 120.0
+        assert detail.sync_duration_ms == 80.0
+
+    def test_prefetch_and_sync_duration_none_when_wrapping_events_absent(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace.events["req1"] = [
+            {"event_type": "topic_detection", "payload": {}, "duration_ms": 5.0,
+             "session_id": None, "created_at": "t1"},
+        ]
+
+        detail = reader.get("req1")
+        assert detail is not None
+        assert detail.prefetch_duration_ms is None
+        assert detail.sync_duration_ms is None
 
 
 class TestCandidateLabels:

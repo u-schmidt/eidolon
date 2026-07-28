@@ -87,3 +87,37 @@
   </svg>
 {% endif %}
 {% endmacro %}
+
+{# Timing waterfall — one thin horizontal bar per timed trace step,
+   x-positioned by start_offset_ms and sized by duration_ms, colored by
+   phase (prefetch = --accent, sync_turn = --accent2 — validated as a
+   colorblind-safe pair against this page's light/dark surfaces via the
+   dataviz skill's validate_palette.js). steps: list of objects with
+   .display_label/.duration_ms/.start_offset_ms/.phase, pre-filtered by
+   the caller to those with a non-none start_offset_ms. total_ms: the
+   x-axis scale (TurnDetail.timeline_total_ms) — the real max end time
+   across every timed step, not derived from the two phase totals (see
+   turn_reader.py's TurnDetail.timeline_total_ms docstring for why). #}
+{% macro waterfall_chart(steps, total_ms, width=640) %}
+{% if steps and total_ms and total_ms > 0 %}
+  {% set row_h = 22 %}
+  {% set bar_h = 16 %}
+  {% set height = (steps | length) * row_h %}
+  <svg width="{{ width }}" height="{{ height }}" viewBox="0 0 {{ width }} {{ height }}" class="waterfall" role="img" aria-label="Per-step timing waterfall">
+    {% for s in steps %}
+      {% set x = (s.start_offset_ms / total_ms * width) | round(1) %}
+      {% set w = (s.duration_ms / total_ms * width) | round(1) %}
+      {% set w = w if w >= 3 else 3 %}
+      {% set y = loop.index0 * row_h + (row_h - bar_h) / 2 %}
+      {% set color = 'var(--accent)' if s.phase == 'prefetch' else 'var(--accent2)' %}
+      <rect x="{{ x }}" y="{{ y }}" width="{{ w }}" height="{{ bar_h }}" rx="4" fill="{{ color }}">
+        <title>{{ s.display_label }} — {{ "%.1f"|format(s.duration_ms) }}ms, starts +{{ "%.0f"|format(s.start_offset_ms) }}ms</title>
+      </rect>
+    {% endfor %}
+  </svg>
+  <div class="row" style="gap: 1rem; margin-top: 0.4rem;">
+    <span class="muted"><span class="legend-swatch" style="background: var(--accent);"></span> Prefetch (before the AI responds)</span>
+    <span class="muted"><span class="legend-swatch" style="background: var(--accent2);"></span> Sync (after the AI responds)</span>
+  </div>
+{% endif %}
+{% endmacro %}

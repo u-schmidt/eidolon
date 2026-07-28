@@ -212,6 +212,7 @@ class Eidolon:
             second detect_topic() call, in one round trip either way.
         """
         request_id = request_id or _new_request_id()
+        prefetch_started = time.perf_counter()
 
         # 1. Detect topic change
         current_topic_summary = self._get_topic_summary(active_topic_id)
@@ -232,6 +233,18 @@ class Eidolon:
             active_topic_id=active_topic_id,
             request_id=request_id,
             session_id=session_id,
+        )
+
+        prefetch_duration_ms = (time.perf_counter() - prefetch_started) * 1000
+        self._tracer.record(
+            "prefetch_complete",
+            {
+                "message": message,
+                "peer_id": peer_id,
+                "topic_change_type": topic_change.type,
+                "topic_label": topic_change.label,
+            },
+            request_id=request_id, session_id=session_id, duration_ms=prefetch_duration_ms,
         )
 
         return PrefetchResult(topic_change=topic_change, bundle=bundle)

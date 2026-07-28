@@ -13,7 +13,9 @@ from __future__ import annotations
 PREFETCH = "prefetch"
 SYNC_TURN = "sync_turn"
 
-_PREFETCH_EVENT_TYPES = {"topic_detection", "retrieval_scoring_summary", "context_retrieval"}
+_PREFETCH_EVENT_TYPES = {
+    "topic_detection", "retrieval_scoring_summary", "context_retrieval", "prefetch_complete",
+}
 _SYNC_TURN_EVENT_TYPES = {
     "extraction", "fact_consolidation", "fact_correction", "topic_summarization",
     "turn_complete", "error",

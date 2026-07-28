@@ -36,6 +36,13 @@
       color-scheme: light dark;
       --bg: #ffffff; --fg: #1a1a1a; --muted: #6b7280; --border: #e5e7eb;
       --card: #f9fafb; --accent: #2563eb; --ok: #16a34a; --err: #dc2626;
+      /* Second categorical hue — prefetch (--accent) vs sync (--accent2) in
+         the turn-detail timing waterfall. Validated as a colorblind-safe
+         pair against both this file's light and dark surfaces (dataviz
+         skill's validate_palette.js — CVD/normal-vision ΔE and contrast all
+         pass); same "one hex for both themes" simplification --accent/--ok/
+         --err below already use, not a new pattern. */
+      --accent2: #d97706;
     }
     @media (prefers-color-scheme: dark) {
       :root { --bg: #14161a; --fg: #e5e7eb; --muted: #9ca3af; --border: #2a2d34; --card: #1c1f26; }
@@ -174,6 +181,11 @@
     }
     .sparkline-card h3 { font-size: 0.85rem; margin: 0 0 0.4rem; }
     .sparkline-card .sparkline { display: block; margin: 0 auto; }
+    .waterfall { display: block; }
+    .legend-swatch {
+      display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+      vertical-align: middle; margin-right: 0.3rem;
+    }
 
     /* dim stat/table content while an htmx request for it is in flight */
     .htmx-request .stat-grid,
@@ -186,7 +198,16 @@
       background: var(--bg); padding-top: 0.25rem; margin-bottom: 1rem;
     }
     .master-detail { display: flex; gap: 1rem; align-items: flex-start; }
-    .step-list { flex: 0 0 320px; display: flex; flex-direction: column; gap: 0.4rem; }
+    .step-list {
+      flex: 0 0 320px; display: flex; flex-direction: column; gap: 0.4rem;
+      /* Bounded + independently scrollable, not position: sticky (see
+         .detail-header's comment above for why a second sticky element
+         here would conflict with nav.top-nav) — this way the whole list
+         is always reachable without ever scrolling the page, so picking
+         a step near the bottom never leaves its detail off-screen above
+         the current scroll position. */
+      max-height: 70vh; overflow-y: auto; padding-right: 0.2rem;
+    }
     .step-list-item {
       display: block; width: 100%; text-align: left; cursor: pointer;
       background: var(--card); border: 1px solid var(--border); border-radius: 8px;

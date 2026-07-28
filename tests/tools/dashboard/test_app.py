@@ -230,6 +230,49 @@ class TestTurnDetail:
         assert response.status_code == 200
         assert "Bello Features" in response.text
 
+    def test_timing_headline_and_waterfall_render(self, storage: MockStorage):
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace = _FakeTraceReader({
+            "req1": [
+                {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
+                 "session_id": None, "created_at": "2026-01-01T00:00:01.000000"},
+                {"event_type": "turn_complete", "payload": {}, "duration_ms": 80.0,
+                 "session_id": None, "created_at": "2026-01-01T00:00:03.000000"},
+            ],
+        })
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/turns/req1")
+        assert response.status_code == 200
+        assert "120ms" in response.text
+        assert "80ms" in response.text
+        assert "200ms" in response.text  # total
+        assert "<svg" in response.text
+        assert "Not available for this turn" not in response.text
+
+    def test_timing_degrades_gracefully_without_wrapping_events(self, storage: MockStorage):
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace = _FakeTraceReader({
+            "req1": [
+                {"event_type": "topic_detection", "payload": {}, "duration_ms": 5.0,
+                 "session_id": None, "created_at": "t1"},
+            ],
+        })
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/turns/req1")
+        assert response.status_code == 200
+        assert "Not available for this turn" in response.text
+
+    def test_no_timing_section_for_skeleton_only_turn(self, client: TestClient, storage: MockStorage):
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+
+        response = client.get("/turns/req1")
+        assert response.status_code == 200
+        assert "<h2>Timing</h2>" not in response.text
+
 
 class _MetricsReaderWithData(_FakeMetricsReader):
     def __init__(self, llm_calls: list[dict] | None = None, events: list[dict] | None = None) -> None:
