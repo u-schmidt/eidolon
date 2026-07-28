@@ -460,13 +460,18 @@ class StorageProvider(Protocol):
         """
         ...
 
-    def list_memory_items(self, item_type: str | None = None, topic_id: int | None = None) -> list[MemoryItem]:
+    def list_memory_items(
+        self, item_type: str | None = None, topic_id: int | None = None, q: str | None = None,
+    ) -> list[MemoryItem]:
         """Return every memory item across every peer/topic, newest
-        first, optionally filtered by ``item_type``/``topic_id``.
+        first, optionally filtered by ``item_type``/``topic_id``/``q``.
 
-        Bulk, unscoped counterpart to ``get_memory_items_by_topic``
-        (topic-scoped) and ``search_memory_items`` (relevance-ranked, not
-        a plain listing). Powers the dashboard's memory-item browse page.
+        ``q`` is a plain case-insensitive substring match against
+        ``content`` — a dashboard search box, not embedding similarity
+        (that's ``search_memory_items``). Bulk, unscoped counterpart to
+        ``get_memory_items_by_topic`` (topic-scoped) and
+        ``search_memory_items`` (relevance-ranked, not a plain listing).
+        Powers the dashboard's memory-item browse page.
         """
         ...
 

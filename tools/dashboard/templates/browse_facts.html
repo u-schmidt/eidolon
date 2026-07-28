@@ -16,6 +16,12 @@
         hx-get="{{ url_for('dashboard_facts') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML" hx-push-url="true">
     <input type="text" name="category" value="{{ category }}" placeholder="filter by category">
     <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
+    <select name="sort">
+      <option value=""{{ ' selected' if not sort }}>Default order (peer/category/key)</option>
+      <option value="created"{{ ' selected' if sort == 'created' }}>Newest first</option>
+      <option value="importance"{{ ' selected' if sort == 'importance' }}>Importance (high first)</option>
+      <option value="key"{{ ' selected' if sort == 'key' }}>Key (A-Z)</option>
+    </select>
     <button type="submit">Filter</button>
   </form>
 
@@ -41,7 +47,7 @@
         {% endfor %}
       </tbody>
     </table>
-    {{ pagination('dashboard_facts', page, {'category': category, 'peer_id': peer_id}) }}
+    {{ pagination('dashboard_facts', page, {'category': category, 'peer_id': peer_id, 'sort': sort}) }}
   {% endif %}
   </div>
 {% endblock %}

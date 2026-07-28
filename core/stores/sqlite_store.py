@@ -1186,7 +1186,9 @@ class SqliteStore:
             for r in rows
         ]
 
-    def list_memory_items(self, item_type: str | None = None, topic_id: int | None = None) -> list[MemoryItem]:
+    def list_memory_items(
+        self, item_type: str | None = None, topic_id: int | None = None, q: str | None = None,
+    ) -> list[MemoryItem]:
         query = (
             "SELECT id, content, item_type, source_peer, subject_peer, "
             "attribution_type, topic_id, message_id, created_at FROM memory_items"
@@ -1199,6 +1201,14 @@ class SqliteStore:
         if topic_id is not None:
             conditions.append("topic_id = ?")
             params.append(topic_id)
+        if q:
+            # LIKE is case-insensitive for ASCII in SQLite by default, which
+            # is fine here — this is a dashboard search box, not a linguistic
+            # search feature. %/_/\ are escaped so a search string containing
+            # them is matched literally rather than as wildcards.
+            escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conditions.append("content LIKE ? ESCAPE '\\'")
+            params.append(f"%{escaped}%")
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY id DESC"

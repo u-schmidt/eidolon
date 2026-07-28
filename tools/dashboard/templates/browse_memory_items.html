@@ -22,12 +22,13 @@
       <option value="feeling"{{ ' selected' if item_type == 'feeling' }}>feeling</option>
     </select>
     <input type="text" name="topic_id" value="{{ topic_id if topic_id is not none else '' }}" placeholder="filter by topic_id">
+    <input type="text" name="q" value="{{ q }}" placeholder="search content">
     <button type="submit">Filter</button>
   </form>
 
   <div id="results">
   {% if not page.items %}
-    <p class="muted">No memory items found{% if item_type or topic_id %} matching this filter{% endif %}.</p>
+    <p class="muted">No memory items found{% if item_type or topic_id or q %} matching this filter{% endif %}.</p>
   {% else %}
     <table>
       <thead>
@@ -48,7 +49,7 @@
         {% endfor %}
       </tbody>
     </table>
-    {{ pagination('dashboard_memory_items', page, {'item_type': item_type, 'topic_id': topic_id}) }}
+    {{ pagination('dashboard_memory_items', page, {'item_type': item_type, 'topic_id': topic_id, 'q': q}) }}
   {% endif %}
   </div>
 {% endblock %}

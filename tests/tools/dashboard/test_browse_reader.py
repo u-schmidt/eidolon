@@ -83,6 +83,54 @@ class TestFacts:
 
         assert [f.key for f in page.items] == ["role"]
 
+    def test_default_sort_preserves_get_all_facts_order(self):
+        storage = MockStorage()
+        storage.facts.append(Fact(peer_id="u1", category="z", key="last", value="v", source="user"))
+        storage.facts.append(Fact(peer_id="u1", category="a", key="first", value="v", source="user"))
+        reader = BrowseReader(storage)
+
+        page = reader.facts(page=1)
+
+        assert [f.key for f in page.items] == ["last", "first"]
+
+    def test_sort_by_created_is_newest_first(self):
+        storage = MockStorage()
+        storage.facts.append(Fact(
+            peer_id="u1", category="a", key="old", value="v", source="user",
+            created_at="2026-01-01T00:00:00",
+        ))
+        storage.facts.append(Fact(
+            peer_id="u1", category="a", key="new", value="v", source="user",
+            created_at="2026-06-01T00:00:00",
+        ))
+        storage.facts.append(Fact(peer_id="u1", category="a", key="undated", value="v", source="user"))
+        reader = BrowseReader(storage)
+
+        page = reader.facts(page=1, sort_by="created")
+
+        assert [f.key for f in page.items] == ["new", "old", "undated"]
+
+    def test_sort_by_importance_is_high_first(self):
+        storage = MockStorage()
+        storage.facts.append(Fact(peer_id="u1", category="a", key="low", value="v", source="user", importance="low"))
+        storage.facts.append(Fact(peer_id="u1", category="a", key="high", value="v", source="user", importance="high"))
+        storage.facts.append(Fact(peer_id="u1", category="a", key="medium", value="v", source="user", importance="medium"))
+        reader = BrowseReader(storage)
+
+        page = reader.facts(page=1, sort_by="importance")
+
+        assert [f.key for f in page.items] == ["high", "medium", "low"]
+
+    def test_sort_by_key_is_alphabetical(self):
+        storage = MockStorage()
+        storage.facts.append(Fact(peer_id="u1", category="z", key="banana", value="v", source="user"))
+        storage.facts.append(Fact(peer_id="u1", category="a", key="apple", value="v", source="user"))
+        reader = BrowseReader(storage)
+
+        page = reader.facts(page=1, sort_by="key")
+
+        assert [f.key for f in page.items] == ["apple", "banana"]
+
 
 class TestMemoryItems:
     def test_lists_all_items_by_default(self):
@@ -120,6 +168,23 @@ class TestMemoryItems:
 
         assert [i.content for i in page.items] == ["a fact"]
 
+    def test_passes_q_through_to_storage(self):
+        storage = MockStorage()
+        topic_id = storage.create_topic("Topic", peer_id="u1")
+        storage.store_memory_item(MemoryItem(
+            content="loves hiking", item_type="fact", source_peer="u1", subject_peer="u1",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+        storage.store_memory_item(MemoryItem(
+            content="works as a teacher", item_type="fact", source_peer="u1", subject_peer="u1",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+        reader = BrowseReader(storage)
+
+        page = reader.memory_items(page=1, q="hiking")
+
+        assert [i.content for i in page.items] == ["loves hiking"]
+
 
 class TestClusters:
     def test_lists_all_clusters_by_default(self):
@@ -141,6 +206,34 @@ class TestClusters:
         page = reader.clusters(page=1, peer_id="u1")
 
         assert [c.id for c in page.items] == [mine]
+
+
+class TestClusterDetail:
+    def test_returns_none_for_unknown_cluster(self):
+        storage = MockStorage()
+        reader = BrowseReader(storage)
+
+        assert reader.cluster_detail(999) is None
+
+    def test_returns_cluster_fields_and_member_topics_newest_first(self):
+        storage = MockStorage()
+        cluster_id = storage.create_cluster("u1", "Bike", "long summary", tags=["fitness"])
+        t1 = storage.create_topic("First ride", peer_id="u1")
+        t2 = storage.create_topic("Second ride", peer_id="u1")
+        storage.assign_topic_to_cluster(t1, cluster_id)
+        storage.assign_topic_to_cluster(t2, cluster_id)
+        reader = BrowseReader(storage)
+
+        detail = reader.cluster_detail(cluster_id)
+
+        assert detail is not None
+        assert detail.id == cluster_id
+        assert detail.peer_id == "u1"
+        assert detail.label == "Bike"
+        assert detail.summary == "long summary"
+        assert detail.tags == ["fitness"]
+        assert detail.topic_count == 2
+        assert [t.label for t in detail.topics] == ["Second ride", "First ride"]
 
 
 class TestPagination:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from core.models import MemoryItem
 from tests.mocks import MockStorage
 from tools.dashboard.retrieval_quality_reader import RetrievalQualityReader
 
@@ -147,6 +148,42 @@ class TestNearMisses:
         reader = RetrievalQualityReader(FakeTraceReader({"retrieval_scoring_summary": events}), storage)
 
         assert reader.summary(_NOW).near_misses == []
+
+    def test_near_miss_kind_filter_scopes_to_one_kind(self):
+        storage = MockStorage()
+        topic_id = storage.create_topic("Close topic", peer_id="u1")
+        item_id = storage.store_memory_item(MemoryItem(
+            content="close item", item_type="fact", source_peer="u1", subject_peer="u1",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+        events = [
+            _scoring_event([
+                _candidate("topic", 99, 0.50, included=True),
+                _candidate("topic", topic_id, 0.46, included=False),  # within margin
+                _candidate("memory_item", item_id, 0.46, included=False),  # within margin
+            ]),
+        ]
+        reader = RetrievalQualityReader(FakeTraceReader({"retrieval_scoring_summary": events}), storage)
+
+        summary = reader.summary(_NOW, near_miss_kind="topic")
+
+        assert {nm.kind for nm in summary.near_misses} == {"topic"}
+        assert {nm.candidate_id for nm in summary.near_misses} == {topic_id}
+
+    def test_near_miss_kind_filter_empty_for_absent_kind(self):
+        storage = MockStorage()
+        topic_id = storage.create_topic("Close topic", peer_id="u1")
+        events = [
+            _scoring_event([
+                _candidate("topic", 99, 0.50, included=True),
+                _candidate("topic", topic_id, 0.46, included=False),
+            ]),
+        ]
+        reader = RetrievalQualityReader(FakeTraceReader({"retrieval_scoring_summary": events}), storage)
+
+        summary = reader.summary(_NOW, near_miss_kind="cluster")
+
+        assert summary.near_misses == []
 
 
 class TestTopInjectedFacts:

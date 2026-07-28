@@ -74,8 +74,19 @@ def create_dashboard_router(
     def landing(request: Request) -> HTMLResponse:
         recent = turn_reader.recent_turns(limit=5)
         counts = browse_reader.overview_counts()
+        # Fixed 24h window rather than a selector — this card is a "look
+        # now, something might be wrong" nudge onto Prompt Quality, not
+        # another window-scoped insight view. total_topic_detection_calls
+        # fires on every turn, so ==0 means "no debug data this window",
+        # not "zero errors" — same signal prompt_quality.html itself uses.
+        quality = prompt_quality_reader.summary(datetime.now(UTC) - timedelta(hours=24))
         return _templates.TemplateResponse(
-            request, "index.html", {"recent_turns": recent, "counts": counts},
+            request, "index.html",
+            {
+                "recent_turns": recent, "counts": counts,
+                "fallback_continue_count": quality.continue_fallback.fallback_continue,
+                "has_quality_debug_data": quality.total_topic_detection_calls > 0,
+            },
         )
 
     @router.get("/turns", response_class=HTMLResponse, name="dashboard_turns_list")
@@ -104,12 +115,18 @@ def create_dashboard_router(
         )
 
     @router.get("/retrieval-quality", response_class=HTMLResponse, name="dashboard_retrieval_quality")
-    def retrieval_quality(request: Request, window: str = _DEFAULT_WINDOW) -> HTMLResponse:
+    def retrieval_quality(
+        request: Request, window: str = _DEFAULT_WINDOW, near_miss_kind: str | None = None,
+    ) -> HTMLResponse:
         since = _resolve_window(window)
-        summary = retrieval_quality_reader.summary(since)
+        near_miss_kind = near_miss_kind or None
+        summary = retrieval_quality_reader.summary(since, near_miss_kind=near_miss_kind)
         return _templates.TemplateResponse(
             request, "retrieval_quality.html",
-            {"summary": summary, "window": window, "windows": list(_WINDOW_CUTOFFS)},
+            {
+                "summary": summary, "window": window, "windows": list(_WINDOW_CUTOFFS),
+                "near_miss_kind": near_miss_kind or "",
+            },
         )
 
     @router.get("/prompt-quality", response_class=HTMLResponse, name="dashboard_prompt_quality")
@@ -157,20 +174,24 @@ def create_dashboard_router(
     @router.get("/facts", response_class=HTMLResponse, name="dashboard_facts")
     def facts(
         request: Request, page: int = 1, category: str | None = None, peer_id: str | None = None,
+        sort: str | None = None,
     ) -> HTMLResponse:
         category = category or None
         peer_id = peer_id or None
-        result = browse_reader.facts(page, category=category, peer_id=peer_id)
+        sort = sort or None
+        result = browse_reader.facts(page, category=category, peer_id=peer_id, sort_by=sort)
         return _templates.TemplateResponse(
             request, "browse_facts.html",
-            {"page": result, "category": category or "", "peer_id": peer_id or ""},
+            {"page": result, "category": category or "", "peer_id": peer_id or "", "sort": sort or ""},
         )
 
     @router.get("/memory-items", response_class=HTMLResponse, name="dashboard_memory_items")
     def memory_items(
         request: Request, page: int = 1, item_type: str | None = None, topic_id: str | None = None,
+        q: str | None = None,
     ) -> HTMLResponse:
         item_type = item_type or None
+        q = q or None
         try:
             topic_id_int = int(topic_id) if topic_id else None
         except ValueError:
@@ -178,10 +199,10 @@ def create_dashboard_router(
             # box) means "no valid filter", not a 500 — same treatment as
             # any other unmatched/blank filter on this page.
             topic_id_int = None
-        result = browse_reader.memory_items(page, item_type=item_type, topic_id=topic_id_int)
+        result = browse_reader.memory_items(page, item_type=item_type, topic_id=topic_id_int, q=q)
         return _templates.TemplateResponse(
             request, "browse_memory_items.html",
-            {"page": result, "item_type": item_type or "", "topic_id": topic_id_int},
+            {"page": result, "item_type": item_type or "", "topic_id": topic_id_int, "q": q or ""},
         )
 
     @router.get("/clusters", response_class=HTMLResponse, name="dashboard_clusters")
@@ -191,6 +212,15 @@ def create_dashboard_router(
         return _templates.TemplateResponse(
             request, "browse_clusters.html",
             {"page": result, "peer_id": peer_id or ""},
+        )
+
+    @router.get("/clusters/{cluster_id}", response_class=HTMLResponse, name="dashboard_cluster_detail")
+    def cluster_detail(request: Request, cluster_id: int) -> HTMLResponse:
+        detail = browse_reader.cluster_detail(cluster_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail=f"No cluster found for id={cluster_id!r}")
+        return _templates.TemplateResponse(
+            request, "cluster_detail.html", {"detail": detail},
         )
 
     return router

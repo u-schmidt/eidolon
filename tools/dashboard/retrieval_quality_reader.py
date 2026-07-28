@@ -99,7 +99,7 @@ class RetrievalQualityReader:
         self._trace_reader = trace_reader
         self._storage = storage
 
-    def summary(self, since: datetime, top_n: int = 15) -> RetrievalQualitySummary:
+    def summary(self, since: datetime, top_n: int = 15, near_miss_kind: str | None = None) -> RetrievalQualitySummary:
         scoring_events = self._trace_reader.events_of_type_since("retrieval_scoring_summary", since)
         context_events = self._trace_reader.events_of_type_since("context_retrieval", since)
         counts = self._tally(scoring_events)
@@ -110,7 +110,7 @@ class RetrievalQualityReader:
             top_retrieved=self._top_retrieved(counts, top_n),
             never_included=self._never_included(counts, top_n),
             score_components=self._score_components(scoring_events),
-            near_misses=self._near_misses(scoring_events, top_n),
+            near_misses=self._near_misses(scoring_events, top_n, near_miss_kind),
             top_injected_facts=self._top_injected_facts(context_events, top_n),
         )
 
@@ -218,7 +218,7 @@ class RetrievalQualityReader:
             return None
         return RetrievalQualityReader._share_average(rows, weighted_field)
 
-    def _near_misses(self, scoring_events: list[dict], top_n: int) -> list[NearMiss]:
+    def _near_misses(self, scoring_events: list[dict], top_n: int, kind: str | None = None) -> list[NearMiss]:
         counts: Counter[tuple[str, int]] = Counter()
         best_score: dict[tuple[str, int], float] = {}
         for event in scoring_events:
@@ -231,7 +231,10 @@ class RetrievalQualityReader:
                 if c.get("included"):
                     continue
                 if c["final_score"] >= cutoff - _NEAR_MISS_MARGIN:
-                    key = (_candidate_kind(c), c["candidate_id"])
+                    candidate_kind = _candidate_kind(c)
+                    if kind is not None and candidate_kind != kind:
+                        continue
+                    key = (candidate_kind, c["candidate_id"])
                     counts[key] += 1
                     best_score[key] = max(best_score.get(key, 0.0), c["final_score"])
 

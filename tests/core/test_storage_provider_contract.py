@@ -1300,6 +1300,59 @@ class TestListMemoryItems:
     def test_empty_when_no_items(self, store: StorageProvider):
         assert store.list_memory_items() == []
 
+    def test_filters_by_q_substring_case_insensitive(self, store: StorageProvider):
+        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        match_id = store.store_memory_item(MemoryItem(
+            content="Loves hiking in the Alps", item_type="fact", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+        store.store_memory_item(MemoryItem(
+            content="Works as a teacher", item_type="fact", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+
+        results = store.list_memory_items(q="HIKING")
+        assert [item.id for item in results] == [match_id]
+
+    def test_q_with_no_match_returns_empty(self, store: StorageProvider):
+        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        store.store_memory_item(MemoryItem(
+            content="Loves hiking", item_type="fact", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+
+        assert store.list_memory_items(q="nonexistent") == []
+
+    def test_q_treats_percent_and_underscore_literally(self, store: StorageProvider):
+        """% and _ are SQL LIKE wildcards — a literal search for them must
+        not match unrelated content, i.e. they're escaped, not interpreted."""
+        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        literal_id = store.store_memory_item(MemoryItem(
+            content="Score was 50% on the exam", item_type="fact", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+        store.store_memory_item(MemoryItem(
+            content="Scored well on the exam", item_type="fact", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+
+        results = store.list_memory_items(q="50%")
+        assert [item.id for item in results] == [literal_id]
+
+    def test_combines_q_with_item_type_filter(self, store: StorageProvider):
+        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        fact_id = store.store_memory_item(MemoryItem(
+            content="Loves hiking", item_type="fact", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+        store.store_memory_item(MemoryItem(
+            content="Loves hiking too", item_type="essence", source_peer="user", subject_peer="user",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+
+        results = store.list_memory_items(item_type="fact", q="hiking")
+        assert [item.id for item in results] == [fact_id]
+
 
 class TestScoreBreakdownCharacterization:
     """Locks the exact per-entity retrieval_scoring_summary breakdown shape

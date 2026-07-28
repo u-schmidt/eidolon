@@ -91,8 +91,18 @@
 
     <h2>Near misses</h2>
     <p class="muted">Excluded candidates that scored close to the cutoff — a signal that limits/thresholds might be too strict.</p>
+    <form method="get" action="{{ url_for('dashboard_retrieval_quality') }}" class="row" style="margin-bottom: 1rem; align-items: center;">
+      <input type="hidden" name="window" value="{{ window }}">
+      <label for="near_miss_kind" class="muted">Kind</label>
+      <select name="near_miss_kind" id="near_miss_kind" onchange="this.form.submit()">
+        <option value=""{{ ' selected' if not near_miss_kind }}>All kinds</option>
+        <option value="topic"{{ ' selected' if near_miss_kind == 'topic' }}>topic</option>
+        <option value="memory_item"{{ ' selected' if near_miss_kind == 'memory_item' }}>memory_item</option>
+        <option value="cluster"{{ ' selected' if near_miss_kind == 'cluster' }}>cluster</option>
+      </select>
+    </form>
     {% if not summary.near_misses %}
-      <p class="muted">No near-misses in this window.</p>
+      <p class="muted">No near-misses in this window{% if near_miss_kind %} for kind "{{ near_miss_kind }}"{% endif %}.</p>
     {% else %}
       <table>
         <thead><tr><th>Kind</th><th>Label</th><th>Best score</th><th>Times near-missed</th></tr></thead>

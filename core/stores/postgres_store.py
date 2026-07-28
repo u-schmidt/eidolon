@@ -933,7 +933,9 @@ class PostgresStore:
             for r in rows
         ]
 
-    def list_memory_items(self, item_type: str | None = None, topic_id: int | None = None) -> list[MemoryItem]:
+    def list_memory_items(
+        self, item_type: str | None = None, topic_id: int | None = None, q: str | None = None,
+    ) -> list[MemoryItem]:
         query = (
             "SELECT id, content, item_type, source_peer, subject_peer, "
             "attribution_type, topic_id, message_id, created_at FROM memory_items"
@@ -946,6 +948,12 @@ class PostgresStore:
         if topic_id is not None:
             conditions.append("topic_id = %s")
             params.append(topic_id)
+        if q:
+            # ILIKE for case-insensitivity. %/_/\ are escaped so a search
+            # string containing them is matched literally, not as wildcards.
+            escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conditions.append("content ILIKE %s ESCAPE '\\'")
+            params.append(f"%{escaped}%")
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY id DESC"

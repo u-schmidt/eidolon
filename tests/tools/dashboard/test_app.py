@@ -126,6 +126,28 @@ class TestLanding:
         assert response.status_code == 200
         assert '/turns"' in response.text
 
+    def test_no_debug_data_shows_muted_placeholder(self, client: TestClient):
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "enable debug tracing" in response.text
+
+    def test_fallback_errors_shown_when_debug_data_present(self, storage: MockStorage):
+        trace = _TraceReaderWithData(events_of_type={
+            "topic_detection": [
+                {
+                    "payload": {"response": "sure, let's keep going", "result_type": "CONTINUE", "message": "what now"},
+                    "request_id": "req-b", "created_at": "t2",
+                },
+            ],
+        })
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader, storage, trace_reader=trace))
+
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "enable debug tracing" not in response.text
+        assert 'Fallback errors (24h)' in response.text
+
 
 class TestTurnsList:
     def test_lists_recent_turns(self, client: TestClient, storage: MockStorage):
@@ -311,6 +333,53 @@ class TestRetrievalQuality:
         response = client.get("/")
         assert response.status_code == 200
         assert '/retrieval-quality"' in response.text
+
+    def test_near_miss_kind_filter_scopes_results(self, storage: MockStorage):
+        topic_id = storage.create_topic("Close topic", summary="", tags=[])
+        item_id = storage.store_memory_item(MemoryItem(
+            content="close item", item_type="fact", source_peer="u1", subject_peer="u1",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+        trace = _TraceReaderWithData(events_of_type={
+            "retrieval_scoring_summary": [
+                {"payload": {"candidate_type": "topic", "top_candidates": [
+                    {"candidate_type": "topic", "candidate_id": 99, "included": True,
+                     "final_score": 0.5, "semantic_weighted": 0.4, "semantic_raw": 0.9,
+                     "temporal_weighted": 0.1, "temporal_raw": 0.9},
+                    {"candidate_type": "topic", "candidate_id": topic_id, "included": False,
+                     "final_score": 0.46, "semantic_weighted": 0.4, "semantic_raw": 0.9,
+                     "temporal_weighted": 0.1, "temporal_raw": 0.9},
+                    {"candidate_type": "memory_item", "candidate_id": item_id, "included": False,
+                     "final_score": 0.46, "semantic_weighted": 0.4, "semantic_raw": 0.9,
+                     "temporal_weighted": 0.1, "temporal_raw": 0.9},
+                ]}},
+            ],
+        })
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader, storage, trace_reader=trace))
+
+        response = client.get("/retrieval-quality", params={"near_miss_kind": "topic"})
+        assert response.status_code == 200
+        near_miss_section = response.text.split("<h2>Near misses</h2>")[1].split("<h2>")[0]
+        assert "Close topic" in near_miss_section
+        assert "close item" not in near_miss_section
+
+    def test_near_miss_kind_select_reflects_query_param(self, storage: MockStorage):
+        trace = _TraceReaderWithData(events_of_type={
+            "retrieval_scoring_summary": [
+                {"payload": {"candidate_type": "topic", "top_candidates": [
+                    {"candidate_type": "topic", "candidate_id": 1, "included": True,
+                     "final_score": 0.5, "semantic_weighted": 0.4, "semantic_raw": 0.9,
+                     "temporal_weighted": 0.1, "temporal_raw": 0.9},
+                ]}},
+            ],
+        })
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader, storage, trace_reader=trace))
+
+        response = client.get("/retrieval-quality", params={"near_miss_kind": "cluster"})
+        assert response.status_code == 200
+        assert 'value="cluster" selected' in response.text
 
 
 class TestPromptQuality:
@@ -509,6 +578,16 @@ class TestBrowseFacts:
         assert "Page 1 of 2 (60 total)" in response.text
         assert 'href="http://testserver/facts?category=basic&amp;page=2"' in response.text
 
+    def test_sort_by_importance_orders_high_first(self, storage: MockStorage):
+        storage.facts.append(Fact(peer_id="u1", category="a", key="low", value="v", source="user", importance="low"))
+        storage.facts.append(Fact(peer_id="u1", category="a", key="high", value="v", source="user", importance="high"))
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/facts", params={"sort": "importance"})
+        assert response.status_code == 200
+        assert response.text.index(">high<") < response.text.index(">low<")
+
 
 class TestBrowseMemoryItems:
     def test_renders_empty_state(self, client: TestClient):
@@ -539,6 +618,24 @@ class TestBrowseMemoryItems:
         response = client.get("/memory-items", params={"topic_id": "not-a-number"})
         assert response.status_code == 200
 
+    def test_search_by_q_filters_content(self, storage: MockStorage):
+        topic_id = storage.create_topic("Topic", peer_id="u1")
+        storage.store_memory_item(MemoryItem(
+            content="loves hiking", item_type="fact", source_peer="u1", subject_peer="u1",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+        storage.store_memory_item(MemoryItem(
+            content="works as a teacher", item_type="fact", source_peer="u1", subject_peer="u1",
+            attribution_type="self_statement", topic_id=topic_id,
+        ))
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/memory-items", params={"q": "hiking"})
+        assert response.status_code == 200
+        assert "loves hiking" in response.text
+        assert "works as a teacher" not in response.text
+
 
 class TestBrowseClusters:
     def test_renders_empty_state(self, client: TestClient):
@@ -556,6 +653,47 @@ class TestBrowseClusters:
         assert response.status_code == 200
         assert "Bike" in response.text
         assert "Trip" not in response.text
+
+    def test_row_links_to_cluster_detail(self, storage: MockStorage):
+        cid = storage.create_cluster("u1", "Bike", "a summary")
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/clusters")
+        assert response.status_code == 200
+        assert f'href="http://testserver/clusters/{cid}"' in response.text
+
+
+class TestClusterDetail:
+    def test_404_for_unknown_cluster(self, client: TestClient):
+        response = client.get("/clusters/999")
+        assert response.status_code == 404
+
+    def test_renders_cluster_and_member_topics(self, storage: MockStorage):
+        cid = storage.create_cluster("u1", "Bike", "a long cluster summary", tags=["fitness"])
+        t1 = storage.create_topic("First ride", peer_id="u1")
+        t2 = storage.create_topic("Second ride", peer_id="u1")
+        storage.assign_topic_to_cluster(t1, cid)
+        storage.assign_topic_to_cluster(t2, cid)
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get(f"/clusters/{cid}")
+        assert response.status_code == 200
+        assert "Bike" in response.text
+        assert "a long cluster summary" in response.text
+        assert "fitness" in response.text
+        assert "First ride" in response.text
+        assert "Second ride" in response.text
+
+    def test_back_link_to_clusters_list(self, storage: MockStorage):
+        cid = storage.create_cluster("u1", "Bike", "summary")
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get(f"/clusters/{cid}")
+        assert response.status_code == 200
+        assert 'href="http://testserver/clusters"' in response.text
 
 
 class TestNav:

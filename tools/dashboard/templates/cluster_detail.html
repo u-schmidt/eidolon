@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Eidolon — Cluster #{{ detail.id }}{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <a href="{{ url_for('dashboard_clusters') }}">Clusters</a>
+    <span class="sep">›</span>
+    <span>#{{ detail.id }}</span>
+  </div>
+{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('dashboard_clusters') }}">&larr; back to clusters</a></p>
+
+  <div class="detail-header">
+    <div class="card">
+      <div class="row">
+        <div class="field"><span class="label">Cluster</span>#{{ detail.id }} — {{ detail.label or "—" }}</div>
+        <div class="field"><span class="label">Peer</span>{{ detail.peer_id }}</div>
+        <div class="field"><span class="label">Topics</span>{{ detail.topic_count }}</div>
+        <div class="field"><span class="label">Created</span><span class="timeago" title="{{ detail.created_at }}">{{ detail.created_at }}</span></div>
+        <div class="field"><span class="label">Updated</span><span class="timeago" title="{{ detail.updated_at }}">{{ detail.updated_at }}</span></div>
+      </div>
+      {% if detail.tags %}
+      <div class="field">
+        <span class="label">Tags</span>
+        {% for tag in detail.tags %}<span class="badge neutral">{{ tag }}</span>{% endfor %}
+      </div>
+      {% endif %}
+      {% if detail.summary %}
+      <div class="field">
+        <span class="label">Summary</span>
+        <div class="muted">{{ detail.summary }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <h2>Member topics</h2>
+  <p class="muted">Every topic consolidated into this cluster, newest first.</p>
+  {% if not detail.topics %}
+    <p class="muted">No member topics found.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Label</th><th>Status</th><th>Summary</th><th>Created</th><th>Closed</th></tr>
+      </thead>
+      <tbody>
+        {% for t in detail.topics %}
+        <tr>
+          <td class="muted">#{{ t.id }}</td>
+          <td>{{ t.label or "—" }}</td>
+          <td>
+            {% if t.status == 'closed' %}
+              <span class="badge neutral">closed</span>
+            {% else %}
+              <span class="badge ok">active</span>
+            {% endif %}
+          </td>
+          <td>{{ t.summary_preview or "—" }}</td>
+          <td><span class="timeago" title="{{ t.created_at }}">{{ t.created_at }}</span></td>
+          <td><span class="timeago" title="{{ t.closed_at }}">{{ t.closed_at or "—" }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}

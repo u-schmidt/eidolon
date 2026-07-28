@@ -30,6 +30,16 @@
       <span class="stat-value">{{ counts.total_clusters }}</span>
       <span class="stat-label">Clusters</span>
     </div>
+    <a href="{{ url_for('dashboard_prompt_quality') }}" class="stat-card" style="text-decoration: none; color: inherit;">
+      {% if has_quality_debug_data %}
+        <span class="stat-value"{% if fallback_continue_count %} style="color: var(--err);"{% endif %}>{{ fallback_continue_count }}</span>
+        <span class="stat-label">Fallback errors (24h)</span>
+      {% else %}
+        <span class="stat-value muted">—</span>
+        <span class="stat-label">Fallback errors (24h)</span>
+        <span class="stat-detail">enable debug tracing</span>
+      {% endif %}
+    </a>
   </div>
   {% endif %}
 

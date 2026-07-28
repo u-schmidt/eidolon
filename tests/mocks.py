@@ -386,11 +386,14 @@ class MockStorage:
     def get_memory_items_by_topic(self, topic_id: int) -> list[MemoryItem]:
         return [item for item in self.stored_items if item.topic_id == topic_id]
 
-    def list_memory_items(self, item_type: str | None = None, topic_id: int | None = None) -> list[MemoryItem]:
+    def list_memory_items(
+        self, item_type: str | None = None, topic_id: int | None = None, q: str | None = None,
+    ) -> list[MemoryItem]:
         return [
             item for item in self.stored_items
             if (item_type is None or item.item_type == item_type)
             and (topic_id is None or item.topic_id == topic_id)
+            and (not q or q.lower() in item.content.lower())
         ]
 
     def store_message(self, turn_id, role, content, peer_id, topic_id=None, request_id=None):
