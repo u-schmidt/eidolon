@@ -281,15 +281,18 @@ class TestTopics:
         )
         assert zeroed_results == []
 
-    def test_search_topics_applies_person_weight_for_matching_peer(self, store: StorageProvider):
-        """A topic with no tag/semantic match still surfaces on peer_id
-        alone once the person weight applies."""
+    def test_search_topics_person_weight_no_longer_rescues_zero_signal_topics(self, store: StorageProvider):
+        """search_topics used to derive person_match from peer_id ==
+        peer_id — always true for a hard-peer-filtered row, so it was a
+        free +0.2 for every candidate rather than a real signal. That's
+        fixed now (person_match is hard False, pending real subject-match
+        data — see the comment at its call site), so a topic with no
+        tag/semantic match has nothing left to clear score > 0 on."""
         store.create_topic("Bello", summary="", peer_id="user")
         store.close_topic(1, "")
 
         results = store.search_topics(peer_id="user")
-        assert len(results) == 1
-        assert results[0]["peer_id"] == "user"
+        assert results == []
 
     def test_search_topics_excludes_other_peers_even_with_strong_match(self, store: StorageProvider):
         """peer_id is a hard SQL filter, not just a soft scoring bonus —
@@ -1384,10 +1387,14 @@ class TestScoreBreakdownCharacterization:
             "semantic_weighted": pytest.approx(0.5),
             "tag_overlap_raw": pytest.approx(1.0),
             "tag_overlap_weighted": pytest.approx(0.3),
-            "person_weighted": pytest.approx(0.2),
+            # search_topics() no longer derives person_match from peer_id
+            # (that comparison was a tautology, not a signal — see the
+            # comment at its call site) — always False until there's a
+            # real subject-relevance signal to feed it.
+            "person_weighted": pytest.approx(0.0),
             "temporal_raw": pytest.approx(1.0),
             "temporal_weighted": pytest.approx(0.0),
-            "final_score": pytest.approx(1.0),
+            "final_score": pytest.approx(0.8),
             "included": True,
         }
 

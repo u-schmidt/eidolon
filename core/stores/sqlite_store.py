@@ -615,7 +615,18 @@ class SqliteStore:
                 query_tags=tags,
                 candidate_tags=topic["tags"],
                 include_person=True,
-                person_match=bool(peer_id) and topic["peer_id"] == peer_id,
+                # Not peer_id-derived: this row's peer_id already equals the
+                # query's (the WHERE clause above guarantees it when peer_id
+                # is given, and bool(peer_id) is False otherwise), so
+                # comparing them again is a tautology, not a signal — same
+                # peer-vs-subject conflation search_memory_items' docstring
+                # already documents removing once (a topic's *identity*
+                # peer_id was being used as a stand-in for whether it's
+                # topically about the same *person/subject*, two different
+                # things). Left as a hard False — dormant, not deleted —
+                # until there's an actual subject-relevance signal to
+                # compute here; person_weighted stays 0.0 either way.
+                person_match=False,
             )
             scored.append((score, topic, breakdown))
 

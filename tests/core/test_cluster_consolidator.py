@@ -108,8 +108,13 @@ class TestConsolidateTopicNoMatch:
         ClusterConsolidator(store, llm, MockEmbedder()).consolidate_topic(new_topic, "user")
 
         assert store.search_clusters(query_embedding=_MATCH_EMBEDDING, peer_id="user") == []
-        # Both topics remain individually searchable, not swallowed into a cluster.
-        assert {t["id"] for t in store.search_topics(peer_id="user")} == {other, new_topic}
+        # Both topics remain individually searchable, not swallowed into a
+        # cluster (search_topics excludes anything with cluster_id set) —
+        # queried with a real embedding now, since person_match no longer
+        # rescues a zero-signal query (see its call site's comment).
+        assert {t["id"] for t in store.search_topics(query_embedding=_MATCH_EMBEDDING, peer_id="user")} == {
+            other, new_topic,
+        }
 
 
 class TestConsolidateTopicFailure:
