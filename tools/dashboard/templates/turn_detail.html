@@ -71,7 +71,17 @@
         </p>
         <p class="muted">AI response time not available for this turn — needs both prefetch and sync timing to infer.</p>
       {% endif %}
-      {{ waterfall_chart(detail.trace_steps | selectattr('start_offset_ms', 'ne', none) | sort(attribute='start_offset_ms') | list, detail.timeline_total_ms) }}
+      {#- prefetch_complete/turn_complete are excluded here — they're the
+         two wrapping events already summarized above (the wait bar and,
+         when present, the background-work line), so a row for each
+         would just repeat those same two numbers. Both still show up
+         in the Steps list below, which is for browsing every recorded
+         event rather than comparing durations. #}
+      {{ waterfall_chart(detail.trace_steps
+           | selectattr('start_offset_ms', 'ne', none)
+           | rejectattr('event_type', 'equalto', 'prefetch_complete')
+           | rejectattr('event_type', 'equalto', 'turn_complete')
+           | sort(attribute='start_offset_ms') | list, detail.timeline_total_ms) }}
     {% endif %}
   {% endif %}
 

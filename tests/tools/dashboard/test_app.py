@@ -11,6 +11,8 @@ tests/server/test_app.py instead.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -256,6 +258,38 @@ class TestTurnDetail:
         assert "80ms" in response.text  # sync, called out as background work
         assert "<svg" in response.text
         assert "Not available for this turn" not in response.text
+
+    def test_waterfall_excludes_wrapping_events_but_steps_list_keeps_them(self, storage: MockStorage):
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace = _FakeTraceReader({
+            "req1": [
+                {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
+                 "session_id": None, "created_at": "2026-01-01T00:00:01.000000"},
+                {"event_type": "topic_detection", "payload": {}, "duration_ms": 40.0,
+                 "session_id": None, "created_at": "2026-01-01T00:00:00.920000"},
+                {"event_type": "turn_complete", "payload": {}, "duration_ms": 80.0,
+                 "session_id": None, "created_at": "2026-01-01T00:00:03.000000"},
+            ],
+        })
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/turns/req1")
+        assert response.status_code == 200
+
+        waterfall_svg = re.search(
+            r'aria-label="Per-step timing waterfall".*?</svg>', response.text, re.S,
+        )
+        assert waterfall_svg is not None
+        assert "Prefetch complete" not in waterfall_svg.group(0)
+        assert "Turn complete (sync)" not in waterfall_svg.group(0)
+        assert "Detect topic change" in waterfall_svg.group(0)
+
+        # Both wrapping events still show up in the Steps list — that
+        # section is for browsing every recorded event, not comparing
+        # durations, so it's unaffected by the waterfall's exclusion.
+        assert "Prefetch complete" in response.text
+        assert "Turn complete (sync)" in response.text
 
     def test_timing_headline_omits_gap_when_only_one_duration_present(self, storage: MockStorage):
         storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
