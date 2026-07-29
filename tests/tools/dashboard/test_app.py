@@ -247,10 +247,13 @@ class TestTurnDetail:
         assert response.status_code == 200
         # prefetch 0->120ms, turn_complete starts +2040ms and ends +2120ms
         # (its own created_at/duration relative to the shared anchor) ->
-        # gap = 2040 - 120 = 1920ms, grand total = 2120ms.
-        assert "2120ms" in response.text  # grand total, prefetch + gap + sync
+        # gap = 2040 - 120 = 1920ms. user_wait = 120 + 1920 = 2040ms —
+        # deliberately excludes the 80ms sync duration, which is reported
+        # separately as background work that doesn't delay the user.
+        assert "2040ms" in response.text  # user-perceived wait (prefetch + gap only)
         assert "1920ms" in response.text  # AI response (the inferred gap)
-        assert "200ms" in response.text  # Eidolon's own share (120 + 80)
+        assert "120ms" in response.text  # prefetch, Eidolon's blocking share
+        assert "80ms" in response.text  # sync, called out as background work
         assert "<svg" in response.text
         assert "Not available for this turn" not in response.text
 

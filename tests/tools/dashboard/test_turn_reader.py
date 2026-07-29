@@ -251,6 +251,36 @@ class TestTimingWaterfall:
         assert detail.timeline_total_ms == 1000.0
         assert detail.llm_gap_ms == 0.0
 
+    def test_user_wait_is_prefetch_plus_gap_excluding_sync(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace.events["req1"] = [
+            {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 1000.0,
+             "session_id": None, "created_at": "2026-01-01T00:00:01.000000"},
+            {"event_type": "turn_complete", "payload": {}, "duration_ms": 500.0,
+             "session_id": None, "created_at": "2026-01-01T00:00:03.000000"},
+        ]
+
+        detail = reader.get("req1")
+        assert detail is not None
+        # prefetch (1000ms) + gap (1500ms) = 2500ms — the 500ms sync
+        # duration is excluded, since store_turn() runs async after the
+        # reply already shipped and never delays the user.
+        assert detail.user_wait_ms == 2500.0
+
+    def test_user_wait_none_when_gap_unavailable(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace.events["req1"] = [
+            {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
+             "session_id": None, "created_at": "t1"},
+        ]
+
+        detail = reader.get("req1")
+        assert detail is not None
+        assert detail.llm_gap_ms is None
+        assert detail.user_wait_ms is None
+
 
 class TestCandidateLabels:
     """Retrieval-scoring-summary candidates should resolve to a human

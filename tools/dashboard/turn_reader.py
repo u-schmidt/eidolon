@@ -178,6 +178,15 @@ class TurnDetail:
     # precision). None unless all three of prefetch_duration_ms/
     # sync_duration_ms/timeline_total_ms are present.
     llm_gap_ms: float | None = None
+    # What the user actually waited for: prefetch (blocks Hermes's LLM
+    # call — see prefetch()'s docstring) plus the AI-response gap above.
+    # Deliberately excludes sync_duration_ms — store_turn() runs async,
+    # AFTER the reply has already shipped (its own docstring: "Called
+    # AFTER the LLM responds (async, does not block the turn)"), so
+    # fact extraction/consolidation/etc. never delays the user even
+    # though it's real Eidolon compute time. None unless llm_gap_ms is
+    # (same availability as that field).
+    user_wait_ms: float | None = None
 
 
 class TurnReader:
@@ -277,6 +286,9 @@ class TurnReader:
         llm_gap_ms = None
         if prefetch_duration_ms is not None and sync_duration_ms is not None and timeline_total_ms is not None:
             llm_gap_ms = max(0.0, timeline_total_ms - prefetch_duration_ms - sync_duration_ms)
+        user_wait_ms = None
+        if prefetch_duration_ms is not None and llm_gap_ms is not None:
+            user_wait_ms = prefetch_duration_ms + llm_gap_ms
 
         events = self._metrics_reader.events_for_request(request_id)
         llm_calls = self._metrics_reader.llm_calls_for_request(request_id)
@@ -300,6 +312,7 @@ class TurnReader:
             sync_duration_ms=sync_duration_ms,
             timeline_total_ms=timeline_total_ms,
             llm_gap_ms=llm_gap_ms,
+            user_wait_ms=user_wait_ms,
         )
 
     def _annotate_candidate_labels(self, payload: dict) -> None:

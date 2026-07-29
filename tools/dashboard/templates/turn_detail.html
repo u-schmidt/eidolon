@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import waterfall_chart, phase_summary_bar with context %}
+{% from "_macros.html" import waterfall_chart, wait_bar with context %}
 {% block title %}Turn {{ detail.header.request_id }}{% endblock %}
 {% block breadcrumbs %}
   <div class="breadcrumbs">
@@ -49,19 +49,19 @@
     {% if detail.prefetch_duration_ms is none and detail.sync_duration_ms is none %}
       <p class="muted">Not available for this turn — traced before per-phase timing was added, or neither wrapping step recorded a duration.</p>
     {% else %}
-      {% if detail.llm_gap_ms is not none %}
-        {% set total = detail.prefetch_duration_ms + detail.llm_gap_ms + detail.sync_duration_ms %}
-        {% set eidolon_ms = detail.prefetch_duration_ms + detail.sync_duration_ms %}
+      {% if detail.user_wait_ms is not none %}
         <p>
-          <strong>{{ "%.0f"|format(total) }}ms</strong> total —
-          Eidolon <strong>{{ "%.0f"|format(eidolon_ms) }}ms</strong> ({{ "%.0f"|format(eidolon_ms / total * 100) }}%),
-          AI response <strong>{{ "%.0f"|format(detail.llm_gap_ms) }}ms</strong> ({{ "%.0f"|format(detail.llm_gap_ms / total * 100) }}%)
+          <strong>{{ "%.0f"|format(detail.user_wait_ms) }}ms</strong> to respond —
+          Eidolon (prefetch) <strong>{{ "%.0f"|format(detail.prefetch_duration_ms) }}ms</strong> ({{ "%.0f"|format(detail.prefetch_duration_ms / detail.user_wait_ms * 100) }}%),
+          AI response <strong>{{ "%.0f"|format(detail.llm_gap_ms) }}ms</strong> ({{ "%.0f"|format(detail.llm_gap_ms / detail.user_wait_ms * 100) }}%)
         </p>
         <p class="muted">
-          Eidolon: {{ "%.0f"|format(detail.prefetch_duration_ms) }}ms prefetch + {{ "%.0f"|format(detail.sync_duration_ms) }}ms sync.
           AI response time is inferred — the gap between Eidolon's prefetch ending and sync starting — not separately instrumented.
+          {% if detail.sync_duration_ms is not none %}
+            Plus <strong>{{ "%.0f"|format(detail.sync_duration_ms) }}ms</strong> of background work after the reply (fact extraction, topic/cluster updates) — doesn't add to the wait above.
+          {% endif %}
         </p>
-        {{ phase_summary_bar(detail.prefetch_duration_ms, detail.llm_gap_ms, detail.sync_duration_ms, total) }}
+        {{ wait_bar(detail.prefetch_duration_ms, detail.llm_gap_ms, detail.user_wait_ms) }}
       {% else %}
         <p>
           Eidolon:
