@@ -92,6 +92,21 @@ def _recency_score(timestamp: str | datetime | None, now: datetime, half_life_da
     return 0.5 ** (age_days / half_life_days)
 
 
+def _tag_matches_query(tag: str, query_tag_set: set[str]) -> bool:
+    """Whether ``tag`` counts as matched against the query's tokens.
+
+    ``query_tag_set`` is single words (``AssociativeRetriever._extract_tags``
+    splits the raw message on whitespace); a topic/cluster tag is free-text
+    from an LLM and routinely 2-3 words (e.g. "character development"), so
+    comparing whole strings almost never matches even a highly relevant tag.
+    Matches on any constituent word instead — full credit for a partial hit
+    (a query mentioning "character" is a real signal for a tag reading
+    "character development", "character sheet", or "character description"
+    alike; it's a boost, not confirmation of the whole phrase).
+    """
+    return bool(query_tag_set & {w.strip(".,!?;:\"'()[]{}") for w in tag.split()})
+
+
 class RetrievalScorer:
     """Scores and ranks retrieval candidates for one search call.
 
@@ -136,7 +151,10 @@ class RetrievalScorer:
 
         tag_overlap_raw = tag_overlap_weighted = 0.0
         if include_tag_overlap and query_tags:
-            overlap = len(set(query_tags) & set(candidate_tags or []))
+            query_tag_set = set(query_tags)
+            overlap = sum(
+                1 for tag in (candidate_tags or []) if _tag_matches_query(tag, query_tag_set)
+            )
             if overlap > 0:
                 tag_overlap_raw = overlap / max(len(query_tags), 1)
                 tag_overlap_weighted = tag_overlap_raw * self._w.get(

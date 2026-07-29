@@ -47,6 +47,31 @@ class TestScore:
         assert breakdown["tag_overlap_weighted"] == pytest.approx(0.15)
         assert score == pytest.approx(0.15)
 
+    def test_multiword_tag_matches_on_any_shared_word(self):
+        # Topic/cluster tags are LLM-curated free text and routinely 2-3
+        # words ("character development"); the query side is always single
+        # whitespace-split tokens. A whole-string comparison would never
+        # match here even though "character" is a real, relevant hit — full
+        # credit for the tag on any shared word (a boost, not confirmation
+        # of the whole phrase).
+        score, breakdown = _scorer().score(
+            candidate_type="topic", candidate_id=1, semantic_raw=0.0, recency_timestamp=None,
+            include_tag_overlap=True, query_tags=["character", "arc"],
+            candidate_tags=["character development"],
+        )
+        assert breakdown["tag_overlap_raw"] == pytest.approx(0.5)
+        assert breakdown["tag_overlap_weighted"] == pytest.approx(0.15)
+        assert score == pytest.approx(0.15)
+
+    def test_multiword_tag_no_match_when_no_word_shared(self):
+        _, breakdown = _scorer().score(
+            candidate_type="topic", candidate_id=1, semantic_raw=0.0, recency_timestamp=None,
+            include_tag_overlap=True, query_tags=["budget", "invoice"],
+            candidate_tags=["character development"],
+        )
+        assert breakdown["tag_overlap_raw"] == 0.0
+        assert breakdown["tag_overlap_weighted"] == 0.0
+
     def test_tag_keys_present_but_zero_when_no_query_tags(self):
         _, breakdown = _scorer().score(
             candidate_type="topic", candidate_id=1, semantic_raw=1.0, recency_timestamp=None,
