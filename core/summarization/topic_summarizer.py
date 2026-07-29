@@ -1,10 +1,11 @@
 """Topic summarization for Eidolon.
 
-Generates a concise summary and tags for a topic from its messages when
-the topic closes. Called by ``Eidolon.store_turn`` at a topic transition:
-its tags feed tag-overlap retrieval, and the topic is re-embedded from
-the richer summary so semantic search stops matching the original
-one-line guess. It also finalizes the topic's label if it's still
+Generates a concise summary, tags, and named entities for a topic from
+its messages when the topic closes. Called by ``Eidolon.store_turn`` at
+a topic transition: its tags (and any named entities, folded in) feed
+tag-overlap retrieval, and the topic is re-embedded from the richer
+summary so semantic search stops matching the original one-line guess.
+It also finalizes the topic's label if it's still
 pending (label == "", see ``core/config.py``'s ``RelabelConfig`` and
 ``core/summarization/topic_relabeler.py``) — the fallback for any topic
 that closes before ``TopicRelabeler`` ever got a chance to relabel it
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 _SUMMARY_SYSTEM_PROMPT = (
     "You are a conversation summarizer. "
-    "Output a concise summary and relevant tags only."
+    "Output a concise summary, relevant tags, and named entities only."
 )
 
 # Secondary/fallback source only (see _build_summary_prompt) — the primary
@@ -57,6 +58,13 @@ def _build_summary_prompt(messages: list[dict], memory_items: list[MemoryItem]) 
     TopicRelabeler and the produced one ends up discarded by the
     caller. Simpler than branching the prompt shape on whether a label
     is still needed.
+
+    Tags and named entities are asked for as two separate lines
+    deliberately. Tags are capped ("3-5 key tags") to keep retrieval
+    signal focused; entities are explicitly uncapped, so a topic that
+    happens to mention several people/places in passing doesn't crowd
+    real topic tags out of the cap, or get its own names truncated to
+    fit it (see core/stores/migrations.py's version 12).
     """
     items_block = "\n".join(
         f"- [{mi.item_type}] ({mi.source_peer} about {mi.subject_peer}): {mi.content}"
@@ -69,7 +77,10 @@ def _build_summary_prompt(messages: list[dict], memory_items: list[MemoryItem]) 
     return (
         f"Summarize this conversation topic in 1-2 sentences, "
         f"give it a short 2-5 word label, "
-        f"and extract 3-5 key tags (comma-separated, lowercase).\n\n"
+        f"extract 3-5 key tags (comma-separated, lowercase), "
+        f"and separately list every named person, place, or organization "
+        f"mentioned, however briefly (comma-separated, lowercase, no "
+        f"limit on how many — leave blank if none).\n\n"
         f"Extracted memory fragments (primary source):\n"
         f"{items_block}\n\n"
         f"Raw transcript (secondary — some content above may already be "
@@ -79,22 +90,26 @@ def _build_summary_prompt(messages: list[dict], memory_items: list[MemoryItem]) 
         f"Format:\n"
         f"Label: <2-5 word label>\n"
         f"Summary: <1-2 sentences>\n"
-        f"Tags: <tag1, tag2, tag3>"
+        f"Tags: <tag1, tag2, tag3>\n"
+        f"Entities: <name1, name2, ...>"
     )
 
 
-def _parse_summary_response(response: str) -> tuple[str, str, list[str]]:
-    """Parse the LLM response into (label, summary, tags).
+def _parse_summary_response(response: str) -> tuple[str, str, list[str], list[str]]:
+    """Parse the LLM response into (label, summary, tags, named_entities).
 
     A missing/blank ``Summary:`` line yields an empty summary — the caller
     treats that as "no summary produced" and falls back rather than
     closing the topic with an empty string. A missing/blank ``Label:``
     line yields an empty label — the caller only persists a non-empty
-    one, and only when the topic doesn't already have a real one.
+    one, and only when the topic doesn't already have a real one. A
+    missing/blank ``Entities:`` line (e.g. nothing named in the topic)
+    yields an empty list, same as an empty ``Tags:`` line.
     """
     label = ""
     summary = ""
     tags: list[str] = []
+    named_entities: list[str] = []
     for line in response.strip().split("\n"):
         if line.lower().startswith("label:"):
             label = line[len("label:"):].strip()
@@ -103,7 +118,10 @@ def _parse_summary_response(response: str) -> tuple[str, str, list[str]]:
         elif line.lower().startswith("tags:"):
             raw_tags = line[len("tags:"):].strip()
             tags = [t.strip().lower() for t in raw_tags.split(",") if t.strip()]
-    return label, summary, tags
+        elif line.lower().startswith("entities:"):
+            raw_entities = line[len("entities:"):].strip()
+            named_entities = [e.strip().lower() for e in raw_entities.split(",") if e.strip()]
+    return label, summary, tags, named_entities
 
 
 class TopicSummarizer:
@@ -191,7 +209,7 @@ class TopicSummarizer:
                 prompt=prompt,
                 system_prompt=_SUMMARY_SYSTEM_PROMPT,
             )
-            label, summary, tags = _parse_summary_response(response)
+            label, summary, tags, named_entities = _parse_summary_response(response)
 
             label_persisted = False
             if label and label_pending:
@@ -200,8 +218,15 @@ class TopicSummarizer:
 
             if summary:
                 self._storage.close_topic(topic_id, summary)
-                if tags:
-                    self._storage.update_topic_tags(topic_id, tags)
+                # named_entities are folded into tags (uncapped, unlike
+                # tags' own "3-5" instruction) so retrieval's tag_overlap
+                # scoring sees them too — see _build_summary_prompt's
+                # docstring for why the two are asked for separately.
+                merged_tags = sorted(set(tags) | set(named_entities))
+                if merged_tags:
+                    self._storage.update_topic_tags(topic_id, merged_tags)
+                if named_entities:
+                    self._storage.update_topic_entities(topic_id, named_entities)
                 # Re-embed with the final summary. The embedding generated
                 # at topic creation (see store_turn) was based on the short
                 # provisional label from topic detection, not this richer
@@ -223,6 +248,7 @@ class TopicSummarizer:
                     "label_persisted": label_persisted,
                     "summary": summary,
                     "tags": tags,
+                    "named_entities": named_entities,
                 },
                 request_id=request_id,
                 session_id=session_id,

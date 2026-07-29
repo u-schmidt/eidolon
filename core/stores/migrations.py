@@ -214,6 +214,20 @@ MIGRATIONS: dict[int, str] = {
     DROP INDEX IF EXISTS idx_topic_clusters_peer;
     CREATE INDEX IF NOT EXISTS idx_topic_clusters_workspace ON topic_clusters(workspace_id);
     """,
+    12: """
+    -- Named people/places/organizations mentioned in a topic, extracted
+    -- alongside its tags at topic-close (see TopicSummarizer) but kept
+    -- separate from the `tags` column deliberately: `tags` is capped at
+    -- "3-5 key tags" for retrieval relevance, so a topic mentioning
+    -- several names could crowd out real topic tags or have names
+    -- themselves truncated. named_entities is never capped — every name
+    -- survives here even though only a subset (if any) also gets merged
+    -- into `tags`. This also gives a future per-entity profile feature a
+    -- cheap, LLM-free way to count how often a name has recurred across
+    -- topics (`SELECT ... WHERE named_entities LIKE ...`), which a
+    -- capped, generic-word-mixed `tags` column can't answer reliably.
+    ALTER TABLE topics ADD COLUMN named_entities TEXT DEFAULT '[]';
+    """,
 }
 
 

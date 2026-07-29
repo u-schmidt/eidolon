@@ -184,6 +184,7 @@ class MockStorage:
         self.messages: list[dict] = []
         self.topic_embeddings: dict[int, list[float]] = {}
         self.topic_tags: dict[int, list[str]] = {}
+        self.topic_entities: dict[int, list[str]] = {}
         self._checkpoints: dict[str, int] = {}
         self.clusters: dict[int, dict] = {}
         self._next_cluster_id = 1
@@ -234,7 +235,8 @@ class MockStorage:
         self._next_topic_id += 1
         self.topics[tid] = {"id": tid, "label": label, "summary": summary, "tags": tags or [],
                            "status": "active", "workspace_id": workspace_id, "session_id": session_id,
-                           "cluster_id": None, "created_at": None, "closed_at": None, "message_count": 0}
+                           "cluster_id": None, "created_at": None, "closed_at": None, "message_count": 0,
+                           "named_entities": []}
         return tid
 
     def get_topic(self, topic_id: int) -> dict | None:
@@ -261,6 +263,11 @@ class MockStorage:
         self.topic_tags[topic_id] = tags
         if topic_id in self.topics:
             self.topics[topic_id]["tags"] = tags
+
+    def update_topic_entities(self, topic_id: int, named_entities: list[str]) -> None:
+        self.topic_entities[topic_id] = named_entities
+        if topic_id in self.topics:
+            self.topics[topic_id]["named_entities"] = named_entities
 
     def update_topic_label(self, topic_id: int, label: str) -> None:
         if topic_id in self.topics:

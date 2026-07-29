@@ -272,8 +272,8 @@ class SqliteStore:
 
     def get_topic(self, topic_id: int) -> dict | None:
         row = self._conn.execute(
-            "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at, message_count "
-            "FROM topics WHERE id = ?",
+            "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at, message_count, "
+            "named_entities FROM topics WHERE id = ?",
             (topic_id,),
         ).fetchone()
         if row is None:
@@ -288,6 +288,7 @@ class SqliteStore:
             "created_at": row[6],
             "closed_at": row[7],
             "message_count": row[8],
+            "named_entities": json.loads(row[9]),
         }
 
     def close_topic(self, topic_id: int, summary: str) -> None:
@@ -466,6 +467,13 @@ class SqliteStore:
         self._conn.execute(
             "UPDATE topics SET tags = ? WHERE id = ?",
             (json.dumps(tags), topic_id),
+        )
+        self._conn.commit()
+
+    def update_topic_entities(self, topic_id: int, named_entities: list[str]) -> None:
+        self._conn.execute(
+            "UPDATE topics SET named_entities = ? WHERE id = ?",
+            (json.dumps(named_entities), topic_id),
         )
         self._conn.commit()
 

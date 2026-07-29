@@ -152,6 +152,18 @@ class StorageProvider(Protocol):
         """Replace a topic's tags with the given list."""
         ...
 
+    def update_topic_entities(self, topic_id: int, named_entities: list[str]) -> None:
+        """Replace a topic's named-entity list with the given list.
+
+        Separate from ``update_topic_tags`` deliberately — ``tags`` is
+        capped for retrieval relevance ("3-5 key tags"), while
+        ``named_entities`` is uncapped, so every person/place/organization
+        TopicSummarizer found survives here even when only some of them
+        also get folded into ``tags``. See core/stores/migrations.py's
+        version 12 for the full rationale.
+        """
+        ...
+
     def update_topic_label(self, topic_id: int, label: str) -> None:
         """Replace a topic's label. Mirrors update_topic_tags."""
         ...

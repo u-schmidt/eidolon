@@ -244,8 +244,8 @@ class PostgresStore:
 
     def get_topic(self, topic_id: int) -> dict | None:
         row = self._conn.execute(
-            "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at, message_count "
-            "FROM topics WHERE id = %s",
+            "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at, message_count, "
+            "named_entities FROM topics WHERE id = %s",
             (topic_id,),
         ).fetchone()
         if row is None:
@@ -260,6 +260,7 @@ class PostgresStore:
             "created_at": row[6],
             "closed_at": row[7],
             "message_count": row[8],
+            "named_entities": row[9],
         }
 
     def close_topic(self, topic_id: int, summary: str) -> None:
@@ -390,6 +391,11 @@ class PostgresStore:
 
     def update_topic_tags(self, topic_id: int, tags: list[str]) -> None:
         self._conn.execute("UPDATE topics SET tags = %s WHERE id = %s", (Jsonb(tags), topic_id))
+
+    def update_topic_entities(self, topic_id: int, named_entities: list[str]) -> None:
+        self._conn.execute(
+            "UPDATE topics SET named_entities = %s WHERE id = %s", (Jsonb(named_entities), topic_id)
+        )
 
     def update_topic_label(self, topic_id: int, label: str) -> None:
         self._conn.execute("UPDATE topics SET label = %s WHERE id = %s", (label, topic_id))

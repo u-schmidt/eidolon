@@ -22,36 +22,52 @@ def _summarizer(storage, llm, embedder, tracer=None, metrics=None) -> TopicSumma
 
 class TestParseSummaryResponse:
     def test_parses_label_summary_and_tags(self):
-        label, summary, tags = _parse_summary_response(
+        label, summary, tags, entities = _parse_summary_response(
             "Label: Crowded Gym\nSummary: Crowded gym frustration\nTags: fitness, gym"
         )
         assert label == "Crowded Gym"
         assert summary == "Crowded gym frustration"
         assert tags == ["fitness", "gym"]
+        assert entities == []
 
     def test_case_insensitive_labels_and_lowercased_tags(self):
-        label, summary, tags = _parse_summary_response(
-            "LABEL: A Label\nSUMMARY: A thing\nTAGS: Alpha, BETA"
+        label, summary, tags, entities = _parse_summary_response(
+            "LABEL: A Label\nSUMMARY: A thing\nTAGS: Alpha, BETA\nENTITIES: Lisa, Solvares"
         )
         assert label == "A Label"
         assert summary == "A thing"
         assert tags == ["alpha", "beta"]
+        assert entities == ["lisa", "solvares"]
 
     def test_missing_summary_yields_empty(self):
-        label, summary, tags = _parse_summary_response("Tags: only, tags")
+        label, summary, tags, entities = _parse_summary_response("Tags: only, tags")
         assert label == ""
         assert summary == ""
         assert tags == ["only", "tags"]
+        assert entities == []
 
     def test_missing_label_yields_empty(self):
-        label, summary, tags = _parse_summary_response("Summary: A thing\nTags: only")
+        label, summary, tags, entities = _parse_summary_response("Summary: A thing\nTags: only")
         assert label == ""
         assert summary == "A thing"
 
     def test_blank_tags_yields_empty_list(self):
-        label, summary, tags = _parse_summary_response("Summary: A thing\nTags: ")
+        label, summary, tags, entities = _parse_summary_response("Summary: A thing\nTags: ")
         assert summary == "A thing"
         assert tags == []
+
+    def test_parses_entities_line_uncapped(self):
+        label, summary, tags, entities = _parse_summary_response(
+            "Summary: A party\nTags: party, food\n"
+            "Entities: lisa, bob, solvares, l'osteria, alex"
+        )
+        assert entities == ["lisa", "bob", "solvares", "l'osteria", "alex"]
+
+    def test_blank_or_missing_entities_yields_empty_list(self):
+        label, summary, tags, entities = _parse_summary_response("Summary: A thing\nTags: x\nEntities: ")
+        assert entities == []
+        label, summary, tags, entities = _parse_summary_response("Summary: A thing\nTags: x")
+        assert entities == []
 
 
 class TestSummarize:
@@ -137,6 +153,59 @@ class TestSummarize:
 
         assert tid not in storage.topic_tags
 
+    def test_persists_entities_via_update_topic_entities(self):
+        """Named entities are stored through their own protocol method —
+        separate from update_topic_tags — so a future per-entity feature
+        can read the uncapped list without guessing which tags are names."""
+        storage = MockStorage()
+        tid = storage.create_topic("Bello Features", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="met lisa and bob", workspace_id="user", topic_id=tid)
+        llm = MockLLM(summary_response="Summary: Met friends\nTags: party\nEntities: lisa, bob")
+        embedder = MockEmbedder()
+
+        _summarizer(storage, llm, embedder).summarize(tid)
+
+        assert storage.topic_entities[tid] == ["lisa", "bob"]
+
+    def test_does_not_touch_entities_when_none_parsed(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Bello Features", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
+        llm = MockLLM(summary_response="Summary: Crowded gym frustration\nTags: fitness\nEntities: ")
+        embedder = MockEmbedder()
+
+        _summarizer(storage, llm, embedder).summarize(tid)
+
+        assert tid not in storage.topic_entities
+
+    def test_entities_merged_into_tags_for_retrieval_uncapped(self):
+        """Entities ride along in the stored `tags` list too (union, not
+        replacement) so RetrievalScorer's tag_overlap sees them — even
+        though the LLM's own Tags: line is capped at "3-5", the merge
+        itself enforces no cap of its own."""
+        storage = MockStorage()
+        tid = storage.create_topic("Bello Features", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="met lisa and bob", workspace_id="user", topic_id=tid)
+        llm = MockLLM(
+            summary_response="Summary: Met friends\nTags: party, food\nEntities: lisa, bob, solvares"
+        )
+        embedder = MockEmbedder()
+
+        _summarizer(storage, llm, embedder).summarize(tid)
+
+        assert storage.topic_tags[tid] == ["bob", "food", "lisa", "party", "solvares"]
+
+    def test_entities_and_tags_overlap_deduplicated_in_merge(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Bello Features", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="talked about solvares", workspace_id="user", topic_id=tid)
+        llm = MockLLM(summary_response="Summary: Work chat\nTags: solvares, work\nEntities: solvares")
+        embedder = MockEmbedder()
+
+        _summarizer(storage, llm, embedder).summarize(tid)
+
+        assert storage.topic_tags[tid] == ["solvares", "work"]
+
     def test_persists_label_when_topic_still_pending(self):
         """A topic whose label was never finalized mid-conversation
         (still "") gets the close-time pass's produced label — the
@@ -170,7 +239,10 @@ class TestSummarize:
         storage = MockStorage()
         tid = storage.create_topic("", workspace_id="user")
         storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
-        llm = MockLLM(summary_response="Label: Crowded Gym\nSummary: Crowded gym frustration\nTags: fitness, gym")
+        llm = MockLLM(
+            summary_response="Label: Crowded Gym\nSummary: Crowded gym frustration\n"
+            "Tags: fitness, gym\nEntities: fitzone"
+        )
         embedder = MockEmbedder()
         tracer = SpyTracer()
 
@@ -189,6 +261,7 @@ class TestSummarize:
         assert event["payload"]["label_persisted"] is True
         assert event["payload"]["summary"] == "Crowded gym frustration"
         assert event["payload"]["tags"] == ["fitness", "gym"]
+        assert event["payload"]["named_entities"] == ["fitzone"]
 
     def test_records_error_on_failure(self, caplog):
         class FailingStorage(MockStorage):

@@ -102,6 +102,15 @@ POSTGRES_MIGRATIONS: dict[int, str] = {
     ALTER INDEX idx_topics_peer_status RENAME TO idx_topics_workspace_status;
     ALTER INDEX idx_topic_clusters_peer RENAME TO idx_topic_clusters_workspace;
     """,
+    # Named entities alongside a topic's tags — see core/stores/
+    # migrations.py's version 12 for the full rationale (mirrors it
+    # exactly): kept separate from the capped `tags` column so a
+    # name-dense topic can't crowd out real topic tags or get its own
+    # names truncated, and so a future per-entity profile feature can
+    # cheaply count name recurrence without an LLM call.
+    6: """
+    ALTER TABLE topics ADD COLUMN named_entities JSONB NOT NULL DEFAULT '[]'::jsonb;
+    """,
 }
 
 

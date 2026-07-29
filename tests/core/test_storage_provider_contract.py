@@ -169,6 +169,17 @@ class TestTopics:
         store.update_topic_tags(tid, ["fitness", "gym"])
         assert store.get_topic(tid)["tags"] == ["fitness", "gym"]
 
+    def test_new_topic_has_no_named_entities(self, store: StorageProvider):
+        tid = store.create_topic("Test")
+        assert store.get_topic(tid)["named_entities"] == []
+
+    def test_update_topic_entities_replaces_named_entities(self, store: StorageProvider):
+        tid = store.create_topic("Test")
+        store.update_topic_entities(tid, ["lisa", "bob"])
+        assert store.get_topic(tid)["named_entities"] == ["lisa", "bob"]
+        store.update_topic_entities(tid, ["solvares"])
+        assert store.get_topic(tid)["named_entities"] == ["solvares"]
+
     def test_update_topic_label_replaces_label(self, store: StorageProvider):
         tid = store.create_topic("")
         store.update_topic_label(tid, "Buying a bike")
