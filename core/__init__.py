@@ -452,7 +452,7 @@ class Eidolon:
         )
         ai_msg_id = self._storage.store_message(
             turn_id=tid, role="ai", content=ai_response,
-            workspace_id="ai", topic_id=resolved_topic_id, request_id=request_id,
+            workspace_id=workspace_id, topic_id=resolved_topic_id, request_id=request_id,
         )
 
         # 3b. Mid-conversation relabel — CONTINUE turns only: a NEW_TOPIC

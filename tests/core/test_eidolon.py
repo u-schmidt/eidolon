@@ -398,6 +398,29 @@ class TestEidolon:
         topic = list(storage.topics.values())[0]
         assert topic["label"] == ""
 
+    def test_store_turn_stores_ai_message_under_real_workspace_id(self):
+        """Regression test: the AI response's message row must be
+        partitioned under the turn's real workspace_id, not a literal
+        "ai" — a stray hardcoded value once broke this (see
+        core/__init__.py's store_turn), silently mixing every AI
+        response into its own bogus partition and making it invisible
+        to any workspace-scoped search/read.
+        """
+        storage = MockStorage()
+        llm = MockLLM(extraction_response="[]")
+        embedder = MockEmbedder()
+        eidolon = Eidolon(storage, llm, embedder)
+
+        eidolon.store_turn(
+            user_message="Lass uns über Bello sprechen",
+            ai_response="Gerne!",
+            workspace_id="acme-workspace",
+            environment=EnvironmentSnapshot(),
+            new_topic_label="Bello Features",
+        )
+
+        assert {m["workspace_id"] for m in storage.messages} == {"acme-workspace"}
+
     def test_store_turn_extracts_and_stores_items(self):
         storage = MockStorage()
         llm = MockLLM(
