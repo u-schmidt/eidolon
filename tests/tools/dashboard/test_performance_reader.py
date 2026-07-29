@@ -37,22 +37,22 @@ class FakeMetricsReader:
 def _llm_call(call_type: str, duration_ms: float, succeeded: bool = True, created_at=None) -> dict:
     return {
         "call_type": call_type, "duration_ms": duration_ms, "succeeded": succeeded,
-        "peer_id": "u1", "session_id": None, "created_at": (created_at or _NOW).isoformat(),
+        "workspace_id": "u1", "session_id": None, "created_at": (created_at or _NOW).isoformat(),
     }
 
 
 def _embedding_call(purpose: str, duration_ms: float, succeeded: bool = True) -> dict:
     return {
         "purpose": purpose, "duration_ms": duration_ms, "dimension": 768, "succeeded": succeeded,
-        "entity_type": None, "entity_id": None, "peer_id": "u1", "session_id": None,
+        "entity_type": None, "entity_id": None, "workspace_id": "u1", "session_id": None,
         "created_at": _NOW.isoformat(),
     }
 
 
-def _error_event(peer_id: str | None = "u1", session_id: str | None = "s1") -> dict:
+def _error_event(workspace_id: str | None = "u1", session_id: str | None = "s1") -> dict:
     return {
         "severity": "error", "step": "extraction", "message": "boom",
-        "peer_id": peer_id, "session_id": session_id, "created_at": _NOW.isoformat(),
+        "workspace_id": workspace_id, "session_id": session_id, "created_at": _NOW.isoformat(),
     }
 
 
@@ -122,14 +122,14 @@ class TestHourlyThroughput:
 
 
 class TestTopErrorSources:
-    def test_ranks_peers_by_error_count(self):
+    def test_ranks_workspaces_by_error_count(self):
         reader = PerformanceReader(FakeMetricsReader(events=[
-            _error_event(peer_id="u1"),
-            _error_event(peer_id="u1"),
-            _error_event(peer_id="u2"),
+            _error_event(workspace_id="u1"),
+            _error_event(workspace_id="u1"),
+            _error_event(workspace_id="u2"),
         ]))
 
-        top = reader.summary(_NOW - timedelta(hours=1)).top_error_peers
+        top = reader.summary(_NOW - timedelta(hours=1)).top_error_workspaces
         assert top[0].key == "u1"
         assert top[0].error_count == 2
         assert top[1].key == "u2"
@@ -137,27 +137,27 @@ class TestTopErrorSources:
 
     def test_ranks_sessions_separately(self):
         reader = PerformanceReader(FakeMetricsReader(events=[
-            _error_event(peer_id="u1", session_id="s1"),
-            _error_event(peer_id="u1", session_id="s2"),
+            _error_event(workspace_id="u1", session_id="s1"),
+            _error_event(workspace_id="u1", session_id="s2"),
         ]))
 
         top = reader.summary(_NOW - timedelta(hours=1)).top_error_sessions
         assert {s.key for s in top} == {"s1", "s2"}
 
-    def test_ignores_missing_peer_or_session(self):
+    def test_ignores_missing_workspace_or_session(self):
         reader = PerformanceReader(FakeMetricsReader(events=[
-            _error_event(peer_id=None, session_id=None),
+            _error_event(workspace_id=None, session_id=None),
         ]))
 
         summary = reader.summary(_NOW - timedelta(hours=1))
-        assert summary.top_error_peers == []
+        assert summary.top_error_workspaces == []
         assert summary.top_error_sessions == []
 
     def test_non_error_severity_excluded(self):
         reader = PerformanceReader(FakeMetricsReader(events=[
             {"severity": "warning", "step": "extraction", "message": "hm",
-             "peer_id": "u1", "session_id": "s1", "created_at": _NOW.isoformat()},
+             "workspace_id": "u1", "session_id": "s1", "created_at": _NOW.isoformat()},
         ]))
 
         summary = reader.summary(_NOW - timedelta(hours=1))
-        assert summary.top_error_peers == []
+        assert summary.top_error_workspaces == []

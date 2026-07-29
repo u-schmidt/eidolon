@@ -22,7 +22,7 @@ class EvalReportFormatter:
         lines = [
             f"# Eval report: {report.script_name}",
             "",
-            f"- peer_id: `{report.peer_id}`",
+            f"- workspace_id: `{report.workspace_id}`",
             f"- model: {report.model_identity}",
             f"- embedder: {report.embedder_identity}",
             f"- db: `{report.db_path}`",

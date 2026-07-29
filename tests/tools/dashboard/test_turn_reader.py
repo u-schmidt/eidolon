@@ -70,16 +70,16 @@ class TestGet:
 
     def test_skeleton_mode_when_no_trace_data(self):
         reader, storage, metrics, _trace = _build_turn_reader()
-        tid = storage.create_topic("Gym talk", peer_id="u1")
-        storage.store_message(turn_id=1, role="user", content="gym was crowded", peer_id="u1", topic_id=tid, request_id="req1")
-        storage.store_message(turn_id=1, role="ai", content="sounds rough", peer_id="ai", topic_id=tid, request_id="req1")
+        tid = storage.create_topic("Gym talk", workspace_id="u1")
+        storage.store_message(turn_id=1, role="user", content="gym was crowded", workspace_id="u1", topic_id=tid, request_id="req1")
+        storage.store_message(turn_id=1, role="ai", content="sounds rough", workspace_id="ai", topic_id=tid, request_id="req1")
         metrics.llm_calls["req1"] = [
             {"call_type": "topic_detection", "duration_ms": 42.5, "succeeded": True,
-             "peer_id": "u1", "session_id": None, "created_at": "t1"},
+             "workspace_id": "u1", "session_id": None, "created_at": "t1"},
         ]
         metrics.events["req1"] = [
             {"severity": "error", "step": "extraction", "message": "boom",
-             "peer_id": "u1", "session_id": None, "created_at": "t2"},
+             "workspace_id": "u1", "session_id": None, "created_at": "t2"},
         ]
 
         detail = reader.get("req1")
@@ -97,8 +97,8 @@ class TestGet:
 
     def test_rich_mode_when_trace_data_present(self):
         reader, storage, metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
-        storage.store_message(turn_id=1, role="ai", content="hello", peer_id="ai", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="ai", content="hello", workspace_id="ai", request_id="req1")
         trace.events["req1"] = [
             {"event_type": "topic_detection", "payload": {"message": "hi"}, "duration_ms": 5.0,
              "session_id": "sess1", "created_at": "t1"},
@@ -113,7 +113,7 @@ class TestGet:
 
     def test_turn_without_topic_id_has_no_topic_ref(self):
         reader, storage, _metrics, _trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
 
         detail = reader.get("req1")
         assert detail is not None
@@ -123,7 +123,7 @@ class TestGet:
 class TestTimingWaterfall:
     def test_phase_classification_and_offsets(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace.events["req1"] = [
             {
                 "event_type": "prefetch_complete", "payload": {}, "duration_ms": 1000.0,
@@ -152,7 +152,7 @@ class TestTimingWaterfall:
 
     def test_start_offset_none_when_created_at_unparseable(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace.events["req1"] = [
             {"event_type": "topic_detection", "payload": {}, "duration_ms": 5.0,
              "session_id": None, "created_at": "not-a-timestamp"},
@@ -164,7 +164,7 @@ class TestTimingWaterfall:
 
     def test_prefetch_and_sync_duration_pulled_from_wrapping_events(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace.events["req1"] = [
             {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
              "session_id": None, "created_at": "t1"},
@@ -181,7 +181,7 @@ class TestTimingWaterfall:
 
     def test_prefetch_and_sync_duration_none_when_wrapping_events_absent(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace.events["req1"] = [
             {"event_type": "topic_detection", "payload": {}, "duration_ms": 5.0,
              "session_id": None, "created_at": "t1"},
@@ -194,7 +194,7 @@ class TestTimingWaterfall:
 
     def test_llm_gap_computed_from_wrapping_events(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace.events["req1"] = [
             {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 1000.0,
              "session_id": None, "created_at": "2026-01-01T00:00:01.000000"},
@@ -210,7 +210,7 @@ class TestTimingWaterfall:
 
     def test_llm_gap_none_when_prefetch_duration_missing(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace.events["req1"] = [
             {"event_type": "turn_complete", "payload": {}, "duration_ms": 80.0,
              "session_id": None, "created_at": "t1"},
@@ -222,7 +222,7 @@ class TestTimingWaterfall:
 
     def test_llm_gap_none_when_sync_duration_missing(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace.events["req1"] = [
             {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
              "session_id": None, "created_at": "t1"},
@@ -234,7 +234,7 @@ class TestTimingWaterfall:
 
     def test_llm_gap_clamped_to_zero_for_overlapping_timestamps(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         # Pathological: turn_complete's own start (00:00:00.000) precedes
         # prefetch_complete's end (00:00:01.000) — plain subtraction would
         # go negative; llm_gap_ms must clamp to 0.0 rather than show
@@ -253,7 +253,7 @@ class TestTimingWaterfall:
 
     def test_user_wait_is_prefetch_plus_gap_excluding_sync(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace.events["req1"] = [
             {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 1000.0,
              "session_id": None, "created_at": "2026-01-01T00:00:01.000000"},
@@ -270,7 +270,7 @@ class TestTimingWaterfall:
 
     def test_user_wait_none_when_gap_unavailable(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace.events["req1"] = [
             {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
              "session_id": None, "created_at": "t1"},
@@ -289,7 +289,7 @@ class TestCandidateLabels:
 
     def test_topic_candidate_gets_label(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         topic_id = storage.create_topic("Bello Features", summary="")
         trace.events["req1"] = [{
             "event_type": "retrieval_scoring_summary",
@@ -306,8 +306,8 @@ class TestCandidateLabels:
 
     def test_cluster_candidate_gets_label(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
-        cluster_id = storage.create_cluster(peer_id="u1", label="Fitness", summary="")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
+        cluster_id = storage.create_cluster(workspace_id="u1", label="Fitness", summary="")
         trace.events["req1"] = [{
             "event_type": "retrieval_scoring_summary",
             "payload": {
@@ -323,7 +323,7 @@ class TestCandidateLabels:
 
     def test_memory_item_candidate_gets_content_preview(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         item_id = storage.store_memory_item(MemoryItem(
             content="User likes hiking", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
@@ -346,7 +346,7 @@ class TestCandidateLabels:
         candidate_type="cluster_candidate" — candidate_kind disambiguates
         which one each row actually is (see retrieval_scorer.py)."""
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         topic_id = storage.create_topic("Gym talk", summary="")
         trace.events["req1"] = [{
             "event_type": "retrieval_scoring_summary",
@@ -365,7 +365,7 @@ class TestCandidateLabels:
 
     def test_missing_candidate_resolves_to_none(self):
         reader, storage, _metrics, trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace.events["req1"] = [{
             "event_type": "retrieval_scoring_summary",
             "payload": {
@@ -383,8 +383,8 @@ class TestCandidateLabels:
 class TestRecentTurns:
     def test_lists_stored_turns(self):
         reader, storage, _metrics, _trace = _build_turn_reader()
-        storage.store_message(turn_id=1, role="user", content="first", peer_id="u1", request_id="req1")
-        storage.store_message(turn_id=2, role="user", content="second", peer_id="u1", request_id="req2")
+        storage.store_message(turn_id=1, role="user", content="first", workspace_id="u1", request_id="req1")
+        storage.store_message(turn_id=2, role="user", content="second", workspace_id="u1", request_id="req2")
 
         turns = reader.recent_turns(10)
         assert [t.request_id for t in turns] == ["req2", "req1"]
@@ -392,7 +392,7 @@ class TestRecentTurns:
     def test_preview_is_truncated(self):
         reader, storage, _metrics, _trace = _build_turn_reader()
         long_message = "x" * 200
-        storage.store_message(turn_id=1, role="user", content=long_message, peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content=long_message, workspace_id="u1", request_id="req1")
 
         turns = reader.recent_turns(10)
         assert len(turns[0].preview) <= 81  # 80 chars + ellipsis

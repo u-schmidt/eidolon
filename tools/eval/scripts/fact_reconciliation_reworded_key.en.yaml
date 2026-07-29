@@ -24,7 +24,7 @@
 # a leftover key still holding "Obsidian".
 
 name: "reconciled preference under a differently-worded key — notes app switch"
-peer_id: "eval-peer-key-reconciliation"
+workspace_id: "eval-peer-key-reconciliation"
 language: "en"
 
 turns:

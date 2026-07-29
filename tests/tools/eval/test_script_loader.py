@@ -11,7 +11,7 @@ from tools.eval.script_loader import EvalScriptLoader
 
 _SCRIPT_YAML = """
 name: "ok-continuation and a genuine topic switch"
-peer_id: "eval-peer-01"
+workspace_id: "eval-workspace-01"
 language: "de"
 
 turns:
@@ -53,7 +53,7 @@ class TestEvalScriptLoader:
         script = EvalScriptLoader().load(script_path)
 
         assert script.name == "ok-continuation and a genuine topic switch"
-        assert script.peer_id == "eval-peer-01"
+        assert script.workspace_id == "eval-workspace-01"
         assert script.language == "de"
         assert len(script.turns) == 2
 
@@ -92,7 +92,7 @@ class TestEvalScriptLoader:
     def test_missing_expect_end_defaults_to_empty(self):
         tmp = tempfile.mkdtemp()
         path = Path(tmp) / "minimal.yaml"
-        path.write_text('name: "minimal"\npeer_id: "p1"\nturns: []\n', encoding="utf-8")
+        path.write_text('name: "minimal"\nworkspace_id: "p1"\nturns: []\n', encoding="utf-8")
 
         script = EvalScriptLoader().load(str(path))
 

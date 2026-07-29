@@ -43,7 +43,7 @@ class FakeTraceReader:
 
 def _topic(topic_id: int, label: str, created_at: str, closed_at: str, message_count: int) -> dict:
     return {
-        "id": topic_id, "peer_id": "u1", "label": label,
+        "id": topic_id, "workspace_id": "u1", "label": label,
         "created_at": created_at, "closed_at": closed_at, "message_count": message_count,
     }
 
@@ -74,7 +74,7 @@ class TestLifespanStats:
     def test_topic_with_missing_timestamp_excluded_from_lifespan_but_not_total(self):
         closed_topics = [
             _topic(1, "Good", "2026-07-28T10:00:00", "2026-07-28T11:00:00", 2),
-            {"id": 2, "peer_id": "u1", "label": "Bad", "created_at": None, "closed_at": "2026-07-28T11:00:00", "message_count": 1},
+            {"id": 2, "workspace_id": "u1", "label": "Bad", "created_at": None, "closed_at": "2026-07-28T11:00:00", "message_count": 1},
         ]
         reader = TopicLifecycleReader(FakeTraceReader(), FakeStorage(closed_topics))
 

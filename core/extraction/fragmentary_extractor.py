@@ -235,7 +235,7 @@ class FragmentaryExtractor:
         ai_response : str
             The AI's response from this turn.
         source_peer : str
-            Default source peer for extracted items (default: "user").
+            Default source workspace for extracted items (default: "user").
         topic_label : str | None
             The current topic label, if known.
         environment : EnvironmentSnapshot | None
@@ -272,7 +272,7 @@ class FragmentaryExtractor:
             )
             self._metrics.record_event(
                 "error", "extraction", repr(exc),
-                peer_id=source_peer, request_id=request_id, session_id=session_id,
+                workspace_id=source_peer, request_id=request_id, session_id=session_id,
             )
             logger.warning("Eidolon extraction failed: %s", exc)
         duration_ms = (time.perf_counter() - started) * 1000
@@ -311,6 +311,6 @@ class FragmentaryExtractor:
         )
         self._metrics.record_llm_call(
             "extraction", duration_ms, succeeded,
-            peer_id=source_peer, request_id=request_id, session_id=session_id,
+            workspace_id=source_peer, request_id=request_id, session_id=session_id,
         )
         return items

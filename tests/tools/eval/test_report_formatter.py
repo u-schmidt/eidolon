@@ -40,10 +40,10 @@ def _report() -> EvalReport:
         unmatched_actual_items=[unmatched_item],
     )
     matched_fact = Fact(
-        peer_id="eval-peer", category="finance", key="budget_item", value="2000 euros", source="ai",
+        workspace_id="eval-workspace", category="finance", key="budget_item", value="2000 euros", source="ai",
     )
     stray_fact = Fact(
-        peer_id="eval-peer", category="location", key="city", value="Hamburg", source="ai",
+        workspace_id="eval-workspace", category="location", key="city", value="Hamburg", source="ai",
     )
     matched_cluster = {"id": 1, "label": "Bike saga", "summary": "Consolidated bike story", "topic_count": 3}
     stray_cluster = {"id": 2, "label": "Weather chat", "summary": "About the weather", "topic_count": 2}
@@ -69,7 +69,7 @@ def _report() -> EvalReport:
     )
     return EvalReport(
         script_name="bike script",
-        peer_id="eval-peer",
+        workspace_id="eval-workspace",
         model_identity="lm_studio/deepseek-v4",
         embedder_identity="lm_studio/nomic-embed-text",
         db_path="/tmp/eval.db",
@@ -149,7 +149,7 @@ class TestToMarkdown:
 
     def test_scorecard_handles_empty_report_as_not_applicable(self):
         empty = EvalReport(
-            script_name="empty", peer_id="p", model_identity="m", embedder_identity="e", db_path="db",
+            script_name="empty", workspace_id="p", model_identity="m", embedder_identity="e", db_path="db",
             git_commit="abc1234",
         )
 

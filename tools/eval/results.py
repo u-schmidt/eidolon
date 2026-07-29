@@ -90,7 +90,7 @@ class EvalReport:
     configured model/embedder pair."""
 
     script_name: str
-    peer_id: str
+    workspace_id: str
     model_identity: str
     embedder_identity: str
     db_path: str

@@ -100,15 +100,15 @@ class TestEidolonConfig:
         assert maintenance.enabled is False
         assert maintenance.interval_hours == 1.0
         assert maintenance.stale_after_hours == 24.0
-        assert maintenance.peer_id is None
+        assert maintenance.workspace_id is None
 
     def test_to_dict_includes_maintenance(self):
-        config = EidolonConfig(maintenance=MaintenanceConfig(enabled=True, peer_id="udo"))
+        config = EidolonConfig(maintenance=MaintenanceConfig(enabled=True, workspace_id="udo"))
         d = config.to_dict()
         assert d["maintenance"]["enabled"] is True
         assert d["maintenance"]["interval_hours"] == 1.0
         assert d["maintenance"]["stale_after_hours"] == 24.0
-        assert d["maintenance"]["peer_id"] == "udo"
+        assert d["maintenance"]["workspace_id"] == "udo"
 
     def test_relabel_config_defaults(self):
         relabel = RelabelConfig()
@@ -683,7 +683,7 @@ maintenance:
   enabled: true
   interval_hours: 2
   stale_after_hours: 12
-  peer_id: udo
+  workspace_id: udo
 """
         tmp = tempfile.mkdtemp()
         yaml_path = str(Path(tmp) / "config.yaml")
@@ -696,13 +696,13 @@ maintenance:
         assert config.maintenance.enabled is True
         assert config.maintenance.interval_hours == 2
         assert config.maintenance.stale_after_hours == 12
-        assert config.maintenance.peer_id == "udo"
+        assert config.maintenance.workspace_id == "udo"
 
     def test_env_maintenance_vars(self):
         os.environ["EIDOLON_MAINTENANCE_ENABLED"] = "true"
         os.environ["EIDOLON_MAINTENANCE_INTERVAL_HOURS"] = "2"
         os.environ["EIDOLON_MAINTENANCE_STALE_AFTER_HOURS"] = "12"
-        os.environ["EIDOLON_MAINTENANCE_PEER_ID"] = "udo"
+        os.environ["EIDOLON_MAINTENANCE_WORKSPACE_ID"] = "udo"
 
         loader = ConfigLoader()
         config = loader.load()
@@ -710,17 +710,17 @@ maintenance:
         assert config.maintenance.enabled is True
         assert config.maintenance.interval_hours == 2.0
         assert config.maintenance.stale_after_hours == 12.0
-        assert config.maintenance.peer_id == "udo"
+        assert config.maintenance.workspace_id == "udo"
 
         del os.environ["EIDOLON_MAINTENANCE_ENABLED"]
         del os.environ["EIDOLON_MAINTENANCE_INTERVAL_HOURS"]
         del os.environ["EIDOLON_MAINTENANCE_STALE_AFTER_HOURS"]
-        del os.environ["EIDOLON_MAINTENANCE_PEER_ID"]
+        del os.environ["EIDOLON_MAINTENANCE_WORKSPACE_ID"]
 
     def test_cli_maintenance_args(self):
         args = Namespace(
             maintenance_enabled=True, maintenance_interval_hours=2.0,
-            maintenance_stale_after_hours=12.0, maintenance_peer_id="udo",
+            maintenance_stale_after_hours=12.0, maintenance_workspace_id="udo",
         )
 
         loader = ConfigLoader(cli_args=args)
@@ -729,7 +729,7 @@ maintenance:
         assert config.maintenance.enabled is True
         assert config.maintenance.interval_hours == 2.0
         assert config.maintenance.stale_after_hours == 12.0
-        assert config.maintenance.peer_id == "udo"
+        assert config.maintenance.workspace_id == "udo"
 
     def test_yaml_relabel_section(self):
         yaml_content = """
@@ -808,7 +808,7 @@ class TestProviderFactory:
         try:
             from core.stores.postgres_store import PostgresStore
             assert isinstance(store, PostgresStore)
-            tid = store.create_topic("Test", peer_id="user")
+            tid = store.create_topic("Test", workspace_id="user")
             assert store.get_topic(tid)["label"] == "Test"
         finally:
             with store._conn.cursor() as cur:

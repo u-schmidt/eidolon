@@ -92,7 +92,7 @@ class TurnListItem:
     """One row in the recent-turns picker."""
 
     request_id: str
-    peer_id: str | None
+    workspace_id: str | None
     topic_id: int | None
     preview: str
     created_at: object
@@ -108,7 +108,7 @@ class TopicRef:
 @dataclass
 class TurnHeader:
     request_id: str
-    peer_id: str | None
+    workspace_id: str | None
     session_id: str | None
     created_at: object
     user_message: str | None
@@ -205,7 +205,7 @@ class TurnReader:
         self._metrics_reader = metrics_reader
         self._trace_reader = trace_reader
 
-    def recent_turns(self, limit: int = 20, peer_id: str | None = None) -> list[TurnListItem]:
+    def recent_turns(self, limit: int = 20, workspace_id: str | None = None) -> list[TurnListItem]:
         """List recent turns for a picker UI, most recent first.
 
         Sourced straight from ``messages`` (via
@@ -216,12 +216,12 @@ class TurnReader:
         return [
             TurnListItem(
                 request_id=row["request_id"],
-                peer_id=row["peer_id"],
+                workspace_id=row["workspace_id"],
                 topic_id=row["topic_id"],
                 preview=_preview(row["content"]),
                 created_at=row["created_at"],
             )
-            for row in self._storage.get_recent_turns(limit, peer_id=peer_id)
+            for row in self._storage.get_recent_turns(limit, workspace_id=workspace_id)
         ]
 
     def get(self, request_id: str) -> TurnDetail | None:
@@ -244,7 +244,7 @@ class TurnReader:
 
         header = TurnHeader(
             request_id=request_id,
-            peer_id=(user_row or messages[0]).get("peer_id"),
+            workspace_id=(user_row or messages[0]).get("workspace_id"),
             session_id=None,
             created_at=(user_row or messages[0]).get("created_at"),
             user_message=user_row["content"] if user_row else None,

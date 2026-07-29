@@ -28,7 +28,7 @@
 # takes meaningfully longer to run than the others.
 
 name: "longform multithread — 200 turns, 16 recurring storylines"
-peer_id: "eval-peer-longform-200"
+workspace_id: "eval-peer-longform-200"
 language: "de"
 
 turns:

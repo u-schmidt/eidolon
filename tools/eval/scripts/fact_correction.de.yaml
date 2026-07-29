@@ -14,7 +14,7 @@
 # for — review it by eye for a stray Hamburg entry.
 
 name: "corrected fact — user relocates from Hamburg to Berlin"
-peer_id: "eval-peer-fact-correction"
+workspace_id: "eval-peer-fact-correction"
 language: "de"
 
 turns:

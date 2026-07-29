@@ -37,7 +37,7 @@ class QueuedLLM:
 
 
 def _script(turns: list[EvalTurn], expect_end: EndExpectation | None = None) -> EvalScript:
-    return EvalScript(name="test script", peer_id="eval-peer", turns=turns, expect_end=expect_end or EndExpectation())
+    return EvalScript(name="test script", workspace_id="eval-workspace", turns=turns, expect_end=expect_end or EndExpectation())
 
 
 class TestEvalRunner:
@@ -95,7 +95,7 @@ class TestEvalRunner:
     def test_end_result_reads_final_facts_from_storage(self):
         storage = MockStorage()
         storage.facts = [
-            Fact(peer_id="eval-peer", category="preference", key="bike_budget", value="2000 EUR", source="user")
+            Fact(workspace_id="eval-workspace", category="preference", key="bike_budget", value="2000 EUR", source="user")
         ]
         llm = QueuedLLM(["CONTINUE"])
         embedder = MockEmbedder()
@@ -117,7 +117,7 @@ class TestEvalRunner:
 
     def test_end_result_reads_final_clusters_from_storage(self):
         storage = MockStorage()
-        cid = storage.create_cluster("eval-peer", "Bike saga", "consolidated bike story")
+        cid = storage.create_cluster("eval-workspace", "Bike saga", "consolidated bike story")
         llm = QueuedLLM(["CONTINUE"])
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder)

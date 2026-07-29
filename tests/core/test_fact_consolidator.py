@@ -198,7 +198,7 @@ class TestConsolidateTracing:
         event = events[0]
         assert event["request_id"] == "req1"
         assert event["session_id"] == "sess1"
-        assert event["payload"]["peer_id"] == "user"
+        assert event["payload"]["workspace_id"] == "user"
         assert event["payload"]["new_item_count"] == 1
         assert event["payload"]["total_facts_after"] == 1
         assert event["payload"]["upserts"] == [{"category": "preferences", "key": "pets", "value": "likes cats"}]
@@ -225,7 +225,7 @@ class TestConsolidateTracing:
         assert len(metrics.llm_calls) == 1
         assert metrics.llm_calls[0]["call_type"] == "fact_consolidation"
         assert metrics.llm_calls[0]["succeeded"] is True
-        assert metrics.llm_calls[0]["peer_id"] == "user"
+        assert metrics.llm_calls[0]["workspace_id"] == "user"
         assert metrics.llm_calls[0]["request_id"] == "req1"
 
     def test_records_error_metric_on_malformed_response(self, store: SqliteStore, caplog):
@@ -238,21 +238,21 @@ class TestConsolidateTracing:
         assert len(metrics.events) == 1
         assert metrics.events[0]["severity"] == "error"
         assert metrics.events[0]["step"] == "fact_consolidation"
-        assert metrics.events[0]["peer_id"] == "user"
+        assert metrics.events[0]["workspace_id"] == "user"
         assert metrics.llm_calls == []
 
 
 class TestConsolidatePeerIdVsSubjectPeer:
-    """peer_id identifies *whose* profile this is; subject_peer is always
+    """workspace_id identifies *whose* profile this is; subject_peer is always
     FragmentaryExtractor's fixed "user"/"ai"/"other" label — a different
     value space. Regression coverage for a bug where consolidate() looked
-    up new items by peer_id instead of the "user" subject label, so
-    consolidation silently no-op'd forever for any peer_id that wasn't
+    up new items by workspace_id instead of the "user" subject label, so
+    consolidation silently no-op'd forever for any workspace_id that wasn't
     literally the string "user" (which every other caller/test happened
     to use, masking it completely)."""
 
-    def test_finds_and_consolidates_facts_for_a_peer_id_other_than_user(self, store: SqliteStore):
-        store.store_memory_item(_fact_item("likes cats"))  # subject_peer="user" regardless of peer_id
+    def test_finds_and_consolidates_facts_for_a_workspace_id_other_than_user(self, store: SqliteStore):
+        store.store_memory_item(_fact_item("likes cats"))  # subject_peer="user" regardless of workspace_id
         llm = MockLLM('{"upserts": [{"category": "preferences", "key": "pets", "value": "likes cats"}], "deletes": []}')
 
         FactConsolidator(store, llm).consolidate("telegram:12345")
@@ -261,13 +261,13 @@ class TestConsolidatePeerIdVsSubjectPeer:
         assert len(facts) == 1
         assert facts[0].value == "likes cats"
 
-    def test_facts_and_checkpoint_are_scoped_by_peer_id_not_leaked(self, store: SqliteStore):
+    def test_facts_and_checkpoint_are_scoped_by_workspace_id_not_leaked(self, store: SqliteStore):
         store.store_memory_item(_fact_item("likes cats"))
         llm = MockLLM('{"upserts": [{"category": "preferences", "key": "pets", "value": "likes cats"}], "deletes": []}')
 
         FactConsolidator(store, llm).consolidate("telegram:12345")
 
-        assert store.get_facts("user") == []  # not written into an unrelated peer's profile
+        assert store.get_facts("user") == []  # not written into an unrelated workspace's profile
         assert store.get_consolidation_checkpoint("telegram:12345") != 0
         assert store.get_consolidation_checkpoint("user") == 0
 

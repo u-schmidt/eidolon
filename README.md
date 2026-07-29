@@ -77,7 +77,7 @@ eidolon/
 
 | Layer | Description | Persistence |
 |---|---|---|
-| **Facts** | A small, curated profile of durable identity-level facts about a peer (name, location, relationships, health, work, stable preferences) — reconciled periodically, not per-turn; see [Facts Consolidation](#facts-consolidation) | Persistent across sessions |
+| **Facts** | A small, curated profile of durable identity-level facts about a caller (name, location, relationships, health, work, stable preferences) — reconciled periodically, not per-turn; see [Facts Consolidation](#facts-consolidation) | Persistent across sessions |
 | **Topics** | Episodic conversation segments with summaries, tags, embeddings | Persistent across sessions |
 | **Memory Items** | Extracted fragments (essence, fact, surprise, feeling) with perspective attribution | Persistent across sessions |
 
@@ -200,7 +200,7 @@ python tools/cli.py --debug --trace-db /tmp/trace.db
 # closes them via the same summarize-then-close path as a normal topic
 # transition, then exits without entering the REPL. --dry-run lists only.
 python tools/cli.py --close-stale-topics --stale-older-than-hours 12 --dry-run
-python tools/cli.py --close-stale-topics --stale-older-than-hours 12 --stale-peer-id user
+python tools/cli.py --close-stale-topics --stale-older-than-hours 12 --stale-workspace-id user
 ```
 
 ### Hermes Adapter
@@ -263,6 +263,13 @@ storage:
 
 Why a second storage backend at all: SQLite's concurrency model has every client process take OS-level advisory file locks directly on the `.db` file, which doesn't reliably work over network/bridged filesystems (Docker Desktop's virtiofs bind mounts on macOS, NFS, SMB) — Postgres's single-writer-process-plus-wire-protocol model doesn't hit that failure class at all. See [`core/stores/postgres_store.py`](core/stores/postgres_store.py)'s module docstring for the full story.
 
+**Identity.** Every fact/topic/memory item is partitioned by `workspace_id` — the hard boundary that keeps one caller's memories from ever mixing with another's (like a Slack/Notion workspace). Every core method takes it as an explicit parameter (see `core/interfaces.py`) — the core itself has no notion of "the current user," only whatever `workspace_id` the caller passes in for that call. An adapter integration is free to resolve it however fits the platform it's embedded in — statically, or dynamically per request/session. The `eidolon.yaml` field below covers the static case: a fixed identity for a single-tenant deployment, or a fallback default for a caller that has no more specific id of its own to offer, defaulting to the literal `"user"` if left unset.
+
+```yaml
+workspace_id: my-instance-name  # optional — static/fallback identity
+                                 # (default: "user" if never set or resolved)
+```
+
 **Providers.** `openai_compatible` targets any endpoint speaking the OpenAI HTTP API — hosted (Groq, Together, DeepInfra), self-hosted (vLLM, LiteLLM, a private gateway), or local (Ollama 0.5+, LM Studio). Set `api_key` for authenticated endpoints (sent as a Bearer token; also settable via `EIDOLON_LLM_API_KEY`/`EIDOLON_EMBEDDER_API_KEY`). `ollama`, `lm_studio`, `openai`, and `openrouter` are thin presets of it with sensible defaults baked in — `openai` targets OpenAI's own hosted API (LLM + embedder), `openrouter` targets OpenRouter (LLM only; it has no embeddings endpoint). `sentence_transformers` provides local PyTorch embeddings; `simulated` is a deterministic, network-free fake for tests and CLI dry-runs.
 
 ```yaml
@@ -298,6 +305,8 @@ debug:
   trace_db_path: ~/.eidolon/trace.db
 
 timezone: Europe/Berlin       # IANA zone for displaying injected time (default: UTC)
+workspace_id: my-instance-name # Static/fallback identity — see Identity above
+                               # (default: "user" if never set or resolved)
 ```
 
 `llm` and `embedder` have dedicated CLI flags/env vars for quick overrides without touching YAML: `--llm-provider`/`--llm-base-url`/`--llm-model`/`--llm-max-tokens`/`--llm-timeout` (and the `embedder-`/`EIDOLON_LLM_*`/`EIDOLON_EMBEDDER_*` equivalents). Other roles are YAML-only for now.
@@ -310,7 +319,7 @@ Always on, no config flag — every [Per-Turn Flow](#per-turn-flow) step writes 
 
 | Table | One row per | Key columns |
 |---|---|---|
-| `events` | An error or warning from any step | `severity`, `step`, `message`, plus `peer_id`/`request_id`/`session_id` |
+| `events` | An error or warning from any step | `severity`, `step`, `message`, plus `workspace_id`/`request_id`/`session_id` |
 | `llm_calls` | An LLM completion call | `call_type` (`topic_detection`, `extraction`, `topic_summarization`, `topic_relabel`, `fact_consolidation`, `cluster_consolidation`), `duration_ms`, `succeeded` |
 | `embedding_calls` | An embedding call | `purpose` (`retrieval_query`, `memory_item`, `topic_summary`, `cluster_summary`), `duration_ms`, `dimension`, `succeeded`, `entity_type`/`entity_id` |
 

@@ -125,7 +125,11 @@ models:
 retrieval:
   semantic: 0.4              # Embedding vector similarity weight
   tag_overlap: 0.3           # Shared topic tags weight
-  person: 0.2                # Same peer/speaker weight
+  person: 0.2                # Reserved for a future subject-relevance signal
+                              # (does this topic concern the same person/entity
+                              # as the current message?) — currently dormant
+                              # (always 0) for topic search; no real signal
+                              # feeds it yet
   temporal: 0.1              # Temporal closeness weight
   related_topics: 5          # Related topics injected per turn
   memory_items_fact: 4       # Reserved memory-item slots for item_type=fact
@@ -194,7 +198,7 @@ maintenance:
   enabled: false
   interval_hours: 1          # minimum time between sweep attempts
   stale_after_hours: 24      # how long a topic must be idle to count as stale
-  # peer_id: someone           # restrict the sweep to one peer (default: every peer)
+  # workspace_id: someone      # restrict the sweep to one workspace (default: every workspace)
 
 # ── General ───────────────────────────────────────────────
 language: en                 # Language for stop word filtering (en | de)
@@ -202,3 +206,11 @@ language: en                 # Language for stop word filtering (en | de)
 timezone: UTC                 # IANA zone name (e.g. Europe/Berlin) used to
                                # display the injected [Environment] time.
                                # Stored timestamps stay UTC regardless.
+# workspace_id: my-profile-name # Pins this profile's own identity — the
+                               # partition key separating one caller's
+                               # memories from another's. Only needed if
+                               # more than one Hermes profile shares this
+                               # same Eidolon backend; otherwise the
+                               # per-session identity Hermes provides (or
+                               # the "user" fallback) is enough on its own.
+                               # Read once at startup, not per-turn.

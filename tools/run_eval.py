@@ -3,7 +3,7 @@
 Uses ConfigLoader + ProviderFactory for the LLM/embedder, exactly like
 tools/cli.py — but storage is always a fresh, isolated store, never the
 configured (dev or live) one, so eval runs can never write into real
-peer data. Default is a throwaway temp SQLite file; --storage-provider
+workspace data. Default is a throwaway temp SQLite file; --storage-provider
 postgres points it at a Postgres/pgvector target instead (its tables are
 truncated before the run for the same fresh-isolation guarantee) — this
 is what makes a SQLite-vs-Postgres retrieval-quality parity comparison
@@ -91,7 +91,7 @@ def _build_storage(args: argparse.Namespace, embedding_dim: int) -> tuple[Storag
     report's db_path field. Always fresh and isolated regardless of
     backend: SQLite gets a new throwaway temp file (as before); Postgres
     has its tables truncated before the run — an eval run must never
-    accumulate state across runs or touch real peer data either way.
+    accumulate state across runs or touch real workspace data either way.
     """
     if args.storage_provider == "postgres":
         from core.stores.postgres_store import PostgresStore

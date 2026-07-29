@@ -1,6 +1,6 @@
 """Facts profile consolidation for Eidolon.
 
-Periodically reconciles a peer's durable-facts profile — a small,
+Periodically reconciles a workspace's durable-facts profile — a small,
 curated set of stable identity-level facts — against everything new
 learned since the last pass. Unlike per-turn extraction, this looks at
 the *entire* current profile in one LLM call, so updates replace stale
@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 
 # FragmentaryExtractor's literal subject_peer label for the human (see
 # core/extraction/fragmentary_extractor.py) — a different value space from
-# peer_id, which identifies *whose* profile this is, not who a memory item
-# is about. Facts are keyed by the real peer_id; the memory items that
+# workspace_id, which identifies *whose* profile this is, not who a memory item
+# is about. Facts are keyed by the real workspace_id; the memory items that
 # feed them are always subject_peer="user"/"ai"/"other". Querying
-# get_fact_items_since with peer_id instead of this constant silently
-# starves consolidation forever for any peer_id that isn't literally the
+# get_fact_items_since with workspace_id instead of this constant silently
+# starves consolidation forever for any workspace_id that isn't literally the
 # string "user".
 _PROFILE_SUBJECT = "user"
 
@@ -174,7 +174,7 @@ def _parse_consolidation_response(response: str) -> tuple[list[dict], list[dict]
 
 
 class FactConsolidator:
-    """Reconciles a peer's durable-facts profile via periodic batch review.
+    """Reconciles a workspace's durable-facts profile via periodic batch review.
 
     Parameters
     ----------
@@ -217,18 +217,18 @@ class FactConsolidator:
 
     def consolidate(
         self,
-        peer_id: str,
+        workspace_id: str,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
-        """Reconcile `peer_id`'s durable-facts profile.
+        """Reconcile `workspace_id`'s durable-facts profile.
 
         No-ops (no LLM call spent) if nothing new has been extracted
         since the last successful pass. On failure, the checkpoint is
         left unchanged so the same items are retried next time.
 
-        `peer_id` only scopes *where* the reconciled profile and
+        `workspace_id` only scopes *where* the reconciled profile and
         checkpoint are stored — it plays no part in selecting which
         memory items feed the pass. That selection always looks at
         `_PROFILE_SUBJECT` ("user"), matching FragmentaryExtractor's
@@ -236,22 +236,22 @@ class FactConsolidator:
 
         Parameters
         ----------
-        peer_id : str
-            The peer whose profile to reconcile.
+        workspace_id : str
+            The workspace whose profile to reconcile.
         request_id : str | None
             Correlates this call's trace event with others from the
             same top-level ``Eidolon`` call.
         session_id : str | None
             Adapter-level conversation identifier, for trace filtering.
         """
-        since_id = self._storage.get_consolidation_checkpoint(peer_id)
+        since_id = self._storage.get_consolidation_checkpoint(workspace_id)
         new_items = self._storage.get_fact_items_since(_PROFILE_SUBJECT, since_id)
         if not new_items:
             return
 
         started = time.perf_counter()
         try:
-            current_facts = self._storage.get_facts(peer_id)
+            current_facts = self._storage.get_facts(workspace_id)
             prompt = _build_consolidation_prompt(current_facts, new_items)
             response = self._llm.complete(
                 prompt=prompt,
@@ -274,26 +274,26 @@ class FactConsolidator:
                             "Eidolon fact_consolidation: category %r not in configured list %s",
                             category, self._categories,
                         )
-                    self._storage.set_fact(peer_id, category, key, value, source="ai", importance=importance)
+                    self._storage.set_fact(workspace_id, category, key, value, source="ai", importance=importance)
 
             for entry in deletes:
                 category = str(entry.get("category", "")).strip().lower()
                 key = str(entry.get("key", "")).strip().lower()
                 if category and key:
-                    self._storage.delete_fact(peer_id, category, key)
+                    self._storage.delete_fact(workspace_id, category, key)
 
             latest_item_id = max(item.id for item in new_items if item.id is not None)
-            self._storage.set_consolidation_checkpoint(peer_id, latest_item_id)
+            self._storage.set_consolidation_checkpoint(workspace_id, latest_item_id)
 
             self._tracer.record(
                 "fact_consolidation",
                 {
-                    "peer_id": peer_id,
+                    "workspace_id": workspace_id,
                     "new_item_count": len(new_items),
                     "response": response,
                     "upserts": upserts,
                     "deletes": deletes,
-                    "total_facts_after": len(self._storage.get_facts(peer_id)),
+                    "total_facts_after": len(self._storage.get_facts(workspace_id)),
                 },
                 request_id=request_id,
                 session_id=session_id,
@@ -301,20 +301,20 @@ class FactConsolidator:
             )
             self._metrics.record_llm_call(
                 "fact_consolidation", (time.perf_counter() - started) * 1000, True,
-                peer_id=peer_id, request_id=request_id, session_id=session_id,
+                workspace_id=workspace_id, request_id=request_id, session_id=session_id,
             )
         except Exception as exc:
             self._tracer.record(
                 "error",
-                {"step": "fact_consolidation", "peer_id": peer_id, "exception": repr(exc)},
+                {"step": "fact_consolidation", "workspace_id": workspace_id, "exception": repr(exc)},
                 request_id=request_id,
                 session_id=session_id,
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
             self._metrics.record_event(
                 "error", "fact_consolidation", repr(exc),
-                peer_id=peer_id, request_id=request_id, session_id=session_id,
+                workspace_id=workspace_id, request_id=request_id, session_id=session_id,
             )
-            logger.warning("Eidolon fact_consolidation failed (peer_id=%s): %s", peer_id, exc)
+            logger.warning("Eidolon fact_consolidation failed (workspace_id=%s): %s", workspace_id, exc)
             # Checkpoint intentionally not advanced — these items are
             # retried at the next consolidation trigger.

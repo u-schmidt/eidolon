@@ -54,7 +54,7 @@ from core.stores.sqlite_store import _deserialize_embedding
 # references topics and messages.
 _TABLE_ORDER = ["facts", "fact_consolidation_state", "topic_clusters", "topics", "messages", "memory_items"]
 # Only these have an id-based IDENTITY sequence to re-seed after migration
-# (fact_consolidation_state's primary key is peer_id, not id).
+# (fact_consolidation_state's primary key is workspace_id, not id).
 _IDENTITY_TABLES = ["facts", "topic_clusters", "topics", "messages", "memory_items"]
 _EMBEDDED_TABLES = ["topics", "memory_items", "topic_clusters"]
 
@@ -104,11 +104,11 @@ def _print_counts(title: str, counts: dict[str, int]) -> None:
 
 def _migrate_facts(sqlite_conn: sqlite3.Connection, pg_conn: psycopg.Connection) -> None:
     rows = sqlite_conn.execute(
-        "SELECT id, peer_id, category, key, value, source, importance, created_at FROM facts ORDER BY id"
+        "SELECT id, workspace_id, category, key, value, source, importance, created_at FROM facts ORDER BY id"
     ).fetchall()
     for r in rows:
         pg_conn.execute(
-            "INSERT INTO facts (id, peer_id, category, key, value, source, importance, created_at) "
+            "INSERT INTO facts (id, workspace_id, category, key, value, source, importance, created_at) "
             "OVERRIDING SYSTEM VALUE VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
             r,
         )
@@ -116,24 +116,24 @@ def _migrate_facts(sqlite_conn: sqlite3.Connection, pg_conn: psycopg.Connection)
 
 def _migrate_fact_consolidation_state(sqlite_conn: sqlite3.Connection, pg_conn: psycopg.Connection) -> None:
     rows = sqlite_conn.execute(
-        "SELECT peer_id, last_item_id, last_run_at FROM fact_consolidation_state"
+        "SELECT workspace_id, last_item_id, last_run_at FROM fact_consolidation_state"
     ).fetchall()
     for r in rows:
         pg_conn.execute(
-            "INSERT INTO fact_consolidation_state (peer_id, last_item_id, last_run_at) VALUES (%s, %s, %s)",
+            "INSERT INTO fact_consolidation_state (workspace_id, last_item_id, last_run_at) VALUES (%s, %s, %s)",
             r,
         )
 
 
 def _migrate_topic_clusters(sqlite_conn: sqlite3.Connection, pg_conn: psycopg.Connection) -> None:
     rows = sqlite_conn.execute(
-        "SELECT id, peer_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
+        "SELECT id, workspace_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
         "FROM topic_clusters ORDER BY id"
     ).fetchall()
     for r in rows:
         embedding = _deserialize_embedding(r[5]) if r[5] is not None else None
         pg_conn.execute(
-            "INSERT INTO topic_clusters (id, peer_id, label, summary, tags, embedding, topic_count, "
+            "INSERT INTO topic_clusters (id, workspace_id, label, summary, tags, embedding, topic_count, "
             "created_at, updated_at) OVERRIDING SYSTEM VALUE VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (r[0], r[1], r[2], r[3], Jsonb(json.loads(r[4])), embedding, r[6], r[7], r[8]),
         )
@@ -141,13 +141,13 @@ def _migrate_topic_clusters(sqlite_conn: sqlite3.Connection, pg_conn: psycopg.Co
 
 def _migrate_topics(sqlite_conn: sqlite3.Connection, pg_conn: psycopg.Connection) -> None:
     rows = sqlite_conn.execute(
-        "SELECT id, label, summary, tags, embedding, status, peer_id, session_id, cluster_id, "
+        "SELECT id, label, summary, tags, embedding, status, workspace_id, session_id, cluster_id, "
         "created_at, closed_at FROM topics ORDER BY id"
     ).fetchall()
     for r in rows:
         embedding = _deserialize_embedding(r[4]) if r[4] is not None else None
         pg_conn.execute(
-            "INSERT INTO topics (id, label, summary, tags, embedding, status, peer_id, session_id, "
+            "INSERT INTO topics (id, label, summary, tags, embedding, status, workspace_id, session_id, "
             "cluster_id, created_at, closed_at) OVERRIDING SYSTEM VALUE "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (r[0], r[1], r[2], Jsonb(json.loads(r[3])), embedding, r[5], r[6], r[7], r[8], r[9], r[10]),
@@ -156,11 +156,11 @@ def _migrate_topics(sqlite_conn: sqlite3.Connection, pg_conn: psycopg.Connection
 
 def _migrate_messages(sqlite_conn: sqlite3.Connection, pg_conn: psycopg.Connection) -> None:
     rows = sqlite_conn.execute(
-        "SELECT id, turn_id, role, content, peer_id, topic_id, created_at FROM messages ORDER BY id"
+        "SELECT id, turn_id, role, content, workspace_id, topic_id, created_at FROM messages ORDER BY id"
     ).fetchall()
     for r in rows:
         pg_conn.execute(
-            "INSERT INTO messages (id, turn_id, role, content, peer_id, topic_id, created_at) "
+            "INSERT INTO messages (id, turn_id, role, content, workspace_id, topic_id, created_at) "
             "OVERRIDING SYSTEM VALUE VALUES (%s, %s, %s, %s, %s, %s, %s)",
             r,
         )

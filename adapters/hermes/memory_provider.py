@@ -60,7 +60,7 @@ class EidolonMemoryProvider(MemoryProvider):
         # belongs to one person's session for its whole lifetime. Falls
         # back to the literal "user" for CLI-attached sessions, which
         # Hermes never gives an identity for.
-        self._peer_id: str = "user"
+        self._workspace_id: str = "user"
         # IANA zone name (e.g. "Europe/Berlin") for displaying the injected
         # [Environment] time — resolved once in initialize() from config.
         self._timezone: str = "UTC"
@@ -88,9 +88,9 @@ class EidolonMemoryProvider(MemoryProvider):
         """Get this session's state, creating and resuming it if new.
 
         `topics.status` in storage is the source of truth for what's
-        open, scoped per (peer_id, session_id) — not just once at plugin
+        open, scoped per (workspace_id, session_id) — not just once at plugin
         load, but for every session_id seen for the first time, so a
-        peer's concurrent sessions (web, Telegram, CLI, ...) each resume
+        workspace's concurrent sessions (web, Telegram, CLI, ...) each resume
         their own topic thread instead of starting blind and silently
         orphaning whatever another session still has open.
         """
@@ -100,7 +100,7 @@ class EidolonMemoryProvider(MemoryProvider):
             try:
                 if self._eidolon is not None:
                     session.active_topic_id = self._eidolon.get_active_topic(
-                        self._peer_id, session_id=resolved
+                        self._workspace_id, session_id=resolved
                     )
             except Exception as e:
                 logger.debug("Failed to resume active topic for session %s (non-fatal): %s", resolved, e)
@@ -133,13 +133,6 @@ class EidolonMemoryProvider(MemoryProvider):
         """
         hermes_home = kwargs.get("hermes_home", "")
         self._hermes_home = hermes_home
-        # Mirrors Hermes' own convention for picking the stable participant
-        # identity (see gateway/session.py, gateway/slash_commands.py):
-        # user_id_alt carries a platform-canonical id (e.g. Feishu's
-        # union_id) when the platform has one, user_id is the general case.
-        # Both are only populated for gateway-routed platforms — a plain
-        # CLI-attached session has neither, hence the "user" fallback.
-        self._peer_id = kwargs.get("user_id_alt") or kwargs.get("user_id") or "user"
 
         # Resolve config path — look for eidolon.yaml in HERMES_HOME
         config_path = Path(hermes_home) / "eidolon.yaml"
@@ -155,6 +148,21 @@ class EidolonMemoryProvider(MemoryProvider):
         config: EidolonConfig = loader.load()
         self._timezone = config.timezone
         self._maintenance = config.maintenance
+
+        # Mirrors Hermes' own convention for picking the stable participant
+        # identity (see gateway/session.py, gateway/slash_commands.py):
+        # user_id_alt carries a platform-canonical id (e.g. Feishu's
+        # union_id) when the platform has one, user_id is the general case.
+        # Both are only populated for gateway-routed platforms — a plain
+        # CLI-attached session has neither. For those, config.workspace_id
+        # (this profile's own eidolon.yaml, resolved above) is checked next
+        # — lets a profile pin its own identity so it doesn't silently
+        # collapse into the same "user" fallback as every other profile
+        # sharing this backend. "user" remains the last resort when
+        # neither is set.
+        self._workspace_id = (
+            kwargs.get("user_id_alt") or kwargs.get("user_id") or config.workspace_id or "user"
+        )
 
         if config.deployment.mode == "server":
             self._eidolon = EidolonClientBuilder.build_server(config)
@@ -234,7 +242,7 @@ class EidolonMemoryProvider(MemoryProvider):
             # core.models.PrefetchResult.
             result = self._eidolon.prepare_context(
                 message=query,
-                peer_id=self._peer_id,
+                workspace_id=self._workspace_id,
                 environment=EnvironmentSnapshot(
                     situation="conversation", time=turn_now, day_of_week=turn_now.strftime("%A"),
                 ),
@@ -327,7 +335,7 @@ class EidolonMemoryProvider(MemoryProvider):
             new_topic_id = self._eidolon.store_turn(
                 user_message=user_content,
                 ai_response=assistant_content,
-                peer_id=self._peer_id,
+                workspace_id=self._workspace_id,
                 environment=EnvironmentSnapshot(situation="conversation"),
                 turn_id=session.turn_number,
                 old_topic_id=old_topic_id,
@@ -351,11 +359,11 @@ class EidolonMemoryProvider(MemoryProvider):
         """Close stale-open topics as a side effect of real activity.
 
         Deliberately activity-gated, not timer-driven: closing a topic
-        while its owning peer is away risks fragmenting a conversation
+        while its owning workspace is away risks fragmenting a conversation
         they'd have naturally continued — once closed, topic detection
         has nothing "active" left to compare against, so a returning
-        peer's continuation is forced into a NEW_TOPIC instead of
-        resuming the old one. Piggybacking on *any* peer's real turn
+        workspace's continuation is forced into a NEW_TOPIC instead of
+        resuming the old one. Piggybacking on *any* workspace's real turn
         avoids that: a topic only gets closed once some turn proves
         enough time has passed, never on a fixed schedule independent
         of activity. Called at the end of sync_turn(), after
@@ -383,7 +391,7 @@ class EidolonMemoryProvider(MemoryProvider):
 
         try:
             cutoff = now - timedelta(hours=self._maintenance.stale_after_hours)
-            self._eidolon.close_stale_topics(cutoff, peer_id=self._maintenance.peer_id)
+            self._eidolon.close_stale_topics(cutoff, workspace_id=self._maintenance.workspace_id)
         except Exception as e:
             logger.warning("Eidolon maintenance sweep failed: %s", e)
 
@@ -402,9 +410,9 @@ class EidolonMemoryProvider(MemoryProvider):
 
         See EidolonToolHandler — constructed fresh per call (cheap) so it
         always reflects this provider's current _eidolon/_initialized/
-        _peer_id, same as prefetch()/sync_turn() reading them directly.
+        _workspace_id, same as prefetch()/sync_turn() reading them directly.
         """
-        return EidolonToolHandler(self._eidolon, self._initialized, self._peer_id).handle_tool_call(
+        return EidolonToolHandler(self._eidolon, self._initialized, self._workspace_id).handle_tool_call(
             tool_name, args
         )
 

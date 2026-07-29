@@ -14,7 +14,7 @@
 # is about topic detection under noise, not fact consolidation.
 
 name: "long noisy conversation with weak topic boundaries"
-peer_id: "eval-peer-noisy-weak-topics"
+workspace_id: "eval-peer-noisy-weak-topics"
 language: "de"
 
 turns:

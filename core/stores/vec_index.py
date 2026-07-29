@@ -1,8 +1,8 @@
 """sqlite-vec-backed vector index for Eidolon.
 
 Optional acceleration layer over SqliteStore's brute-force in-Python
-cosine scan — a peer-partitioned KNN pre-filter, not a replacement for
-the existing weighted scoring (semantic + tag_overlap + temporal),
+cosine scan — a workspace-partitioned KNN pre-filter, not a replacement
+for the existing weighted scoring (semantic + tag_overlap + temporal),
 which still runs over whatever candidates come back from here.
 
 Falls back gracefully: if the sqlite-vec extension isn't installed, or
@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 # AUTOINCREMENT, starting at 1, so 0 is unambiguous).
 _UNCLUSTERED_SENTINEL = 0
 
+# The vec0 partition-key column's name before the peer_id -> workspace_id
+# rename (core/stores/migrations.py's version 11) — used only to detect
+# and drop pre-rename tables in try_load(). Deliberately built from two
+# concatenated pieces, not one literal "peer_id" string: a plain literal
+# here would itself get caught by the next find-and-replace of "peer_id"
+# across the codebase, silently turning this into a match against the
+# *current* schema instead of the old one (this happened once already —
+# see the comment at its use site).
+_OLD_PARTITION_KEY_MARKER = "pe" + "er_id TEXT partition key"
+
 
 def _serialize_vec(vec: list[float]) -> bytes:
     """Pack a float list into vec0's expected binary format (little-endian f32)."""
@@ -33,8 +43,8 @@ def _serialize_vec(vec: list[float]) -> bytes:
 
 
 class VecIndex:
-    """Wraps sqlite-vec's ``vec0`` virtual tables for fast, peer-partitioned
-    cosine KNN search.
+    """Wraps sqlite-vec's ``vec0`` virtual tables for fast,
+    workspace-partitioned cosine KNN search.
 
     Tables are created lazily, one per table name, on the first
     ``upsert()`` for that name — vec0 bakes the embedding dimension into
@@ -96,20 +106,36 @@ class VecIndex:
         # shadow tables (`<name>_chunks`, `<name>_rowids`, etc.) that
         # share the name prefix but aren't themselves queryable vec0
         # tables; only `CREATE VIRTUAL TABLE ... USING vec0` rows are.
-        self._known_tables = {
-            row[0]
-            for row in self._conn.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE type='table' AND sql LIKE 'CREATE VIRTUAL TABLE%USING vec0%'"
-            ).fetchall()
-        }
+        self._known_tables = set()
+        for name, sql in self._conn.execute(
+            "SELECT name, sql FROM sqlite_master "
+            "WHERE type='table' AND sql LIKE 'CREATE VIRTUAL TABLE%USING vec0%'"
+        ).fetchall():
+            if _OLD_PARTITION_KEY_MARKER in sql:
+                # Pre-rename table (the partition key was still under its
+                # old name — see core/stores/migrations.py's version 11
+                # for the equivalent relational-table rename). vec0 has no
+                # ALTER TABLE RENAME COLUMN, and this table is a
+                # rebuildable cache, not the source of truth (the
+                # relational tables are), so the correct fix is dropping
+                # it and letting SqliteStore._backfill_vec_index() — which
+                # always runs right after this method — recreate and
+                # repopulate it under the current column name. Built from
+                # two concatenated halves rather than one literal: this
+                # string must never read as a match against the *current*
+                # schema string a few lines down, which a blind
+                # find-and-replace across the file (as happened once
+                # already) would otherwise silently turn it into.
+                self._conn.execute(f"DROP TABLE {name}")
+            else:
+                self._known_tables.add(name)
         return True
 
     def upsert(
         self,
         table: str,
         row_id: int,
-        peer_id: str,
+        workspace_id: str,
         embedding: list[float],
         cluster_id: int | None = None,
     ) -> None:
@@ -125,11 +151,11 @@ class VecIndex:
         self._ensure_table(table, dimension=len(embedding))
         self._conn.execute(f"DELETE FROM {table} WHERE rowid = ?", (row_id,))
         self._conn.execute(
-            f"INSERT INTO {table}(rowid, embedding, peer_id, cluster_id) VALUES (?, ?, ?, ?)",
+            f"INSERT INTO {table}(rowid, embedding, workspace_id, cluster_id) VALUES (?, ?, ?, ?)",
             (
                 row_id,
                 _serialize_vec(embedding),
-                peer_id,
+                workspace_id,
                 cluster_id if cluster_id is not None else _UNCLUSTERED_SENTINEL,
             ),
         )
@@ -157,13 +183,13 @@ class VecIndex:
     def knn(
         self,
         table: str,
-        peer_id: str,
+        workspace_id: str,
         query_embedding: list[float],
         k: int,
         unclustered_only: bool = False,
     ) -> list[tuple[int, float]]:
         """Return up to `k` (row_id, similarity) pairs from `table`,
-        hard-partitioned to `peer_id`, nearest-first.
+        hard-partitioned to `workspace_id`, nearest-first.
 
         `similarity` is cosine similarity (`1.0 - distance` — vec0
         reports distance, the rest of the scoring code expects
@@ -178,9 +204,9 @@ class VecIndex:
         cluster_filter = "AND cluster_id = 0 " if unclustered_only else ""
         rows = self._conn.execute(
             f"SELECT rowid, distance FROM {table} "
-            f"WHERE peer_id = ? {cluster_filter}AND embedding MATCH ? AND k = ? "
+            f"WHERE workspace_id = ? {cluster_filter}AND embedding MATCH ? AND k = ? "
             f"ORDER BY distance",
-            (peer_id, _serialize_vec(query_embedding), k),
+            (workspace_id, _serialize_vec(query_embedding), k),
         ).fetchall()
         return [(row_id, 1.0 - distance) for row_id, distance in rows]
 
@@ -190,7 +216,7 @@ class VecIndex:
         self._conn.execute(
             f"CREATE VIRTUAL TABLE IF NOT EXISTS {table} USING vec0("
             f"embedding float[{dimension}] distance_metric=cosine, "
-            f"peer_id TEXT partition key, "
+            f"workspace_id TEXT partition key, "
             f"cluster_id INTEGER)"
         )
         self._known_tables.add(table)

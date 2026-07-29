@@ -60,7 +60,7 @@ class TopicRow:
     id: int
     label: str | None
     status: str
-    peer_id: str
+    workspace_id: str
     cluster_id: int | None
     message_count: int
     created_at: object
@@ -70,7 +70,7 @@ class TopicRow:
 @dataclass
 class ClusterRow:
     id: int
-    peer_id: str
+    workspace_id: str
     label: str | None
     summary_preview: str | None
     topic_count: int
@@ -82,7 +82,7 @@ class ClusterTopicRow:
     id: int
     label: str | None
     status: str
-    peer_id: str
+    workspace_id: str
     summary_preview: str | None
     created_at: object
     closed_at: object | None
@@ -91,7 +91,7 @@ class ClusterTopicRow:
 @dataclass
 class ClusterDetail:
     id: int
-    peer_id: str
+    workspace_id: str
     label: str | None
     summary: str | None
     tags: list[str]
@@ -117,7 +117,7 @@ class BrowseReader:
     """Read-only pagination over ``StorageProvider`` for the dashboard's
     four browse pages (see ``tools/dashboard/app.py``).
 
-    ``facts()`` sorts alphabetically by peer/category/key (``get_all_facts``'s
+    ``facts()`` sorts alphabetically by workspace/category/key (``get_all_facts``'s
     existing order) — the one page here that doesn't sort newest-first
     like the other three, since it reuses that method's order rather
     than introducing a second, differently-sorted facts read.
@@ -139,11 +139,11 @@ class BrowseReader:
             total_clusters=len(self._storage.list_clusters()),
         )
 
-    def topics(self, page: int, status: str | None = None, peer_id: str | None = None) -> Page[TopicRow]:
-        rows = self._storage.list_topics(status=status, peer_id=peer_id)
+    def topics(self, page: int, status: str | None = None, workspace_id: str | None = None) -> Page[TopicRow]:
+        rows = self._storage.list_topics(status=status, workspace_id=workspace_id)
         items = [
             TopicRow(
-                id=r["id"], label=r["label"], status=r["status"], peer_id=r["peer_id"],
+                id=r["id"], label=r["label"], status=r["status"], workspace_id=r["workspace_id"],
                 cluster_id=r["cluster_id"], message_count=r["message_count"],
                 created_at=r["created_at"], closed_at=r["closed_at"],
             )
@@ -152,13 +152,13 @@ class BrowseReader:
         return self._paginate(items, page)
 
     def facts(
-        self, page: int, category: str | None = None, peer_id: str | None = None, sort_by: str | None = None,
+        self, page: int, category: str | None = None, workspace_id: str | None = None, sort_by: str | None = None,
     ) -> Page[Fact]:
         facts = self._storage.get_all_facts()
         if category is not None:
             facts = [f for f in facts if f.category == category]
-        if peer_id is not None:
-            facts = [f for f in facts if f.peer_id == peer_id]
+        if workspace_id is not None:
+            facts = [f for f in facts if f.workspace_id == workspace_id]
         facts = self._sort_facts(facts, sort_by)
         return self._paginate(facts, page)
 
@@ -168,11 +168,11 @@ class BrowseReader:
         items = self._storage.list_memory_items(item_type=item_type, topic_id=topic_id, q=q)
         return self._paginate(items, page)
 
-    def clusters(self, page: int, peer_id: str | None = None) -> Page[ClusterRow]:
-        rows = self._storage.list_clusters(peer_id=peer_id)
+    def clusters(self, page: int, workspace_id: str | None = None) -> Page[ClusterRow]:
+        rows = self._storage.list_clusters(workspace_id=workspace_id)
         items = [
             ClusterRow(
-                id=r["id"], peer_id=r["peer_id"], label=r["label"],
+                id=r["id"], workspace_id=r["workspace_id"], label=r["label"],
                 summary_preview=self._preview(r["summary"]), topic_count=r["topic_count"],
                 created_at=r["created_at"],
             )
@@ -195,21 +195,21 @@ class BrowseReader:
         topic_rows = self._storage.get_topics_by_cluster(cluster_id)
         topics = [
             ClusterTopicRow(
-                id=t["id"], label=t["label"], status=t["status"], peer_id=t["peer_id"],
+                id=t["id"], label=t["label"], status=t["status"], workspace_id=t["workspace_id"],
                 summary_preview=self._preview(t["summary"]), created_at=t["created_at"],
                 closed_at=t["closed_at"],
             )
             for t in reversed(topic_rows)
         ]
         return ClusterDetail(
-            id=cluster["id"], peer_id=cluster["peer_id"], label=cluster["label"],
+            id=cluster["id"], workspace_id=cluster["workspace_id"], label=cluster["label"],
             summary=cluster["summary"], tags=cluster["tags"], topic_count=cluster["topic_count"],
             created_at=cluster["created_at"], updated_at=cluster["updated_at"], topics=topics,
         )
 
     @staticmethod
     def _sort_facts(facts: list[Fact], sort_by: str | None) -> list[Fact]:
-        """``sort_by=None`` keeps ``get_all_facts``'s own peer/category/key
+        """``sort_by=None`` keeps ``get_all_facts``'s own workspace/category/key
         order unchanged. The other options re-sort in Python — the full
         list is already in memory (see module docstring), so this is a
         cheap in-memory sort, not a second query."""

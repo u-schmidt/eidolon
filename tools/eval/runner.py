@@ -51,7 +51,7 @@ class EvalRunner:
             new_topic_id = self._eidolon.store_turn(
                 user_message=turn.user,
                 ai_response=turn.ai,
-                peer_id=script.peer_id,
+                workspace_id=script.workspace_id,
                 environment=environment,
                 turn_id=turn_number,
                 old_topic_id=old_topic_id,
@@ -67,14 +67,14 @@ class EvalRunner:
 
         end_result = self._scorer.score_end(
             script.expect_end,
-            self._storage.get_facts(script.peer_id),
-            self._storage.get_recent_topics(script.peer_id, limit=len(script.turns) or 1),
-            self._storage.get_clusters(script.peer_id),
+            self._storage.get_facts(script.workspace_id),
+            self._storage.get_recent_topics(script.workspace_id, limit=len(script.turns) or 1),
+            self._storage.get_clusters(script.workspace_id),
         )
 
         return EvalReport(
             script_name=script.name,
-            peer_id=script.peer_id,
+            workspace_id=script.workspace_id,
             model_identity=model_identity,
             embedder_identity=embedder_identity,
             db_path=db_path,

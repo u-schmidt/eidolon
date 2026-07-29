@@ -61,9 +61,9 @@ class TestSummarize:
         closes — summarize() must re-embed so semantic retrieval isn't
         stuck matching against stale text forever."""
         storage = MockStorage()
-        tid = storage.create_topic("Bello Features", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded again", peer_id="user", topic_id=tid)
-        storage.store_message(turn_id=1, role="ai", content="That sounds frustrating!", peer_id="ai", topic_id=tid)
+        tid = storage.create_topic("Bello Features", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded again", workspace_id="user", topic_id=tid)
+        storage.store_message(turn_id=1, role="ai", content="That sounds frustrating!", workspace_id="ai", topic_id=tid)
         llm = MockLLM(summary_response="Summary: User frustrated about crowded gym\nTags: fitness, gym")
         embedder = MockEmbedder()
 
@@ -74,8 +74,8 @@ class TestSummarize:
 
     def test_returns_true_on_success(self):
         storage = MockStorage()
-        tid = storage.create_topic("Bello Features", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Bello Features", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
         llm = MockLLM(summary_response="Summary: Crowded gym frustration\nTags: fitness")
         embedder = MockEmbedder()
 
@@ -83,7 +83,7 @@ class TestSummarize:
 
     def test_returns_false_when_no_messages(self):
         storage = MockStorage()
-        tid = storage.create_topic("Bello Features", peer_id="user")
+        tid = storage.create_topic("Bello Features", workspace_id="user")
         llm = MockLLM(summary_response="Summary: Crowded gym frustration\nTags: fitness")
         embedder = MockEmbedder()
 
@@ -95,7 +95,7 @@ class TestSummarize:
                 raise RuntimeError("db unavailable")
 
         storage = FailingStorage()
-        tid = storage.create_topic("Bello Features", peer_id="user")
+        tid = storage.create_topic("Bello Features", workspace_id="user")
         llm = MockLLM(summary_response="Summary: x\nTags: y")
         embedder = MockEmbedder()
 
@@ -103,8 +103,8 @@ class TestSummarize:
 
     def test_closes_topic_with_summary(self):
         storage = MockStorage()
-        tid = storage.create_topic("Bello Features", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Bello Features", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
         llm = MockLLM(summary_response="Summary: Crowded gym frustration\nTags: fitness")
         embedder = MockEmbedder()
 
@@ -117,8 +117,8 @@ class TestSummarize:
         """Tags must be stored through the storage protocol's
         update_topic_tags — not by reaching into a private connection."""
         storage = MockStorage()
-        tid = storage.create_topic("Bello Features", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Bello Features", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
         llm = MockLLM(summary_response="Summary: Crowded gym frustration\nTags: fitness, gym")
         embedder = MockEmbedder()
 
@@ -128,8 +128,8 @@ class TestSummarize:
 
     def test_does_not_touch_tags_when_none_parsed(self):
         storage = MockStorage()
-        tid = storage.create_topic("Bello Features", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Bello Features", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
         llm = MockLLM(summary_response="Summary: Crowded gym frustration\nTags: ")
         embedder = MockEmbedder()
 
@@ -143,8 +143,8 @@ class TestSummarize:
         fallback for a topic that closes before TopicRelabeler ever
         got a chance to run."""
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
         llm = MockLLM(summary_response="Label: Crowded Gym\nSummary: Crowded gym frustration\nTags: fitness")
         embedder = MockEmbedder()
 
@@ -157,8 +157,8 @@ class TestSummarize:
         that label — the close-time pass never overwrites it, even if it
         produces a different one."""
         storage = MockStorage()
-        tid = storage.create_topic("Already Finalized", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Already Finalized", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
         llm = MockLLM(summary_response="Label: Different Label\nSummary: Crowded gym frustration\nTags: fitness")
         embedder = MockEmbedder()
 
@@ -168,8 +168,8 @@ class TestSummarize:
 
     def test_records_topic_summarization_event(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
         llm = MockLLM(summary_response="Label: Crowded Gym\nSummary: Crowded gym frustration\nTags: fitness, gym")
         embedder = MockEmbedder()
         tracer = SpyTracer()
@@ -196,7 +196,7 @@ class TestSummarize:
                 raise RuntimeError("db unavailable")
 
         storage = FailingStorage()
-        tid = storage.create_topic("Bello Features", peer_id="user")
+        tid = storage.create_topic("Bello Features", workspace_id="user")
         llm = MockLLM(summary_response="Summary: x\nTags: y")
         embedder = MockEmbedder()
         tracer = SpyTracer()
@@ -212,8 +212,8 @@ class TestSummarize:
 
     def test_records_error_on_embedding_failure(self, caplog):
         storage = MockStorage()
-        tid = storage.create_topic("Bello Features", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Bello Features", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         llm = MockLLM(summary_response="Summary: x\nTags: y")
         embedder = MockEmbedder(should_fail=True)
         tracer = SpyTracer()
@@ -229,8 +229,8 @@ class TestSummarize:
 
     def test_records_llm_call_and_embedding_call_metrics(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
         llm = MockLLM(summary_response="Label: Crowded Gym\nSummary: Crowded gym frustration\nTags: fitness")
         embedder = MockEmbedder()
         metrics = SpyMetricsRecorder()
@@ -257,8 +257,8 @@ class TestSummaryPromptSources:
 
     def test_long_memory_item_content_is_not_truncated(self):
         storage = MockStorage()
-        tid = storage.create_topic("Story", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="short message", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Story", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="short message", workspace_id="user", topic_id=tid)
         long_content = "A" * 800  # longer than any message-preview cap
         storage.store_memory_item(MemoryItem(
             content=long_content, item_type="fact",
@@ -277,10 +277,10 @@ class TestSummaryPromptSources:
         extraction call) must still be represented via the raw-transcript
         fallback, not silently absent from the summary entirely."""
         storage = MockStorage()
-        tid = storage.create_topic("Story", peer_id="user")
+        tid = storage.create_topic("Story", workspace_id="user")
         storage.store_message(
             turn_id=1, role="user", content="a message with no extracted fragments",
-            peer_id="user", topic_id=tid,
+            workspace_id="user", topic_id=tid,
         )
         # No memory_item stored for this topic at all.
         llm = MockLLM(summary_response="Summary: x\nTags: y")
@@ -292,8 +292,8 @@ class TestSummaryPromptSources:
 
     def test_prompt_contains_both_blocks_primary_before_secondary(self):
         storage = MockStorage()
-        tid = storage.create_topic("Story", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="raw message text", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Story", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="raw message text", workspace_id="user", topic_id=tid)
         storage.store_memory_item(MemoryItem(
             content="extracted fragment text", item_type="fact",
             source_peer="user", subject_peer="user", attribution_type="self_statement",

@@ -37,9 +37,9 @@ class TestParseRelabelResponse:
 class TestRelabel:
     def test_persists_label_on_success(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
-        storage.store_message(turn_id=1, role="ai", content="hello", peer_id="ai", topic_id=tid)
+        tid = storage.create_topic("", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
+        storage.store_message(turn_id=1, role="ai", content="hello", workspace_id="ai", topic_id=tid)
         llm = MockLLM(relabel_response="Buying a bike")
 
         result = _relabeler(storage, llm).relabel(tid)
@@ -49,8 +49,8 @@ class TestRelabel:
 
     def test_does_not_close_topic(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         llm = MockLLM(relabel_response="Buying a bike")
 
         _relabeler(storage, llm).relabel(tid)
@@ -59,8 +59,8 @@ class TestRelabel:
 
     def test_does_not_touch_summary_or_tags(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         llm = MockLLM(relabel_response="Buying a bike")
 
         _relabeler(storage, llm).relabel(tid)
@@ -70,7 +70,7 @@ class TestRelabel:
 
     def test_returns_false_when_no_messages(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
+        tid = storage.create_topic("", workspace_id="user")
         llm = MockLLM(relabel_response="Buying a bike")
 
         assert _relabeler(storage, llm).relabel(tid) is False
@@ -78,8 +78,8 @@ class TestRelabel:
 
     def test_returns_false_on_blank_response(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         llm = MockLLM(relabel_response="   ")
 
         assert _relabeler(storage, llm).relabel(tid) is False
@@ -91,15 +91,15 @@ class TestRelabel:
                 raise RuntimeError("db unavailable")
 
         storage = FailingStorage()
-        tid = storage.create_topic("", peer_id="user")
+        tid = storage.create_topic("", workspace_id="user")
         llm = MockLLM(relabel_response="Buying a bike")
 
         assert _relabeler(storage, llm).relabel(tid) is False
 
     def test_records_topic_relabel_event(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         llm = MockLLM(relabel_response="Buying a bike")
         tracer = SpyTracer()
 
@@ -120,7 +120,7 @@ class TestRelabel:
                 raise RuntimeError("db unavailable")
 
         storage = FailingStorage()
-        tid = storage.create_topic("", peer_id="user")
+        tid = storage.create_topic("", workspace_id="user")
         llm = MockLLM(relabel_response="Buying a bike")
         tracer = SpyTracer()
         metrics = SpyMetricsRecorder()
@@ -135,8 +135,8 @@ class TestRelabel:
 
     def test_records_llm_call_metric(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         llm = MockLLM(relabel_response="Buying a bike")
         metrics = SpyMetricsRecorder()
 

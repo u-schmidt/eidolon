@@ -32,7 +32,7 @@ class EvalScriptLoader:
         expect_end = self._parse_end(data.get("expect_end", {}))
         return EvalScript(
             name=data["name"],
-            peer_id=data["peer_id"],
+            workspace_id=data["workspace_id"],
             turns=turns,
             language=data.get("language", "en"),
             expect_end=expect_end,

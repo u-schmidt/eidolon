@@ -102,7 +102,7 @@ class TestUpsertAndKnn:
 
         assert len(results) == 2
 
-    def test_partition_isolation_across_peers(self, index: VecIndex, conn):
+    def test_partition_isolation_across_workspaces(self, index: VecIndex, conn):
         index.upsert("vec_topics", 1, "user_a", [1.0, 0.0, 0.0])
         index.upsert("vec_topics", 2, "user_b", [1.0, 0.0, 0.0])
         conn.commit()

@@ -125,11 +125,11 @@
       <p class="muted">No outlier categories found.</p>
     {% else %}
       <table>
-        <thead><tr><th>Peer</th><th>Category</th><th>Key</th><th>Value</th></tr></thead>
+        <thead><tr><th>Workspace</th><th>Category</th><th>Key</th><th>Value</th></tr></thead>
         <tbody>
           {% for o in summary.fact_category_outliers %}
           <tr>
-            <td class="muted">{{ o.peer_id }}</td>
+            <td class="muted">{{ o.workspace_id }}</td>
             <td><span class="badge err">{{ o.category }}</span></td>
             <td>{{ o.key }}</td>
             <td>{{ o.value }}</td>

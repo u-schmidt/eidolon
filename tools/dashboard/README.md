@@ -59,7 +59,7 @@ with the current page highlighted.
 
 Landing page — at-a-glance counts (turns/topics/facts/memory items/
 clusters, always-on) plus recent-turn cards — and a filterable (by
-`peer_id`) list of recent turns, the entry point into turn detail.
+`workspace_id`) list of recent turns, the entry point into turn detail.
 
 ### Turn Detail (`/dashboard/turns/{request_id}`)
 
@@ -87,20 +87,20 @@ debug tracing needed, paginated 50 rows at a time (in Python, not SQL
 for why that's the right amount of complexity at this scale).
 
 - **Topics** (`/dashboard/topics`) — every topic, newest first; filter
-  by `status` (`active`/`closed`) and `peer_id`.
-- **Facts** (`/dashboard/facts`) — every fact, sorted by peer/category/
+  by `status` (`active`/`closed`) and `workspace_id`.
+- **Facts** (`/dashboard/facts`) — every fact, sorted by workspace/category/
   key (`get_all_facts`'s existing order, not newest-first like the
-  other three); filter by `category` and `peer_id`.
+  other three); filter by `category` and `workspace_id`.
 - **Memory Items** (`/dashboard/memory-items`) — every extracted memory
   item, newest first; filter by `item_type` and `topic_id`.
 - **Clusters** (`/dashboard/clusters`) — every topic cluster, newest
-  first; filter by `peer_id`.
+  first; filter by `workspace_id`.
 
 ### Performance & Reliability (`/dashboard/performance`) — always-on
 
 Latency percentiles (p50/p95/p99) per LLM call type, error rate over
 time, embedding latency by purpose, hourly throughput, and top error
-sources by peer/session. The "cheap" insight group — needs zero debug
+sources by workspace/session. The "cheap" insight group — needs zero debug
 tracing, sourced entirely from the always-on operational-metrics tables.
 
 ### Retrieval Quality & Weighting (`/dashboard/retrieval-quality`) — debug-gated

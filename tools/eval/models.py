@@ -46,8 +46,8 @@ class EvalTurn:
 
 @dataclass
 class FactExpectation:
-    """A fact expected in the peer's consolidated profile at script end —
-    tier 1, checked against ``storage.get_facts(peer_id)``."""
+    """A fact expected in the workspace's consolidated profile at script end —
+    tier 1, checked against ``storage.get_facts(workspace_id)``."""
 
     category: str
     key: str
@@ -81,10 +81,10 @@ class EndExpectation:
 
 @dataclass
 class EvalScript:
-    """A whole scripted conversation for one (throwaway) peer."""
+    """A whole scripted conversation for one (throwaway) workspace."""
 
     name: str
-    peer_id: str
+    workspace_id: str
     turns: list[EvalTurn]
     language: str = "en"
     expect_end: EndExpectation = field(default_factory=EndExpectation)

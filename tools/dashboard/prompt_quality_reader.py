@@ -58,7 +58,7 @@ class TypeCount:
 
 @dataclass
 class FactCategoryOutlier:
-    peer_id: str
+    workspace_id: str
     category: str
     key: str
     value: str
@@ -216,7 +216,7 @@ class PromptQualityReader:
         """Reflects the *current* facts table, not the selected time
         window — a config-compliance check, not window activity."""
         return [
-            FactCategoryOutlier(peer_id=f.peer_id, category=f.category, key=f.key, value=f.value)
+            FactCategoryOutlier(workspace_id=f.workspace_id, category=f.category, key=f.key, value=f.value)
             for f in self._storage.get_all_facts()
             if f.category not in self._configured_fact_categories
         ]

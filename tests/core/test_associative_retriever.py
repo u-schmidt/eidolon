@@ -24,23 +24,23 @@ class MockStorage:
         self.memory_items: list[MemoryItem] = []
         self.clusters: list[dict] = []
         self.cluster_recent_topics: dict[int, list[dict]] = {}
-        self.last_recent_topics_peer_id: str | None = None
+        self.last_recent_topics_workspace_id: str | None = None
         self.last_recent_topics_limit: int | None = None
         self.last_query_embedding: list[float] | None = None
         self.last_tags: list[str] | None = None
-        self.last_peer_id: str | None = None
+        self.last_workspace_id: str | None = None
         self.last_weights: dict[str, float] | None = None
         self.last_tracer = None
         self.last_request_id: str | None = None
         self.last_min_message_count: int | None = None
         self.last_recent_topics_min_message_count: int | None = None
 
-    def get_facts(self, peer_id: str) -> list[Fact]:
-        self.last_peer_id = peer_id
+    def get_facts(self, workspace_id: str) -> list[Fact]:
+        self.last_workspace_id = workspace_id
         return self.facts
 
     def set_fact(
-        self, peer_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
+        self, workspace_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
     ) -> None:
         pass
 
@@ -60,7 +60,7 @@ class MockStorage:
         self,
         query_embedding: list[float] | None = None,
         tags: list[str] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
         tracer=None,
@@ -70,7 +70,7 @@ class MockStorage:
     ) -> list[dict]:
         self.last_query_embedding = query_embedding
         self.last_tags = tags
-        self.last_peer_id = peer_id
+        self.last_workspace_id = workspace_id
         self.last_weights = weights
         self.last_tracer = tracer
         self.last_request_id = request_id
@@ -78,8 +78,8 @@ class MockStorage:
         self.last_min_message_count = min_message_count
         return self.topics[:limit]
 
-    def get_recent_topics(self, peer_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
-        self.last_recent_topics_peer_id = peer_id
+    def get_recent_topics(self, workspace_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
+        self.last_recent_topics_workspace_id = workspace_id
         self.last_recent_topics_limit = limit
         self.last_recent_topics_min_message_count = min_message_count
         return self.recent_topics_data[:limit]
@@ -88,7 +88,7 @@ class MockStorage:
         self,
         query_embedding: list[float] | None = None,
         tags: list[str] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
         tracer=None,
@@ -97,7 +97,7 @@ class MockStorage:
     ) -> list[dict]:
         self.last_cluster_query_embedding = query_embedding
         self.last_cluster_tags = tags
-        self.last_cluster_peer_id = peer_id
+        self.last_cluster_workspace_id = workspace_id
         self.last_cluster_limit = limit
         return self.clusters[:limit]
 
@@ -110,7 +110,7 @@ class MockStorage:
     def search_memory_items(
         self,
         query_embedding: list[float] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         budget: MemoryItemBudget | None = None,
         weights: dict[str, float] | None = None,
         tracer=None,
@@ -142,7 +142,7 @@ class TestAssociativeRetriever:
     def test_retrieve_with_facts(self):
         storage = MockStorage()
         storage.facts = [
-            Fact(peer_id="user", category="basic", key="name", value="Alex", source="user"),
+            Fact(workspace_id="user", category="basic", key="name", value="Alex", source="user"),
         ]
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder)
@@ -150,7 +150,7 @@ class TestAssociativeRetriever:
         env = EnvironmentSnapshot(location="home", situation="morning")
         bundle = retriever.retrieve(
             message="Lass uns über Bello sprechen",
-            peer_id="user",
+            workspace_id="user",
             environment=env,
             topic_label="Bello Features",
             is_new_topic=True,
@@ -177,7 +177,7 @@ class TestAssociativeRetriever:
         # all of them come back regardless of is_new_topic.
         bundle = retriever.retrieve(
             message="Lass uns über Bello sprechen",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Bello",
             is_new_topic=True,
@@ -194,7 +194,7 @@ class TestAssociativeRetriever:
 
         bundle = retriever.retrieve(
             message="Lass uns über Bello sprechen",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Bello",
             is_new_topic=True,
@@ -215,11 +215,11 @@ class TestAssociativeRetriever:
         retriever = AssociativeRetriever(storage, embedder)
 
         new_bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
         continue_bundle = retriever.retrieve(
-            message="jep, mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            message="jep, mach weiter", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label=None, is_new_topic=False,
         )
         assert len(new_bundle.related_topics) == 5  # built-in default related_topics
@@ -240,13 +240,13 @@ class TestAssociativeRetriever:
         retriever = AssociativeRetriever(storage, embedder, limits=limits)
 
         new_bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
         assert len(new_bundle.related_topics) == 8
 
         continue_bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label=None, is_new_topic=False,
         )
         assert len(continue_bundle.related_topics) == 8  # same flat budget either way
@@ -267,7 +267,7 @@ class TestAssociativeRetriever:
         retriever = AssociativeRetriever(storage, embedder, limits=limits)
 
         bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
         # total budget (4+1+1+3=9) threads through into a MemoryItemBudget
@@ -286,7 +286,7 @@ class TestAssociativeRetriever:
 
         bundle = retriever.retrieve(
             message="Lass uns über Bello sprechen",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Bello",
             is_new_topic=True,
@@ -300,7 +300,7 @@ class TestAssociativeRetriever:
 
         bundle = retriever.retrieve(
             message="Hello",
-            peer_id="unknown",
+            workspace_id="unknown",
             environment=EnvironmentSnapshot(),
             topic_label=None,
             is_new_topic=False,
@@ -317,7 +317,7 @@ class TestAssociativeRetriever:
 
         retriever.retrieve(
             message="Lass uns über Bello sprechen",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Bello",
             is_new_topic=True,
@@ -331,7 +331,7 @@ class TestAssociativeRetriever:
 
         retriever.retrieve(
             message="test",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Test",
             is_new_topic=True,
@@ -381,7 +381,7 @@ class TestAssociativeRetriever:
 
         retriever.retrieve(
             message="Lass uns über Bello und Fitness sprechen",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Bello",
             is_new_topic=True,
@@ -405,7 +405,7 @@ class TestAssociativeRetriever:
 
         retriever.retrieve(
             message="Lass uns über Bello sprechen",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Bello",
             is_new_topic=True,
@@ -420,7 +420,7 @@ class TestAssociativeRetriever:
 
         retriever.retrieve(
             message="test",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Test",
             is_new_topic=True,
@@ -440,7 +440,7 @@ class TestAssociativeRetriever:
 
         retriever.retrieve(
             message="Lass uns über Bello sprechen",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Bello",
             is_new_topic=True,
@@ -465,7 +465,7 @@ class TestAssociativeRetriever:
         (insufficient) shape."""
         storage = MockStorage()
         storage.facts = [
-            Fact(peer_id="user", category="fitness", key="gym", value="FitZone", source="user"),
+            Fact(workspace_id="user", category="fitness", key="gym", value="FitZone", source="user"),
         ]
         storage.memory_items = [
             MemoryItem(content="User likes FitZone", item_type="essence",
@@ -477,7 +477,7 @@ class TestAssociativeRetriever:
 
         retriever.retrieve(
             message="hello",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(situation="conversation", location="home"),
             topic_label=None,
             is_new_topic=False,
@@ -505,7 +505,7 @@ class TestAssociativeRetriever:
 
         retriever.retrieve(
             message="test message",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Test",
             is_new_topic=True,
@@ -526,7 +526,7 @@ class TestAssociativeRetriever:
 
         retriever.retrieve(
             message="test message",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Test",
             is_new_topic=True,
@@ -538,7 +538,7 @@ class TestAssociativeRetriever:
         assert call["purpose"] == "retrieval_query"
         assert call["succeeded"] is True
         assert call["dimension"] == 3
-        assert call["peer_id"] == "user"
+        assert call["workspace_id"] == "user"
         assert call["request_id"] == "req1"
 
 
@@ -553,7 +553,7 @@ class TestAssociativeRetrieverCurrentTopicLabel:
         retriever = AssociativeRetriever(storage, embedder)
 
         bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="New Topic", is_new_topic=True, active_topic_id=1,
         )
         assert bundle.current_topic_label == "New Topic"
@@ -569,7 +569,7 @@ class TestAssociativeRetrieverCurrentTopicLabel:
         retriever = AssociativeRetriever(storage, embedder)
 
         bundle = retriever.retrieve(
-            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            message="mach weiter", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label=None, is_new_topic=False, active_topic_id=5,
         )
         assert bundle.current_topic_label == "Talking about Bello's diet"
@@ -581,7 +581,7 @@ class TestAssociativeRetrieverCurrentTopicLabel:
         retriever = AssociativeRetriever(storage, embedder)
 
         bundle = retriever.retrieve(
-            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            message="mach weiter", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label=None, is_new_topic=False, active_topic_id=5,
         )
         assert bundle.current_topic_label == "Bello"
@@ -592,7 +592,7 @@ class TestAssociativeRetrieverCurrentTopicLabel:
         retriever = AssociativeRetriever(storage, embedder)
 
         bundle = retriever.retrieve(
-            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            message="mach weiter", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label=None, is_new_topic=False,
         )
         assert bundle.current_topic_label is None
@@ -603,7 +603,7 @@ class TestAssociativeRetrieverCurrentTopicLabel:
         retriever = AssociativeRetriever(storage, embedder)
 
         bundle = retriever.retrieve(
-            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            message="mach weiter", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label=None, is_new_topic=False, active_topic_id=999,
         )
         assert bundle.current_topic_label is None
@@ -625,7 +625,7 @@ class TestAssociativeRetrieverMinTopicMessages:
         })
 
         retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
 
@@ -646,7 +646,7 @@ class TestAssociativeRetrieverMinTopicMessages:
         })
 
         retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
 
@@ -664,7 +664,7 @@ class TestAssociativeRetrieverRecentTopics:
         retriever = AssociativeRetriever(storage, embedder)
 
         bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
         assert len(bundle.recent_topics) == 1
@@ -686,7 +686,7 @@ class TestAssociativeRetrieverRecentTopics:
         retriever = AssociativeRetriever(storage, embedder)
 
         bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Bello", is_new_topic=True,
         )
         assert [t.topic_id for t in bundle.related_topics] == [1]
@@ -707,7 +707,7 @@ class TestAssociativeRetrieverRecentTopics:
         })
 
         bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
         assert len(bundle.recent_topics) == 2
@@ -730,21 +730,21 @@ class TestAssociativeRetrieverRecentTopics:
         retriever = AssociativeRetriever(storage, embedder, limits=limits)
 
         bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
         assert len(bundle.recent_topics) == 5  # built-in default
 
-    def test_recent_topics_query_scoped_to_peer(self):
+    def test_recent_topics_query_scoped_to_workspace(self):
         storage = MockStorage()
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder)
 
         retriever.retrieve(
-            message="hi", peer_id="alice", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="alice", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
-        assert storage.last_recent_topics_peer_id == "alice"
+        assert storage.last_recent_topics_workspace_id == "alice"
 
     def test_records_recent_topics_in_context_retrieval_event(self):
         storage = MockStorage()
@@ -756,7 +756,7 @@ class TestAssociativeRetrieverRecentTopics:
         retriever = AssociativeRetriever(storage, embedder, tracer=tracer)
 
         retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True, request_id="req1",
         )
 
@@ -781,7 +781,7 @@ class TestAssociativeRetrieverClusters:
         retriever = AssociativeRetriever(storage, embedder)
 
         bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
         assert len(bundle.cluster_summaries) == 1
@@ -793,16 +793,16 @@ class TestAssociativeRetrieverClusters:
         assert cluster.recent_topics[0].topic_id == 1
         assert cluster.recent_topics[0].label == "Bought the bike"
 
-    def test_cluster_query_scoped_to_peer(self):
+    def test_cluster_query_scoped_to_workspace(self):
         storage = MockStorage()
         embedder = MockEmbedder()
         retriever = AssociativeRetriever(storage, embedder)
 
         retriever.retrieve(
-            message="hi", peer_id="alice", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="alice", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
-        assert storage.last_cluster_peer_id == "alice"
+        assert storage.last_cluster_workspace_id == "alice"
 
     def test_cluster_summaries_respect_configured_limit(self):
         storage = MockStorage()
@@ -818,7 +818,7 @@ class TestAssociativeRetrieverClusters:
         })
 
         bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
         assert len(bundle.cluster_summaries) == 2
@@ -839,7 +839,7 @@ class TestAssociativeRetrieverClusters:
         retriever = AssociativeRetriever(storage, embedder, limits=limits)
 
         bundle = retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
         assert len(bundle.cluster_summaries) == 3  # built-in default
@@ -854,7 +854,7 @@ class TestAssociativeRetrieverClusters:
         retriever = AssociativeRetriever(storage, embedder, tracer=tracer)
 
         retriever.retrieve(
-            message="hi", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True, request_id="req1",
         )
 

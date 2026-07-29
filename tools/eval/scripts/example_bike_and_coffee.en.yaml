@@ -3,7 +3,7 @@
 # one durable fact that should survive into the consolidated profile.
 
 name: "ok-continuation and a genuine topic switch"
-peer_id: "eval-peer-bike-coffee"
+workspace_id: "eval-peer-bike-coffee"
 language: "en"
 
 turns:

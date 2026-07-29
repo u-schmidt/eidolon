@@ -25,14 +25,14 @@ class EidolonClient(Protocol):
     core-as-a-service deployment mode).
     """
 
-    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
-        """Look up the currently open topic for this peer and session, if any."""
+    def get_active_topic(self, workspace_id: str, session_id: str | None = None) -> int | None:
+        """Look up the currently open topic for this workspace and session, if any."""
         ...
 
     def prepare_context(
         self,
         message: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         active_topic_id: int | None = None,
         *,
@@ -56,7 +56,7 @@ class EidolonClient(Protocol):
     def retrieve_context(
         self,
         message: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         topic_label: str | None = None,
         is_new_topic: bool = False,
@@ -72,7 +72,7 @@ class EidolonClient(Protocol):
         self,
         user_message: str,
         ai_response: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         turn_id: int | None = None,
         old_topic_id: int | None = None,
@@ -86,18 +86,18 @@ class EidolonClient(Protocol):
 
     def consolidate_facts(
         self,
-        peer_id: str,
+        workspace_id: str,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
-        """Reconcile a peer's durable-facts profile now."""
+        """Reconcile a workspace's durable-facts profile now."""
         ...
 
     def close_stale_topics(
         self,
         cutoff: datetime,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
@@ -107,7 +107,7 @@ class EidolonClient(Protocol):
 
     def correct_fact(
         self,
-        peer_id: str,
+        workspace_id: str,
         category: str,
         key: str,
         value: str | None = None,

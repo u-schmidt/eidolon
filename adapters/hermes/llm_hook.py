@@ -75,7 +75,7 @@ class EidolonTopicHook:
         self,
         user_message: str,
         session_id: str,
-        peer_id: str,
+        workspace_id: str,
         environment: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Called before each LLM call. Injects topic context only.
@@ -86,7 +86,7 @@ class EidolonTopicHook:
             The user's message.
         session_id : str
             Current Hermes session ID.
-        peer_id : str
+        workspace_id : str
             Who is speaking.
         environment : dict | None
             Optional environment context.
@@ -107,7 +107,7 @@ class EidolonTopicHook:
 
         bundle = self._eidolon.retrieve_context(
             message=user_message,
-            peer_id=peer_id,
+            workspace_id=workspace_id,
             environment=env,
             topic_label=topic_change.label,
             is_new_topic=is_new,
@@ -145,7 +145,7 @@ class EidolonTopicHook:
         user_message: str,
         ai_response: str,
         session_id: str,
-        peer_id: str,
+        workspace_id: str,
         environment: dict[str, Any] | None = None,
     ) -> None:
         """Called after each LLM call. Stores topic data."""
@@ -168,7 +168,7 @@ class EidolonTopicHook:
         self._eidolon.store_turn(
             user_message=user_message,
             ai_response=ai_response,
-            peer_id=peer_id,
+            workspace_id=workspace_id,
             environment=env,
             old_topic_id=old_topic_id,
             new_topic_label=new_topic_label,

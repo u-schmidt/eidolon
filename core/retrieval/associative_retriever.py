@@ -102,7 +102,7 @@ class AssociativeRetriever:
     def retrieve(
         self,
         message: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         topic_label: str | None,
         is_new_topic: bool,
@@ -117,7 +117,7 @@ class AssociativeRetriever:
         ----------
         message : str
             The user's message to find context for.
-        peer_id : str
+        workspace_id : str
             Who is speaking (e.g. "user", "ai:neuromancer").
         environment : EnvironmentSnapshot
             Current situational context.
@@ -150,8 +150,8 @@ class AssociativeRetriever:
             if active_topic:
                 current_topic_label = active_topic.get("summary") or active_topic.get("label")
 
-        # 1. Load facts for the current peer
-        facts = self._storage.get_facts(peer_id)
+        # 1. Load facts for the current workspace
+        facts = self._storage.get_facts(workspace_id)
 
         # 2. Generate query embedding for semantic search
         embed_started = time.perf_counter()
@@ -166,7 +166,7 @@ class AssociativeRetriever:
         )
         self._metrics.record_embedding_call(
             "retrieval_query", embed_duration_ms, len(query_embedding), True,
-            peer_id=peer_id, request_id=request_id, session_id=session_id,
+            workspace_id=workspace_id, request_id=request_id, session_id=session_id,
         )
 
         # 3. Extract potential tags from the message (simple keyword extraction)
@@ -182,7 +182,7 @@ class AssociativeRetriever:
         topic_results = self._storage.search_topics(
             query_embedding=query_embedding,
             tags=tags,
-            peer_id=peer_id,
+            workspace_id=workspace_id,
             limit=topic_limit,
             weights=self._weights,
             tracer=self._tracer,
@@ -202,7 +202,7 @@ class AssociativeRetriever:
             for t in topic_results
         ]
 
-        # 4b. Fetch the peer's most-recently-discussed topics (pure
+        # 4b. Fetch the workspace's most-recently-discussed topics (pure
         # recency, not relevance) — padded so that even if every one of
         # them also showed up in the relevance search above, dedup still
         # leaves `recent_topics` limit worth of genuinely distinct ones.
@@ -210,11 +210,11 @@ class AssociativeRetriever:
         # search_topics call above) — this surface is documented to the
         # LLM as "regardless of relevance" (see ContextFormatter's
         # preamble), so filtering it by size would silently break that
-        # promise for a peer's most recent exchange, however short.
+        # promise for a workspace's most recent exchange, however short.
         recent_limit = self._limits.get("recent_topics", 5)
         related_ids = {t.topic_id for t in related_topics}
         recent_rows = self._storage.get_recent_topics(
-            peer_id=peer_id, limit=recent_limit + len(related_ids),
+            workspace_id=workspace_id, limit=recent_limit + len(related_ids),
         )
         recent_topics = [
             RelatedTopic(
@@ -237,7 +237,7 @@ class AssociativeRetriever:
         )
         memory_items = self._storage.search_memory_items(
             query_embedding=query_embedding,
-            peer_id=peer_id,
+            workspace_id=workspace_id,
             budget=memory_budget,
             weights=self._weights,
             tracer=self._tracer,
@@ -251,7 +251,7 @@ class AssociativeRetriever:
         cluster_results = self._storage.search_clusters(
             query_embedding=query_embedding,
             tags=tags,
-            peer_id=peer_id,
+            workspace_id=workspace_id,
             limit=self._limits.get("cluster_summaries", 3),
             weights=self._weights,
             tracer=self._tracer,
@@ -283,7 +283,7 @@ class AssociativeRetriever:
             "context_retrieval",
             {
                 "message": message,
-                "peer_id": peer_id,
+                "workspace_id": workspace_id,
                 "topic_label": topic_label,
                 "is_new_topic": is_new_topic,
                 "tags": tags,

@@ -150,8 +150,8 @@ Examples:
                         help="Gracefully close 'active' topics idle past --stale-older-than-hours, then exit")
     parser.add_argument("--stale-older-than-hours", type=float, default=24.0,
                         help="Idle threshold in hours for --close-stale-topics (default: 24)")
-    parser.add_argument("--stale-peer-id", default=None,
-                        help="Restrict --close-stale-topics to one peer (default: every peer)")
+    parser.add_argument("--stale-workspace-id", default=None,
+                        help="Restrict --close-stale-topics to one workspace (default: every workspace)")
     parser.add_argument("--dry-run", action="store_true",
                         help="With --close-stale-topics, list candidates without closing them")
 
@@ -189,19 +189,19 @@ def _run_stale_topic_cleanup(
     topics idle past the cutoff and, unless --dry-run, close them
     gracefully. Runs once and returns — never enters the REPL."""
     cutoff = datetime.now(UTC) - timedelta(hours=args.stale_older_than_hours)
-    candidates = store.get_stale_active_topics(cutoff, peer_id=args.stale_peer_id)
+    candidates = store.get_stale_active_topics(cutoff, workspace_id=args.stale_workspace_id)
 
     if not candidates:
         print(f"  No stale open topics (idle > {args.stale_older_than_hours}h).")
     else:
         print(f"  {len(candidates)} stale open topic(s) (idle > {args.stale_older_than_hours}h):")
         for t in candidates:
-            print(f"    #{t['id']} {t['label']!r} (peer={t['peer_id']}, last activity: {t['last_activity']})")
+            print(f"    #{t['id']} {t['label']!r} (workspace={t['workspace_id']}, last activity: {t['last_activity']})")
 
         if args.dry_run:
             print("  Dry run — nothing closed.")
         else:
-            closed_ids = eidolon.close_stale_topics(cutoff, peer_id=args.stale_peer_id)
+            closed_ids = eidolon.close_stale_topics(cutoff, workspace_id=args.stale_workspace_id)
             print(f"  Closed {len(closed_ids)} topic(s): {closed_ids}")
 
     store.close()
@@ -400,11 +400,11 @@ def main() -> None:
                 spy = InMemoryTracer()
                 request_id = uuid.uuid4().hex[:8]
                 store.search_topics(
-                    query_embedding=query_embedding, peer_id="user", limit=100000,
+                    query_embedding=query_embedding, workspace_id="user", limit=100000,
                     weights=weights, tracer=spy, request_id=request_id,
                 )
                 store.search_memory_items(
-                    query_embedding=query_embedding, peer_id="user",
+                    query_embedding=query_embedding, workspace_id="user",
                     budget=MemoryItemBudget(fact=100_000, surprise=100_000, feeling=100_000, free=100_000),
                     weights=weights, tracer=spy, request_id=request_id,
                 )
@@ -451,7 +451,7 @@ def main() -> None:
         is_new = topic_change.type == "NEW_TOPIC"
         bundle = eidolon.retrieve_context(
             message=text,
-            peer_id="user",
+            workspace_id="user",
             environment=env,
             topic_label=topic_change.label,
             is_new_topic=is_new,
@@ -514,7 +514,7 @@ def main() -> None:
         new_topic_id = eidolon.store_turn(
             user_message=text,
             ai_response=ai_response,
-            peer_id="user",
+            workspace_id="user",
             environment=env,
             turn_id=turn_count,
             old_topic_id=old_topic_id,

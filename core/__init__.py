@@ -11,7 +11,7 @@ Usage:
     # Before LLM responds (sync):
     result = eidolon.prepare_context(
         message="Let's talk about Bello",
-        peer_id="user",
+        workspace_id="user",
         environment=env,
         active_topic_id=42,
     )
@@ -21,7 +21,7 @@ Usage:
     eidolon.store_turn(
         user_message="Let's talk about Bello",
         ai_response="Sure! What would you like to know?",
-        peer_id="user",
+        workspace_id="user",
         environment=env,
         old_topic_id=42,
         new_topic_label="Bello Features",
@@ -174,7 +174,7 @@ class Eidolon:
     def prepare_context(
         self,
         message: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         active_topic_id: int | None = None,
         *,
@@ -190,7 +190,7 @@ class Eidolon:
         ----------
         message : str
             The user's message.
-        peer_id : str
+        workspace_id : str
             Who is speaking (e.g. "user", "ai:neuromancer").
         environment : EnvironmentSnapshot
             Current situational context.
@@ -226,7 +226,7 @@ class Eidolon:
         is_new_topic = topic_change.type == "NEW_TOPIC"
         bundle = self._retriever.retrieve(
             message=message,
-            peer_id=peer_id,
+            workspace_id=workspace_id,
             environment=environment,
             topic_label=topic_change.label,
             is_new_topic=is_new_topic,
@@ -240,7 +240,7 @@ class Eidolon:
             "prefetch_complete",
             {
                 "message": message,
-                "peer_id": peer_id,
+                "workspace_id": workspace_id,
                 "topic_change_type": topic_change.type,
                 "topic_label": topic_change.label,
             },
@@ -283,38 +283,38 @@ class Eidolon:
             request_id=request_id or _new_request_id(), session_id=session_id,
         )
 
-    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
-        """Look up the currently open topic for this peer *and* session, if any.
+    def get_active_topic(self, workspace_id: str, session_id: str | None = None) -> int | None:
+        """Look up the currently open topic for this workspace *and* session, if any.
 
         Adapters call this whenever a session is first seen (not just once
         at startup) to resume its own in-memory active-topic tracking —
         otherwise a restart, or a session that was never seen before,
         silently forgets about an open topic, leaving it open (and
         unretrievable, since search only considers closed topics) forever.
-        Scoped per session so a peer's concurrent sessions (web, Telegram,
+        Scoped per session so a workspace's concurrent sessions (web, Telegram,
         CLI, ...) each track their own topic thread independently.
 
         Parameters
         ----------
-        peer_id : str
+        workspace_id : str
             Who the active topic belongs to.
         session_id : str | None
             Which session's topic thread to resume. None matches only
             topics created with no session (legacy rows, single-session
-            callers) — not a wildcard across all of the peer's sessions.
+            callers) — not a wildcard across all of the workspace's sessions.
 
         Returns
         -------
         int | None
             The open topic's id, or None if there's no open topic for
-            this (peer_id, session_id).
+            this (workspace_id, session_id).
         """
-        return self._storage.get_active_topic(peer_id, session_id)
+        return self._storage.get_active_topic(workspace_id, session_id)
 
     def retrieve_context(
         self,
         message: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         topic_label: str | None = None,
         is_new_topic: bool = False,
@@ -329,7 +329,7 @@ class Eidolon:
         ----------
         message : str
             The user's message.
-        peer_id : str
+        workspace_id : str
             Who is speaking.
         environment : EnvironmentSnapshot
             Current situational context.
@@ -355,7 +355,7 @@ class Eidolon:
         """
         return self._retriever.retrieve(
             message=message,
-            peer_id=peer_id,
+            workspace_id=workspace_id,
             environment=environment,
             topic_label=topic_label,
             is_new_topic=is_new_topic,
@@ -368,7 +368,7 @@ class Eidolon:
         self,
         user_message: str,
         ai_response: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         turn_id: int | None = None,
         old_topic_id: int | None = None,
@@ -397,7 +397,7 @@ class Eidolon:
             The user's message from this turn.
         ai_response : str
             The AI's response from this turn.
-        peer_id : str
+        workspace_id : str
             Who is speaking (the user).
         environment : EnvironmentSnapshot
             The environment context at the time of this turn.
@@ -427,7 +427,7 @@ class Eidolon:
         # recurring-thread clustering — see _close_old_topic.
         if old_topic_id is not None and new_topic_label is not None:
             self._close_old_topic(
-                old_topic_id, new_topic_label, peer_id, request_id=request_id, session_id=session_id
+                old_topic_id, new_topic_label, workspace_id, request_id=request_id, session_id=session_id
             )
 
         # 2. Create new topic if topic changed. Starts pending (label="")
@@ -438,7 +438,7 @@ class Eidolon:
         if new_topic_label is not None:
             new_topic_id = self._storage.create_topic(
                 label="",
-                peer_id=peer_id,
+                workspace_id=workspace_id,
                 session_id=session_id,
             )
 
@@ -448,24 +448,24 @@ class Eidolon:
 
         user_msg_id = self._storage.store_message(
             turn_id=tid, role="user", content=user_message,
-            peer_id=peer_id, topic_id=resolved_topic_id, request_id=request_id,
+            workspace_id=workspace_id, topic_id=resolved_topic_id, request_id=request_id,
         )
         ai_msg_id = self._storage.store_message(
             turn_id=tid, role="ai", content=ai_response,
-            peer_id="ai", topic_id=resolved_topic_id, request_id=request_id,
+            workspace_id="ai", topic_id=resolved_topic_id, request_id=request_id,
         )
 
         # 3b. Mid-conversation relabel — CONTINUE turns only: a NEW_TOPIC
         # turn's topic was just created this same call, nowhere near the
         # threshold yet. See _maybe_relabel_pending_topic.
         if self._relabel_enabled and new_topic_label is None and old_topic_id is not None:
-            self._maybe_relabel_pending_topic(old_topic_id, peer_id, request_id=request_id, session_id=session_id)
+            self._maybe_relabel_pending_topic(old_topic_id, workspace_id, request_id=request_id, session_id=session_id)
 
         # 4. Extract memory fragments
         items = self._extractor.extract(
             user_message=user_message,
             ai_response=ai_response,
-            source_peer=peer_id,
+            source_peer=workspace_id,
             topic_label=new_topic_label,
             environment=environment,
             request_id=request_id,
@@ -475,7 +475,7 @@ class Eidolon:
         # 5. Store memory items with topic + message association +
         # embeddings — see _store_memory_items.
         fact_items = self._store_memory_items(
-            items, resolved_topic_id, user_msg_id, ai_msg_id, peer_id,
+            items, resolved_topic_id, user_msg_id, ai_msg_id, workspace_id,
             request_id=request_id, session_id=session_id,
         )
 
@@ -484,8 +484,8 @@ class Eidolon:
         # updates replace stale values in place and the LLM judges what's
         # actually durable rather than everything fact-shaped becoming a
         # permanent row. See FactConsolidator.
-        if self._storage.count_user_turns(peer_id) % self._consolidation_interval == 0:
-            self.consolidate_facts(peer_id, request_id=request_id, session_id=session_id)
+        if self._storage.count_user_turns(workspace_id) % self._consolidation_interval == 0:
+            self.consolidate_facts(workspace_id, request_id=request_id, session_id=session_id)
 
         turn_duration_ms = (time.perf_counter() - turn_started) * 1000
         self._tracer.record(
@@ -493,7 +493,7 @@ class Eidolon:
             {
                 "user_message": user_message,
                 "ai_response": ai_response,
-                "peer_id": peer_id,
+                "workspace_id": workspace_id,
                 "old_topic_id": old_topic_id,
                 "new_topic_id": new_topic_id,
                 "new_topic_label": new_topic_label,
@@ -507,12 +507,12 @@ class Eidolon:
 
     def consolidate_facts(
         self,
-        peer_id: str,
+        workspace_id: str,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
-        """Reconcile `peer_id`'s durable-facts profile now.
+        """Reconcile `workspace_id`'s durable-facts profile now.
 
         Normally triggered automatically from `store_turn` every N
         turns (see step 7); exposed publicly so adapters/tools can also
@@ -521,13 +521,13 @@ class Eidolon:
         since the last successful pass — see `FactConsolidator`.
         """
         self._fact_consolidator.consolidate(
-            peer_id, request_id=request_id or _new_request_id(), session_id=session_id
+            workspace_id, request_id=request_id or _new_request_id(), session_id=session_id
         )
 
     def close_stale_topics(
         self,
         cutoff: datetime,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
@@ -552,13 +552,13 @@ class Eidolon:
         """
         request_id = request_id or _new_request_id()
         closed_ids: list[int] = []
-        for topic in self._storage.get_stale_active_topics(cutoff, peer_id=peer_id):
+        for topic in self._storage.get_stale_active_topics(cutoff, workspace_id=workspace_id):
             topic_id = topic["id"]
             summarized = self._summarizer.summarize(topic_id, request_id=request_id, session_id=session_id)
             if summarized:
                 if self._clustering_enabled:
                     self._cluster_consolidator.consolidate_topic(
-                        topic_id, topic["peer_id"], request_id=request_id, session_id=session_id
+                        topic_id, topic["workspace_id"], request_id=request_id, session_id=session_id
                     )
             else:
                 self._storage.close_topic(topic_id, "Closed: idle timeout")
@@ -566,14 +566,14 @@ class Eidolon:
 
         self._tracer.record(
             "stale_topic_cleanup",
-            {"cutoff": cutoff.isoformat(), "peer_id": peer_id, "closed_topic_ids": closed_ids},
+            {"cutoff": cutoff.isoformat(), "workspace_id": workspace_id, "closed_topic_ids": closed_ids},
             request_id=request_id, session_id=session_id,
         )
         return closed_ids
 
     def correct_fact(
         self,
-        peer_id: str,
+        workspace_id: str,
         category: str,
         key: str,
         value: str | None = None,
@@ -592,15 +592,15 @@ class Eidolon:
         category = category.strip().lower()
         key = key.strip().lower()
         if value is None or not value.strip():
-            self._storage.delete_fact(peer_id, category, key)
+            self._storage.delete_fact(workspace_id, category, key)
             action = "delete"
         else:
             value = value.strip()
-            self._storage.set_fact(peer_id, category, key, value, source="user")
+            self._storage.set_fact(workspace_id, category, key, value, source="user")
             action = "upsert"
         self._tracer.record(
             "fact_correction",
-            {"peer_id": peer_id, "category": category, "key": key, "value": value, "action": action},
+            {"workspace_id": workspace_id, "category": category, "key": key, "value": value, "action": action},
             request_id=request_id or _new_request_id(), session_id=session_id,
         )
 
@@ -637,7 +637,7 @@ class Eidolon:
         self,
         old_topic_id: int,
         new_topic_label: str,
-        peer_id: str,
+        workspace_id: str,
         *,
         request_id: str,
         session_id: str | None,
@@ -656,7 +656,7 @@ class Eidolon:
         if summarized:
             if self._clustering_enabled:
                 self._cluster_consolidator.consolidate_topic(
-                    old_topic_id, peer_id, request_id=request_id, session_id=session_id
+                    old_topic_id, workspace_id, request_id=request_id, session_id=session_id
                 )
         else:
             self._storage.close_topic(old_topic_id, f"Continued to: {new_topic_label}")
@@ -664,7 +664,7 @@ class Eidolon:
     def _maybe_relabel_pending_topic(
         self,
         old_topic_id: int,
-        peer_id: str,
+        workspace_id: str,
         *,
         request_id: str,
         session_id: str | None,
@@ -692,7 +692,7 @@ class Eidolon:
             )
             self._metrics.record_event(
                 "error", "topic_relabel_trigger", repr(exc),
-                peer_id=peer_id, request_id=request_id, session_id=session_id,
+                workspace_id=workspace_id, request_id=request_id, session_id=session_id,
             )
             logger.warning("Eidolon topic_relabel_trigger failed (topic_id=%s): %s", old_topic_id, exc)
 
@@ -702,7 +702,7 @@ class Eidolon:
         topic_id: int | None,
         user_msg_id: int,
         ai_msg_id: int,
-        peer_id: str,
+        workspace_id: str,
         *,
         request_id: str,
         session_id: str | None,
@@ -737,7 +737,7 @@ class Eidolon:
                     )
                     self._metrics.record_embedding_call(
                         "memory_item", embed_duration_ms, len(item.embedding), True,
-                        entity_type="memory_item", peer_id=peer_id,
+                        entity_type="memory_item", workspace_id=workspace_id,
                         request_id=request_id, session_id=session_id,
                     )
                 except Exception as exc:
@@ -748,7 +748,7 @@ class Eidolon:
                     )
                     self._metrics.record_event(
                         "error", "memory_item_embedding", repr(exc),
-                        peer_id=peer_id, request_id=request_id, session_id=session_id,
+                        workspace_id=workspace_id, request_id=request_id, session_id=session_id,
                     )
                     logger.warning("Eidolon memory_item_embedding failed: %s", exc)
                     # Embedding failure is non-critical for a single

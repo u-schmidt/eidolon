@@ -27,10 +27,10 @@ class EidolonToolHandler:
     of initialization state, matching the pre-extraction behavior.
     """
 
-    def __init__(self, eidolon: EidolonClient | None, initialized: bool, peer_id: str) -> None:
+    def __init__(self, eidolon: EidolonClient | None, initialized: bool, workspace_id: str) -> None:
         self._eidolon = eidolon
         self._initialized = initialized
-        self._peer_id = peer_id
+        self._workspace_id = workspace_id
 
     @staticmethod
     def get_tool_schemas() -> list[dict[str, Any]]:
@@ -152,7 +152,7 @@ class EidolonToolHandler:
         try:
             bundle = self._eidolon.retrieve_context(
                 message=query,
-                peer_id=self._peer_id,
+                workspace_id=self._workspace_id,
                 environment=EnvironmentSnapshot(situation="search"),
                 topic_label=None,
                 is_new_topic=True,
@@ -256,7 +256,7 @@ class EidolonToolHandler:
 
         value = args.get("value")
         try:
-            self._eidolon.correct_fact(self._peer_id, category, key, value)
+            self._eidolon.correct_fact(self._workspace_id, category, key, value)
             return json.dumps({
                 "status": "ok",
                 "action": "deleted" if not value else "updated",

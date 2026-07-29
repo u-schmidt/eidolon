@@ -35,24 +35,24 @@ class StorageProvider(Protocol):
 
     # ── Facts ──────────────────────────────────────────────
 
-    def get_facts(self, peer_id: str) -> list[Fact]:
-        """Return all stored facts for a given peer."""
+    def get_facts(self, workspace_id: str) -> list[Fact]:
+        """Return all stored facts for a given workspace."""
         ...
 
     def get_all_facts(self) -> list[Fact]:
-        """Return every stored fact across every peer, ordered by
-        ``peer_id``/``category``/``key``.
+        """Return every stored fact across every workspace, ordered by
+        ``workspace_id``/``category``/``key``.
 
         Bulk, unscoped counterpart to ``get_facts`` — powers dashboard
         views that need to scan the whole facts table (e.g. flagging
-        categories outside the configured list) rather than one peer's
+        categories outside the configured list) rather than one workspace's
         profile.
         """
         ...
 
     def set_fact(
         self,
-        peer_id: str,
+        workspace_id: str,
         category: str,
         key: str,
         value: str,
@@ -62,16 +62,16 @@ class StorageProvider(Protocol):
         """Store or update a single fact."""
         ...
 
-    def delete_fact(self, peer_id: str, category: str, key: str) -> None:
+    def delete_fact(self, workspace_id: str, category: str, key: str) -> None:
         """Remove a single fact, if present. No-op if it doesn't exist."""
         ...
 
-    def count_user_turns(self, peer_id: str) -> int:
-        """Return how many user messages this peer has sent in total.
+    def count_user_turns(self, workspace_id: str) -> int:
+        """Return how many user messages this workspace has sent in total.
 
-        Peer-scoped, not session-scoped — used to drive the facts
+        Workspace-scoped, not session-scoped — used to drive the facts
         consolidation trigger (every N turns), matching how facts
-        themselves are peer-scoped.
+        themselves are workspace-scoped.
         """
         ...
 
@@ -91,14 +91,14 @@ class StorageProvider(Protocol):
         """
         ...
 
-    def get_consolidation_checkpoint(self, peer_id: str) -> int:
+    def get_consolidation_checkpoint(self, workspace_id: str) -> int:
         """Return the highest memory_item id already incorporated into
-        ``peer_id``'s facts profile. 0 if consolidation has never run."""
+        ``workspace_id``'s facts profile. 0 if consolidation has never run."""
         ...
 
-    def set_consolidation_checkpoint(self, peer_id: str, last_item_id: int) -> None:
+    def set_consolidation_checkpoint(self, workspace_id: str, last_item_id: int) -> None:
         """Record the highest memory_item id incorporated into
-        ``peer_id``'s facts profile as of the most recent consolidation."""
+        ``workspace_id``'s facts profile as of the most recent consolidation."""
         ...
 
     # ── Topics ─────────────────────────────────────────────
@@ -109,7 +109,7 @@ class StorageProvider(Protocol):
         summary: str = "",
         tags: list[str] | None = None,
         embedding: list[float] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         session_id: str | None = None,
     ) -> int:
         """Create a new topic and return its id.
@@ -127,13 +127,13 @@ class StorageProvider(Protocol):
         """Mark a topic as closed and set its final summary."""
         ...
 
-    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
+    def get_active_topic(self, workspace_id: str, session_id: str | None = None) -> int | None:
         """Return the id of the currently open ('active') topic for
-        ``peer_id`` *and* ``session_id``, if any.
+        ``workspace_id`` *and* ``session_id``, if any.
 
-        A peer can have multiple concurrent sessions (web, Telegram, CLI,
+        A workspace can have multiple concurrent sessions (web, Telegram, CLI,
         ...), each continuing its own topic thread — the active topic is
-        scoped per (peer_id, session_id), not per peer_id alone, so one
+        scoped per (workspace_id, session_id), not per workspace_id alone, so one
         session's topic detection never clobbers or orphans another
         session's still-open topic. `topics.status` is the source of
         truth for what's open — adapters use this to resume their
@@ -171,7 +171,7 @@ class StorageProvider(Protocol):
         self,
         query_embedding: list[float] | None = None,
         tags: list[str] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
@@ -179,13 +179,13 @@ class StorageProvider(Protocol):
         now: datetime | None = None,
         min_message_count: int = -1,
     ) -> list[dict]:
-        """Search topics by embedding similarity, tag overlap, peer, and recency.
+        """Search topics by embedding similarity, tag overlap, workspace, and recency.
 
-        ``peer_id``, when given, is a hard filter, not just a scoring
-        bonus — only that peer's topics are ever scanned, both to bound
-        the scan cost and so a different peer's topic can never surface
-        in these results regardless of how well it scores. ``peer_id=None``
-        searches every peer.
+        ``workspace_id``, when given, is a hard filter, not just a scoring
+        bonus — only that workspace's topics are ever scanned, both to bound
+        the scan cost and so a different workspace's topic can never surface
+        in these results regardless of how well it scores. ``workspace_id=None``
+        searches every workspace.
 
         ``weights`` overrides the per-dimension scoring weights
         (semantic, tag_overlap, person, temporal) when provided. The
@@ -213,7 +213,7 @@ class StorageProvider(Protocol):
         """
         ...
 
-    def get_stale_active_topics(self, cutoff: datetime, peer_id: str | None = None) -> list[dict]:
+    def get_stale_active_topics(self, cutoff: datetime, workspace_id: str | None = None) -> list[dict]:
         """Return 'active' topics whose last message predates `cutoff`,
         oldest first — candidates for graceful cleanup (see
         `Eidolon.close_stale_topics`) when a topic was never properly
@@ -222,12 +222,12 @@ class StorageProvider(Protocol):
 
         Each dict carries a `last_activity` timestamp alongside the usual
         topic fields — the topic's own `created_at` when it has no
-        messages yet. `peer_id=None` scans every peer's active topics.
+        messages yet. `workspace_id=None` scans every workspace's active topics.
         """
         ...
 
-    def get_recent_topics(self, peer_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
-        """Return `peer_id`'s most recently closed, unclustered topics,
+    def get_recent_topics(self, workspace_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
+        """Return `workspace_id`'s most recently closed, unclustered topics,
         newest first.
 
         Pure recency, not relevance — used to surface "what we discussed
@@ -242,20 +242,20 @@ class StorageProvider(Protocol):
 
     def get_closed_topics_since(self, since: datetime) -> list[dict]:
         """Return every topic closed at/after ``since``, across every
-        peer, oldest first — id/peer_id/label/created_at/closed_at/
+        workspace, oldest first — id/workspace_id/label/created_at/closed_at/
         message_count.
 
-        Bulk, time-windowed, cross-peer counterpart to
+        Bulk, time-windowed, cross-workspace counterpart to
         ``get_recent_topics``/``get_stale_active_topics`` (both scoped
         differently) — powers the topic-lifecycle dashboard view; not
         used by any core orchestration path.
         """
         ...
 
-    def list_topics(self, status: str | None = None, peer_id: str | None = None) -> list[dict]:
-        """Return every topic across every peer, newest first, optionally
+    def list_topics(self, status: str | None = None, workspace_id: str | None = None) -> list[dict]:
+        """Return every topic across every workspace, newest first, optionally
         filtered by ``status`` (``'active'``/``'closed'``) and/or
-        ``peer_id``.
+        ``workspace_id``.
 
         Bulk, unscoped, no time constraint — none of the existing
         topic-read methods cover this: ``get_recent_topics`` is
@@ -267,24 +267,24 @@ class StorageProvider(Protocol):
 
     # ── Topic Clusters ─────────────────────────────────────
 
-    def get_clusters(self, peer_id: str) -> list[dict]:
-        """Return every cluster for ``peer_id``, unscored — the full set,
+    def get_clusters(self, workspace_id: str) -> list[dict]:
+        """Return every cluster for ``workspace_id``, unscored — the full set,
         not just ones relevant to some query. Mirrors ``get_facts``."""
         ...
 
-    def list_clusters(self, peer_id: str | None = None) -> list[dict]:
-        """Return every cluster, across every peer or one peer's if
+    def list_clusters(self, workspace_id: str | None = None) -> list[dict]:
+        """Return every cluster, across every workspace or one workspace's if
         given, newest first.
 
         Bulk, optionally-scoped counterpart to ``get_clusters`` (always
-        ``peer_id``-required) — mirrors ``get_all_facts``'s relationship
+        ``workspace_id``-required) — mirrors ``get_all_facts``'s relationship
         to ``get_facts``. Powers the dashboard's cluster browse page.
         """
         ...
 
     def create_cluster(
         self,
-        peer_id: str,
+        workspace_id: str,
         label: str,
         summary: str,
         tags: list[str] | None = None,
@@ -334,7 +334,7 @@ class StorageProvider(Protocol):
         self,
         query_embedding: list[float] | None = None,
         tags: list[str] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
@@ -345,8 +345,8 @@ class StorageProvider(Protocol):
         recency — same scoring formula as ``search_topics``, scanning
         ``topic_clusters`` instead of ``topics``.
 
-        Unlike ``search_topics``, ``peer_id`` is a hard SQL filter, not a
-        soft scoring bonus — clusters never merge across peers.
+        Unlike ``search_topics``, ``workspace_id`` is a hard SQL filter, not a
+        soft scoring bonus — clusters never merge across workspaces.
 
         Returns cluster dicts ordered by relevance.
         """
@@ -355,7 +355,7 @@ class StorageProvider(Protocol):
     def search_cluster_candidates(
         self,
         topic_id: int,
-        peer_id: str,
+        workspace_id: str,
         limit: int = 5,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
@@ -374,7 +374,7 @@ class StorageProvider(Protocol):
         possible, not just growth of an existing cluster. Each result
         dict carries ``candidate_kind: "topic" | "cluster"`` alongside
         its normal fields, so the caller knows how to apply an LLM's
-        match decision. Hard-filtered to ``peer_id`` in SQL, same
+        match decision. Hard-filtered to ``workspace_id`` in SQL, same
         reasoning as ``search_clusters``.
 
         Returns candidate dicts ordered by relevance; empty if nothing
@@ -402,20 +402,20 @@ class StorageProvider(Protocol):
     def search_memory_items(
         self,
         query_embedding: list[float] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         budget: MemoryItemBudget | None = None,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
         request_id: str | None = None,
         now: datetime | None = None,
     ) -> list[MemoryItem]:
-        """Search memory items by embedding similarity, peer, and recency.
+        """Search memory items by embedding similarity, workspace, and recency.
 
-        ``peer_id``, when given, is a hard filter joined through
-        ``messages`` (memory items carry no ``peer_id`` of their own, only
-        a ``message_id`` — ``messages.peer_id`` is the real identifier).
-        ``peer_id=None`` searches every peer. There is no ``person``
-        scoring dimension here (unlike ``search_topics``) — peer-scoping
+        ``workspace_id``, when given, is a hard filter joined through
+        ``messages`` (memory items carry no ``workspace_id`` of their own, only
+        a ``message_id`` — ``messages.workspace_id`` is the real identifier).
+        ``workspace_id=None`` searches every workspace. There is no ``person``
+        scoring dimension here (unlike ``search_topics``) — workspace-scoping
         is a hard prerequisite via the join, not a ranking signal.
 
         ``budget`` (defaults to ``MemoryItemBudget()``) replaces a flat
@@ -463,7 +463,7 @@ class StorageProvider(Protocol):
     def list_memory_items(
         self, item_type: str | None = None, topic_id: int | None = None, q: str | None = None,
     ) -> list[MemoryItem]:
-        """Return every memory item across every peer/topic, newest
+        """Return every memory item across every workspace/topic, newest
         first, optionally filtered by ``item_type``/``topic_id``/``q``.
 
         ``q`` is a plain case-insensitive substring match against
@@ -482,7 +482,7 @@ class StorageProvider(Protocol):
         turn_id: int,
         role: str,
         content: str,
-        peer_id: str,
+        workspace_id: str,
         topic_id: int | None = None,
         request_id: str | None = None,
     ) -> int:
@@ -509,7 +509,7 @@ class StorageProvider(Protocol):
         the user + AI message pair from one turn), ordered by id."""
         ...
 
-    def get_recent_turns(self, limit: int, peer_id: str | None = None) -> list[dict]:
+    def get_recent_turns(self, limit: int, workspace_id: str | None = None) -> list[dict]:
         """Return up to ``limit`` recent turns, most recent first — one
         row per ``role='user'`` message that has a ``request_id``, with
         its ``content`` as a preview. Always-on (no debug trace needed):
@@ -517,10 +517,10 @@ class StorageProvider(Protocol):
         (``tools/dashboard/turn_reader.py``)."""
         ...
 
-    def count_recent_turns(self, peer_id: str | None = None) -> int:
+    def count_recent_turns(self, workspace_id: str | None = None) -> int:
         """Return the total count of turns matching ``get_recent_turns``'s
         same criteria (``role='user'`` messages with a ``request_id``,
-        optionally scoped to one peer) — without paging through the rows
+        optionally scoped to one workspace) — without paging through the rows
         themselves. Powers the dashboard landing page's turn count."""
         ...
 
@@ -665,7 +665,7 @@ class MetricsRecorder(Protocol):
         step: str,
         message: str,
         *,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
@@ -681,7 +681,7 @@ class MetricsRecorder(Protocol):
         duration_ms: float,
         succeeded: bool,
         *,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
@@ -700,7 +700,7 @@ class MetricsRecorder(Protocol):
         *,
         entity_type: str | None = None,
         entity_id: str | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:

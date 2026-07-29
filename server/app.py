@@ -92,22 +92,22 @@ def create_app(
 
     @rpc.post("/active-topic", response_model=int | None)
     def get_active_topic(
-        peer_id: str = Body(...),
+        workspace_id: str = Body(...),
         session_id: str | None = Body(None),
     ) -> int | None:
-        return eidolon.get_active_topic(peer_id, session_id)
+        return eidolon.get_active_topic(workspace_id, session_id)
 
     @rpc.post("/prepare-context", response_model=PrefetchResult)
     def prepare_context(
         message: str = Body(...),
-        peer_id: str = Body(...),
+        workspace_id: str = Body(...),
         environment: EnvironmentSnapshot = Body(...),
         active_topic_id: int | None = Body(None),
         session_id: str | None = Body(None),
         request_id: str | None = Body(None),
     ) -> PrefetchResult:
         return eidolon.prepare_context(
-            message, peer_id, environment, active_topic_id,
+            message, workspace_id, environment, active_topic_id,
             session_id=session_id, request_id=request_id,
         )
 
@@ -125,7 +125,7 @@ def create_app(
     @rpc.post("/retrieve-context", response_model=ContextBundle)
     def retrieve_context(
         message: str = Body(...),
-        peer_id: str = Body(...),
+        workspace_id: str = Body(...),
         environment: EnvironmentSnapshot = Body(...),
         topic_label: str | None = Body(None),
         is_new_topic: bool = Body(False),
@@ -134,7 +134,7 @@ def create_app(
         request_id: str | None = Body(None),
     ) -> ContextBundle:
         return eidolon.retrieve_context(
-            message, peer_id, environment, topic_label, is_new_topic, active_topic_id,
+            message, workspace_id, environment, topic_label, is_new_topic, active_topic_id,
             session_id=session_id, request_id=request_id,
         )
 
@@ -142,7 +142,7 @@ def create_app(
     def store_turn(
         user_message: str = Body(...),
         ai_response: str = Body(...),
-        peer_id: str = Body(...),
+        workspace_id: str = Body(...),
         environment: EnvironmentSnapshot = Body(...),
         turn_id: int | None = Body(None),
         old_topic_id: int | None = Body(None),
@@ -151,32 +151,32 @@ def create_app(
         request_id: str | None = Body(None),
     ) -> int | None:
         return eidolon.store_turn(
-            user_message, ai_response, peer_id, environment, turn_id,
+            user_message, ai_response, workspace_id, environment, turn_id,
             old_topic_id, new_topic_label, session_id=session_id, request_id=request_id,
         )
 
     @rpc.post("/consolidate-facts", status_code=204)
     def consolidate_facts(
-        peer_id: str = Body(...),
+        workspace_id: str = Body(...),
         request_id: str | None = Body(None),
         session_id: str | None = Body(None),
     ) -> None:
-        eidolon.consolidate_facts(peer_id, request_id=request_id, session_id=session_id)
+        eidolon.consolidate_facts(workspace_id, request_id=request_id, session_id=session_id)
 
     @rpc.post("/close-stale-topics", response_model=list[int])
     def close_stale_topics(
         cutoff: datetime = Body(...),
-        peer_id: str | None = Body(None),
+        workspace_id: str | None = Body(None),
         request_id: str | None = Body(None),
         session_id: str | None = Body(None),
     ) -> list[int]:
         return eidolon.close_stale_topics(
-            cutoff, peer_id, request_id=request_id, session_id=session_id,
+            cutoff, workspace_id, request_id=request_id, session_id=session_id,
         )
 
     @rpc.post("/correct-fact", status_code=204)
     def correct_fact(
-        peer_id: str = Body(...),
+        workspace_id: str = Body(...),
         category: str = Body(...),
         key: str = Body(...),
         value: str | None = Body(None),
@@ -184,7 +184,7 @@ def create_app(
         session_id: str | None = Body(None),
     ) -> None:
         eidolon.correct_fact(
-            peer_id, category, key, value, request_id=request_id, session_id=session_id,
+            workspace_id, category, key, value, request_id=request_id, session_id=session_id,
         )
 
     @rpc.post("/inspect-cluster", response_model=list[dict])

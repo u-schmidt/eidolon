@@ -31,7 +31,7 @@ class MockEidolon:
         self.store_turn_calls = 0
         self.last_message: str | None = None
         self.last_ai_response: str | None = None
-        self.last_peer_id: str | None = None
+        self.last_workspace_id: str | None = None
         self.last_active_topic_id: int | None = None
         self.last_retrieve_context_active_topic_id: int | None = None
         self.last_old_topic_id: int | None = None
@@ -40,11 +40,11 @@ class MockEidolon:
         self.active_topic_to_resume: int | None = None
         self.active_topics_by_session: dict[str | None, int] = {}
         self.get_active_topic_calls = 0
-        self.last_get_active_topic_peer_id: str | None = None
+        self.last_get_active_topic_workspace_id: str | None = None
         self.last_get_active_topic_session_id: str | None = None
         self.get_active_topic_session_ids_seen: list[str | None] = []
         self.last_session_id: str | None = None
-        self.last_peer_id: str | None = None
+        self.last_workspace_id: str | None = None
         self.last_request_id: str | None = None
         self.request_ids_seen: list[str | None] = []
         self.correct_fact_calls = 0
@@ -57,13 +57,13 @@ class MockEidolon:
         self.topic_items: list[dict] = []
         self.close_stale_topics_calls = 0
         self.last_close_stale_topics_cutoff: datetime | None = None
-        self.last_close_stale_topics_peer_id: str | None = None
+        self.last_close_stale_topics_workspace_id: str | None = None
         self.close_stale_topics_raises: Exception | None = None
         self.prepare_context_raises: Exception | None = None
 
-    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
+    def get_active_topic(self, workspace_id: str, session_id: str | None = None) -> int | None:
         self.get_active_topic_calls += 1
-        self.last_get_active_topic_peer_id = peer_id
+        self.last_get_active_topic_workspace_id = workspace_id
         self.last_get_active_topic_session_id = session_id
         self.get_active_topic_session_ids_seen.append(session_id)
         if session_id in self.active_topics_by_session:
@@ -73,7 +73,7 @@ class MockEidolon:
     def prepare_context(
         self,
         message: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         active_topic_id: int | None = None,
         *,
@@ -89,7 +89,7 @@ class MockEidolon:
         self.last_message = message
         self.last_active_topic_id = active_topic_id
         self.last_retrieve_context_active_topic_id = active_topic_id
-        self.last_peer_id = peer_id
+        self.last_workspace_id = workspace_id
         self.last_environment = environment
         self.last_session_id = session_id
         self.last_request_id = request_id
@@ -98,7 +98,7 @@ class MockEidolon:
         topic_change = TopicChange(type="NEW_TOPIC", label="Test Topic")
         bundle = ContextBundle(
             current_topic_label=topic_change.label,
-            facts=[Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")],
+            facts=[Fact(workspace_id="user", category="basic", key="name", value="Alex", source="user")],
             related_topics=[
                 RelatedTopic(topic_id=1, summary="Previous conversation", tags=["test"])
             ],
@@ -129,7 +129,7 @@ class MockEidolon:
     def retrieve_context(
         self,
         message: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         topic_label: str | None = None,
         is_new_topic: bool = False,
@@ -140,14 +140,14 @@ class MockEidolon:
     ) -> ContextBundle:
         self.retrieve_context_calls += 1
         self.last_session_id = session_id
-        self.last_peer_id = peer_id
+        self.last_workspace_id = workspace_id
         self.last_request_id = request_id
         self.last_environment = environment
         self.last_retrieve_context_active_topic_id = active_topic_id
         self.request_ids_seen.append(request_id)
         return ContextBundle(
             current_topic_label=topic_label or "Test Topic",
-            facts=[Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")],
+            facts=[Fact(workspace_id="user", category="basic", key="name", value="Alex", source="user")],
             related_topics=[
                 RelatedTopic(topic_id=1, summary="Previous conversation", tags=["test"])
             ],
@@ -161,7 +161,7 @@ class MockEidolon:
         self,
         user_message: str,
         ai_response: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         turn_id: int | None = None,
         old_topic_id: int | None = None,
@@ -173,7 +173,7 @@ class MockEidolon:
         self.store_turn_calls += 1
         self.last_message = user_message
         self.last_ai_response = ai_response
-        self.last_peer_id = peer_id
+        self.last_workspace_id = workspace_id
         self.last_environment = environment
         self.last_turn_id = turn_id
         self.last_old_topic_id = old_topic_id
@@ -185,7 +185,7 @@ class MockEidolon:
 
     def correct_fact(
         self,
-        peer_id: str,
+        workspace_id: str,
         category: str,
         key: str,
         value: str | None = None,
@@ -194,7 +194,7 @@ class MockEidolon:
         session_id: str | None = None,
     ) -> None:
         self.correct_fact_calls += 1
-        self.last_correct_fact_args = (peer_id, category, key, value)
+        self.last_correct_fact_args = (workspace_id, category, key, value)
 
     def inspect_cluster(self, cluster_id: int) -> list[dict]:
         self.inspect_cluster_calls += 1
@@ -209,14 +209,14 @@ class MockEidolon:
     def close_stale_topics(
         self,
         cutoff: datetime,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> list[int]:
         self.close_stale_topics_calls += 1
         self.last_close_stale_topics_cutoff = cutoff
-        self.last_close_stale_topics_peer_id = peer_id
+        self.last_close_stale_topics_workspace_id = workspace_id
         if self.close_stale_topics_raises is not None:
             raise self.close_stale_topics_raises
         return []
@@ -235,7 +235,7 @@ class MockStore:
     def close(self) -> None:
         pass
 
-    def get_facts(self, peer_id: str) -> list[Fact]:
+    def get_facts(self, workspace_id: str) -> list[Fact]:
         return self.facts
 
 
@@ -290,10 +290,10 @@ class TestEidolonMemoryProvider:
         provider.prefetch("hello", session_id="sess_1")
         assert provider._eidolon.last_session_id == "sess_1"
 
-    def test_prefetch_uses_resolved_peer_id(self, provider):
-        provider._peer_id = "alice"
+    def test_prefetch_uses_resolved_workspace_id(self, provider):
+        provider._workspace_id = "alice"
         provider.prefetch("hello", session_id="sess_1")
-        assert provider._eidolon.last_peer_id == "alice"
+        assert provider._eidolon.last_workspace_id == "alice"
 
     def test_prefetch_passes_session_active_topic_id_to_retrieve_context(self, provider):
         provider._sessions["sess_1"] = SessionState(active_topic_id=7)
@@ -338,14 +338,14 @@ class TestEidolonMemoryProvider:
         )
         assert provider._eidolon.last_session_id == "sess_1"
 
-    def test_sync_turn_uses_resolved_peer_id(self, provider):
-        provider._peer_id = "alice"
+    def test_sync_turn_uses_resolved_workspace_id(self, provider):
+        provider._workspace_id = "alice"
         provider.sync_turn(
             user_content="Hello",
             assistant_content="Hi!",
             session_id="sess_1",
         )
-        assert provider._eidolon.last_peer_id == "alice"
+        assert provider._eidolon.last_workspace_id == "alice"
 
     def test_sync_turn_updates_active_topic(self, provider):
         provider.sync_turn(
@@ -489,10 +489,10 @@ class TestEidolonMemoryProvider:
         assert "related_topics" in result
         assert "memory_items" in result
 
-    def test_handle_search_uses_resolved_peer_id(self, provider):
-        provider._peer_id = "alice"
+    def test_handle_search_uses_resolved_workspace_id(self, provider):
+        provider._workspace_id = "alice"
         provider.handle_tool_call("eidolon_search", {"query": "test"})
-        assert provider._eidolon.last_peer_id == "alice"
+        assert provider._eidolon.last_workspace_id == "alice"
 
     def test_handle_tool_call_unknown_raises(self, provider):
         with pytest.raises(NotImplementedError):
@@ -516,8 +516,8 @@ class TestEidolonMemoryProvider:
         payload = json.loads(result)
         assert payload["action"] == "deleted"
 
-    def test_handle_correct_fact_uses_resolved_peer_id(self, provider):
-        provider._peer_id = "alice"
+    def test_handle_correct_fact_uses_resolved_workspace_id(self, provider):
+        provider._workspace_id = "alice"
         provider.handle_tool_call("eidolon_correct_fact", {"category": "location", "key": "city", "value": "Berlin"})
         assert provider._eidolon.last_correct_fact_args[0] == "alice"
 
@@ -705,6 +705,7 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.tag_overlap = 0.3
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
+        mock_config.workspace_id = None
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
@@ -719,7 +720,7 @@ class TestEidolonMemoryProvider:
             p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
 
         assert p._sessions["sess_1"].active_topic_id == 7
-        assert mock_eidolon.last_get_active_topic_peer_id == "user"
+        assert mock_eidolon.last_get_active_topic_workspace_id == "user"
 
     def test_initialize_no_open_topic_stays_none(self, tmp_path):
         from adapters.hermes import EidolonMemoryProvider
@@ -735,6 +736,7 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.tag_overlap = 0.3
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
+        mock_config.workspace_id = None
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
@@ -751,9 +753,9 @@ class TestEidolonMemoryProvider:
         assert p._sessions["sess_1"].active_topic_id is None
 
     def test_concurrent_sessions_resume_independent_active_topics(self, provider):
-        """A peer's concurrent sessions (web, Telegram, CLI, ...) must each
+        """A workspace's concurrent sessions (web, Telegram, CLI, ...) must each
         resume their own topic thread — not share one, and not clobber
-        each other. _get_or_create_session() resumes per (peer, session),
+        each other. _get_or_create_session() resumes per (workspace, session),
         not just once at plugin load (see adapters/hermes/__init__.py)."""
         provider._eidolon.active_topics_by_session = {"web": 5, "telegram": 9}
 
@@ -789,6 +791,7 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.tag_overlap = 0.3
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
+        mock_config.workspace_id = None
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
@@ -802,9 +805,9 @@ class TestEidolonMemoryProvider:
             p = EidolonMemoryProvider()
             p.initialize(session_id="sess_1", hermes_home=str(tmp_path))
 
-        assert p._peer_id == "user"
+        assert p._workspace_id == "user"
 
-    def test_initialize_resolves_peer_id_from_user_id(self, tmp_path):
+    def test_initialize_resolves_workspace_id_from_user_id(self, tmp_path):
         from adapters.hermes import EidolonMemoryProvider
 
         config_path = tmp_path / "eidolon.yaml"
@@ -817,6 +820,7 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.tag_overlap = 0.3
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
+        mock_config.workspace_id = None
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
@@ -832,7 +836,7 @@ class TestEidolonMemoryProvider:
                 session_id="sess_1", hermes_home=str(tmp_path), user_id="platform-123"
             )
 
-        assert p._peer_id == "platform-123"
+        assert p._workspace_id == "platform-123"
 
     def test_initialize_prefers_user_id_alt_over_user_id(self, tmp_path):
         from adapters.hermes import EidolonMemoryProvider
@@ -847,6 +851,7 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.tag_overlap = 0.3
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
+        mock_config.workspace_id = None
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
@@ -865,7 +870,7 @@ class TestEidolonMemoryProvider:
                 user_id_alt="alt1",
             )
 
-        assert p._peer_id == "alt1"
+        assert p._workspace_id == "alt1"
 
     def test_initialize_seeds_current_session_fallback(self, tmp_path):
         """An empty-session_id prefetch() call right after initialize() must
@@ -884,6 +889,7 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.tag_overlap = 0.3
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
+        mock_config.workspace_id = None
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
              patch("adapters.hermes.memory_provider.ProviderFactory") as MockProviderFactory, \
@@ -916,6 +922,7 @@ class TestEidolonMemoryProvider:
         mock_config.retrieval.tag_overlap = 0.3
         mock_config.retrieval.person = 0.2
         mock_config.retrieval.temporal = 0.1
+        mock_config.workspace_id = None
         sentinel_tracer = MagicMock()
 
         with patch("adapters.hermes.memory_provider.ConfigLoader") as MockConfigLoader, \
@@ -1056,10 +1063,10 @@ class TestMaintenanceSweep:
         assert cutoff is not None
         assert abs((before - timedelta(hours=6.0) - cutoff).total_seconds()) < 5
 
-    def test_peer_id_passed_through(self, provider):
-        provider._maintenance = MaintenanceConfig(enabled=True, peer_id="udo")
+    def test_workspace_id_passed_through(self, provider):
+        provider._maintenance = MaintenanceConfig(enabled=True, workspace_id="udo")
         self._sync_turn(provider)
-        assert provider._eidolon.last_close_stale_topics_peer_id == "udo"
+        assert provider._eidolon.last_close_stale_topics_workspace_id == "udo"
 
     def test_exception_is_caught_and_timestamp_still_updates(self, provider, caplog):
         provider._maintenance = MaintenanceConfig(enabled=True)
@@ -1098,7 +1105,7 @@ class TestEidolonTopicHook:
         result = hook.pre_llm_call(
             user_message="Hello",
             session_id="sess_1",
-            peer_id="user",
+            workspace_id="user",
         )
         assert "eidolon_topics" in result
         assert result["eidolon_topics"]["current_topic"] == "Test Topic"
@@ -1107,7 +1114,7 @@ class TestEidolonTopicHook:
         hook.pre_llm_call(
             user_message="Hello",
             session_id="sess_1",
-            peer_id="user",
+            workspace_id="user",
         )
         assert hook._last_topic_label == "Test Topic"
 
@@ -1116,7 +1123,7 @@ class TestEidolonTopicHook:
         hook.pre_llm_call(
             user_message="Hello",
             session_id="sess_1",
-            peer_id="user",
+            workspace_id="user",
         )
         assert hook._eidolon.last_retrieve_context_active_topic_id == 3
 
@@ -1124,7 +1131,7 @@ class TestEidolonTopicHook:
         result = hook.pre_llm_call(
             user_message="Hello",
             session_id="sess_1",
-            peer_id="user",
+            workspace_id="user",
             environment={"location": "office"},
         )
         assert "eidolon_topics" in result
@@ -1139,7 +1146,7 @@ class TestEidolonTopicHook:
             user_message="Lass uns über was neues sprechen",
             ai_response="Klar!",
             session_id="sess_1",
-            peer_id="user",
+            workspace_id="user",
         )
         assert hook._eidolon.store_turn_calls == 1
         assert hook._eidolon.last_old_topic_id == 1
@@ -1151,7 +1158,7 @@ class TestEidolonTopicHook:
             user_message="jep",
             ai_response="ok",
             session_id="sess_1",
-            peer_id="user",
+            workspace_id="user",
         )
         assert hook._eidolon.store_turn_calls == 1
         assert hook._eidolon.last_old_topic_id is None

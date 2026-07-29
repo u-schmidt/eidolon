@@ -20,7 +20,7 @@ class TestContextFormatter:
 
     def test_formats_facts(self):
         bundle = ContextBundle(
-            facts=[Fact(peer_id="user", category="work", key="role", value="engineer", source="user")]
+            facts=[Fact(workspace_id="user", category="work", key="role", value="engineer", source="user")]
         )
         assert ContextFormatter.format(bundle) == f"{_PREAMBLE}\n\n[Known facts]\n- work: role = engineer"
 
@@ -130,7 +130,7 @@ class TestContextFormatter:
     def test_joins_sections_with_blank_line(self):
         bundle = ContextBundle(
             current_topic_label="Bello",
-            facts=[Fact(peer_id="user", category="work", key="role", value="engineer", source="user")],
+            facts=[Fact(workspace_id="user", category="work", key="role", value="engineer", source="user")],
         )
         assert ContextFormatter.format(bundle) == (
             f"{_PREAMBLE}\n\n[Current topic: Bello]\n\n[Known facts]\n- work: role = engineer"
@@ -218,7 +218,7 @@ class TestContextFormatterRelativeAge:
 
     def test_fact_age_suffix(self):
         bundle = ContextBundle(
-            facts=[Fact(peer_id="user", category="work", key="role", value="engineer",
+            facts=[Fact(workspace_id="user", category="work", key="role", value="engineer",
                         source="user", created_at="2026-06-28 10:00:00")]
         )
         assert ContextFormatter.format(bundle, now=self.NOW) == (
@@ -274,7 +274,7 @@ class TestContextFormatterRelativeAge:
 
     def test_no_age_suffix_when_timestamp_missing(self):
         bundle = ContextBundle(
-            facts=[Fact(peer_id="user", category="work", key="role", value="engineer", source="user")]
+            facts=[Fact(workspace_id="user", category="work", key="role", value="engineer", source="user")]
         )
         assert ContextFormatter.format(bundle, now=self.NOW) == (
             f"{_PREAMBLE}\n\n[Known facts]\n- work: role = engineer"
@@ -291,7 +291,7 @@ class TestContextFormatterRelativeAge:
         ]
         for created_at, expected in cases:
             bundle = ContextBundle(
-                facts=[Fact(peer_id="user", category="c", key="k", value="v", source="user", created_at=created_at)]
+                facts=[Fact(workspace_id="user", category="c", key="k", value="v", source="user", created_at=created_at)]
             )
             result = ContextFormatter.format(bundle, now=self.NOW)
             assert result.endswith(f"[{expected}]"), f"{created_at} -> expected '{expected}', got: {result}"

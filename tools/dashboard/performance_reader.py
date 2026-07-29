@@ -86,7 +86,7 @@ class PerformanceSummary:
     call_type_stats: list[CallTypeStats] = field(default_factory=list)
     embedding_stats: list[EmbeddingPurposeStats] = field(default_factory=list)
     hourly_throughput: list[HourlyBucket] = field(default_factory=list)
-    top_error_peers: list[TopErrorSource] = field(default_factory=list)
+    top_error_workspaces: list[TopErrorSource] = field(default_factory=list)
     top_error_sessions: list[TopErrorSource] = field(default_factory=list)
 
 
@@ -107,7 +107,7 @@ class PerformanceReader:
             call_type_stats=self._call_type_stats(llm_calls),
             embedding_stats=self._embedding_stats(embedding_calls),
             hourly_throughput=self._hourly_throughput(llm_calls),
-            top_error_peers=self._top_error_sources(events, "peer_id"),
+            top_error_workspaces=self._top_error_sources(events, "workspace_id"),
             top_error_sessions=self._top_error_sources(events, "session_id"),
         )
 

@@ -93,7 +93,7 @@ class ClusterConsolidator:
     shortlist_size : int
         Max candidates (existing clusters + still-unclustered topics)
         shown to the LLM per topic close — keeps the prompt bounded
-        regardless of how much history a peer has accumulated.
+        regardless of how much history a workspace has accumulated.
     tracer : Tracer | None
         Debug tracer recording the prompt/response/duration of each
         pass and otherwise-silent failures. Defaults to a no-op tracer.
@@ -121,7 +121,7 @@ class ClusterConsolidator:
     def consolidate_topic(
         self,
         topic_id: int,
-        peer_id: str,
+        workspace_id: str,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
@@ -138,8 +138,8 @@ class ClusterConsolidator:
         ----------
         topic_id : int
             The just-closed topic to place.
-        peer_id : str
-            The peer whose cluster set to search/update.
+        workspace_id : str
+            The workspace whose cluster set to search/update.
         request_id : str | None
             Correlates this call's trace events with the enclosing
             ``store_turn`` call.
@@ -153,7 +153,7 @@ class ClusterConsolidator:
                 return
 
             candidates = self._storage.search_cluster_candidates(
-                topic_id, peer_id, limit=self._shortlist_size,
+                topic_id, workspace_id, limit=self._shortlist_size,
                 tracer=self._tracer, request_id=request_id,
             )
             if not candidates:
@@ -182,7 +182,7 @@ class ClusterConsolidator:
                     self._storage.assign_topic_to_cluster(topic_id, resulting_cluster_id)
                 else:  # "topic" — a raw, previously unclustered topic. Promote both into a new cluster.
                     resulting_cluster_id = self._storage.create_cluster(
-                        peer_id, label=label or matched["label"], summary=summary,
+                        workspace_id, label=label or matched["label"], summary=summary,
                         tags=merged_tags, embedding=embedding,
                     )
                     self._storage.assign_topic_to_cluster(matched["id"], resulting_cluster_id)
@@ -192,7 +192,7 @@ class ClusterConsolidator:
                 "cluster_consolidation",
                 {
                     "topic_id": topic_id,
-                    "peer_id": peer_id,
+                    "workspace_id": workspace_id,
                     "candidates": [
                         {"kind": c["candidate_kind"], "id": c["id"], "label": c["label"]}
                         for c in candidates
@@ -207,7 +207,7 @@ class ClusterConsolidator:
             )
             self._metrics.record_llm_call(
                 "cluster_consolidation", (time.perf_counter() - started) * 1000, True,
-                peer_id=peer_id, request_id=request_id, session_id=session_id,
+                workspace_id=workspace_id, request_id=request_id, session_id=session_id,
             )
         except Exception as exc:
             self._tracer.record(
@@ -219,7 +219,7 @@ class ClusterConsolidator:
             )
             self._metrics.record_event(
                 "error", "cluster_consolidation", repr(exc),
-                peer_id=peer_id, request_id=request_id, session_id=session_id,
+                workspace_id=workspace_id, request_id=request_id, session_id=session_id,
             )
             logger.warning("Eidolon cluster_consolidation failed (topic_id=%s): %s", topic_id, exc)
 

@@ -186,6 +186,34 @@ MIGRATIONS: dict[int, str] = {
     ALTER TABLE messages ADD COLUMN request_id TEXT;
     CREATE INDEX IF NOT EXISTS idx_messages_request ON messages(request_id);
     """,
+    11: """
+    -- peer_id -> workspace_id: the concept this column always held was
+    -- "which tenant/Hermes-profile this belongs to" (a hard partition
+    -- key) — never "the other party in a conversation," which is what
+    -- "peer" conventionally means (peer-to-peer, peer review). That
+    -- second, genuinely different concept is memory_items.source_peer/
+    -- subject_peer, deliberately left untouched here. "workspace" is
+    -- the term this project's own Hermes-integration siblings already
+    -- use for the identical boundary (Honcho's honcho.json "workspace"
+    -- field) — not copied from Honcho, arrived at independently as the
+    -- standard term (Slack/Notion/Linear use it the same way).
+    ALTER TABLE topics RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE messages RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE facts RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE fact_consolidation_state RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE topic_clusters RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE events RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE llm_calls RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE embedding_calls RENAME COLUMN peer_id TO workspace_id;
+
+    -- SQLite has no ALTER INDEX RENAME — drop and recreate under matching names.
+    DROP INDEX IF EXISTS idx_messages_peer_role;
+    CREATE INDEX IF NOT EXISTS idx_messages_workspace_role ON messages(workspace_id, role);
+    DROP INDEX IF EXISTS idx_topics_peer_status;
+    CREATE INDEX IF NOT EXISTS idx_topics_workspace_status ON topics(workspace_id, status);
+    DROP INDEX IF EXISTS idx_topic_clusters_peer;
+    CREATE INDEX IF NOT EXISTS idx_topic_clusters_workspace ON topic_clusters(workspace_id);
+    """,
 }
 
 

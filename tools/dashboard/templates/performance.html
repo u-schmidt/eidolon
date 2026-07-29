@@ -96,14 +96,14 @@
 
   <div class="row">
     <div style="flex: 1; min-width: 240px;">
-      <h2>Top error peers</h2>
-      {% if not summary.top_error_peers %}
+      <h2>Top error workspaces</h2>
+      {% if not summary.top_error_workspaces %}
         <p class="muted">No errors in this window.</p>
       {% else %}
         <table>
-          <thead><tr><th>Peer</th><th>Errors</th></tr></thead>
+          <thead><tr><th>Workspace</th><th>Errors</th></tr></thead>
           <tbody>
-            {% for s in summary.top_error_peers %}
+            {% for s in summary.top_error_workspaces %}
             <tr><td>{{ s.key }}</td><td>{{ s.error_count }}</td></tr>
             {% endfor %}
           </tbody>

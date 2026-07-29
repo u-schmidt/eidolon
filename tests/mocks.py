@@ -121,13 +121,13 @@ class SpyMetricsRecorder:
         step: str,
         message: str,
         *,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
         self.events.append({
             "severity": severity, "step": step, "message": message,
-            "peer_id": peer_id, "request_id": request_id, "session_id": session_id,
+            "workspace_id": workspace_id, "request_id": request_id, "session_id": session_id,
         })
 
     def record_llm_call(
@@ -136,13 +136,13 @@ class SpyMetricsRecorder:
         duration_ms: float,
         succeeded: bool,
         *,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
         self.llm_calls.append({
             "call_type": call_type, "duration_ms": duration_ms, "succeeded": succeeded,
-            "peer_id": peer_id, "request_id": request_id, "session_id": session_id,
+            "workspace_id": workspace_id, "request_id": request_id, "session_id": session_id,
         })
 
     def record_embedding_call(
@@ -154,14 +154,14 @@ class SpyMetricsRecorder:
         *,
         entity_type: str | None = None,
         entity_id: str | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
         self.embedding_calls.append({
             "purpose": purpose, "duration_ms": duration_ms, "dimension": dimension, "succeeded": succeeded,
             "entity_type": entity_type, "entity_id": entity_id,
-            "peer_id": peer_id, "request_id": request_id, "session_id": session_id,
+            "workspace_id": workspace_id, "request_id": request_id, "session_id": session_id,
         })
 
 
@@ -190,29 +190,29 @@ class MockStorage:
         self.cluster_candidates: dict[int, list[dict]] = {}
         self.stale_topic_ids: set[int] = set()
 
-    def get_facts(self, peer_id: str) -> list[Fact]:
-        return [f for f in self.facts if f.peer_id == peer_id]
+    def get_facts(self, workspace_id: str) -> list[Fact]:
+        return [f for f in self.facts if f.workspace_id == workspace_id]
 
     def get_all_facts(self) -> list[Fact]:
         return list(self.facts)
 
     def set_fact(
-        self, peer_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
+        self, workspace_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
     ) -> None:
         self.facts = [
-            f for f in self.facts if not (f.peer_id == peer_id and f.category == category and f.key == key)
+            f for f in self.facts if not (f.workspace_id == workspace_id and f.category == category and f.key == key)
         ]
         self.facts.append(
-            Fact(peer_id=peer_id, category=category, key=key, value=value, source=source, importance=importance)
+            Fact(workspace_id=workspace_id, category=category, key=key, value=value, source=source, importance=importance)
         )
 
-    def delete_fact(self, peer_id: str, category: str, key: str) -> None:
+    def delete_fact(self, workspace_id: str, category: str, key: str) -> None:
         self.facts = [
-            f for f in self.facts if not (f.peer_id == peer_id and f.category == category and f.key == key)
+            f for f in self.facts if not (f.workspace_id == workspace_id and f.category == category and f.key == key)
         ]
 
-    def count_user_turns(self, peer_id: str) -> int:
-        return sum(1 for m in self.messages if m["peer_id"] == peer_id and m["role"] == "user")
+    def count_user_turns(self, workspace_id: str) -> int:
+        return sum(1 for m in self.messages if m["workspace_id"] == workspace_id and m["role"] == "user")
 
     def get_fact_items_since(self, subject_peer: str, since_item_id: int) -> list[MemoryItem]:
         return [
@@ -221,19 +221,19 @@ class MockStorage:
             and item.id is not None and item.id > since_item_id
         ]
 
-    def get_consolidation_checkpoint(self, peer_id: str) -> int:
-        return self._checkpoints.get(peer_id, 0)
+    def get_consolidation_checkpoint(self, workspace_id: str) -> int:
+        return self._checkpoints.get(workspace_id, 0)
 
-    def set_consolidation_checkpoint(self, peer_id: str, last_item_id: int) -> None:
-        self._checkpoints[peer_id] = last_item_id
+    def set_consolidation_checkpoint(self, workspace_id: str, last_item_id: int) -> None:
+        self._checkpoints[workspace_id] = last_item_id
 
     def create_topic(self, label: str, summary: str = "", tags: list[str] | None = None,
-                     embedding: list[float] | None = None, peer_id: str | None = None,
+                     embedding: list[float] | None = None, workspace_id: str | None = None,
                      session_id: str | None = None) -> int:
         tid = self._next_topic_id
         self._next_topic_id += 1
         self.topics[tid] = {"id": tid, "label": label, "summary": summary, "tags": tags or [],
-                           "status": "active", "peer_id": peer_id, "session_id": session_id,
+                           "status": "active", "workspace_id": workspace_id, "session_id": session_id,
                            "cluster_id": None, "created_at": None, "closed_at": None, "message_count": 0}
         return tid
 
@@ -246,10 +246,10 @@ class MockStorage:
             self.topics[topic_id]["summary"] = summary
             self.closed_topics.append(topic_id)
 
-    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
+    def get_active_topic(self, workspace_id: str, session_id: str | None = None) -> int | None:
         active = [
             t for t in self.topics.values()
-            if t["status"] == "active" and t.get("peer_id") == peer_id
+            if t["status"] == "active" and t.get("workspace_id") == workspace_id
             and t.get("session_id") == session_id
         ]
         return active[-1]["id"] if active else None
@@ -269,7 +269,7 @@ class MockStorage:
     def count_messages_by_topic(self, topic_id: int) -> int:
         return len(self.get_messages_by_topic(topic_id))
 
-    def search_topics(self, query_embedding=None, tags=None, peer_id=None, limit=5, weights=None,
+    def search_topics(self, query_embedding=None, tags=None, workspace_id=None, limit=5, weights=None,
                        tracer=None, request_id=None, now=None, min_message_count: int = -1):
         return [
             t for t in self.topics.values()
@@ -277,7 +277,7 @@ class MockStorage:
             and len(self.get_messages_by_topic(t["id"])) > min_message_count
         ][:limit]
 
-    def get_recent_topics(self, peer_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
+    def get_recent_topics(self, workspace_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
         return [
             t for t in self.topics.values()
             if t["status"] == "closed"
@@ -292,22 +292,22 @@ class MockStorage:
         # message_count values set them directly on self.topics[id].
         return [t for t in self.topics.values() if t["status"] == "closed"]
 
-    def list_topics(self, status: str | None = None, peer_id: str | None = None) -> list[dict]:
+    def list_topics(self, status: str | None = None, workspace_id: str | None = None) -> list[dict]:
         # Same "manually controllable double" philosophy as
         # get_closed_topics_since — filters, doesn't try to replicate
         # real ORDER BY created_at semantics.
         return [
             t for t in self.topics.values()
             if (status is None or t["status"] == status)
-            and (peer_id is None or t.get("peer_id") == peer_id)
+            and (workspace_id is None or t.get("workspace_id") == workspace_id)
         ]
 
-    def create_cluster(self, peer_id: str, label: str, summary: str,
+    def create_cluster(self, workspace_id: str, label: str, summary: str,
                        tags: list[str] | None = None, embedding: list[float] | None = None) -> int:
         cid = self._next_cluster_id
         self._next_cluster_id += 1
         self.clusters[cid] = {
-            "id": cid, "peer_id": peer_id, "label": label, "summary": summary,
+            "id": cid, "workspace_id": workspace_id, "label": label, "summary": summary,
             "tags": tags or [], "topic_count": 0, "embedding": embedding,
             "created_at": None, "updated_at": None,
         }
@@ -340,19 +340,19 @@ class MockStorage:
     def get_recent_topics_in_cluster(self, cluster_id: int, limit: int) -> list[dict]:
         return self.get_topics_by_cluster(cluster_id)[:limit]
 
-    def search_clusters(self, query_embedding=None, tags=None, peer_id=None, limit=5, weights=None,
+    def search_clusters(self, query_embedding=None, tags=None, workspace_id=None, limit=5, weights=None,
                         tracer=None, request_id=None, now=None) -> list[dict]:
-        return [c for c in self.clusters.values() if c["peer_id"] == peer_id][:limit]
+        return [c for c in self.clusters.values() if c["workspace_id"] == workspace_id][:limit]
 
-    def search_cluster_candidates(self, topic_id: int, peer_id: str, limit: int = 5, weights=None,
+    def search_cluster_candidates(self, topic_id: int, workspace_id: str, limit: int = 5, weights=None,
                                   tracer=None, request_id=None, now=None) -> list[dict]:
         return self.cluster_candidates.get(topic_id, [])[:limit]
 
-    def get_clusters(self, peer_id: str) -> list[dict]:
-        return [c for c in self.clusters.values() if c["peer_id"] == peer_id]
+    def get_clusters(self, workspace_id: str) -> list[dict]:
+        return [c for c in self.clusters.values() if c["workspace_id"] == workspace_id]
 
-    def list_clusters(self, peer_id: str | None = None) -> list[dict]:
-        return [c for c in self.clusters.values() if peer_id is None or c["peer_id"] == peer_id]
+    def list_clusters(self, workspace_id: str | None = None) -> list[dict]:
+        return [c for c in self.clusters.values() if workspace_id is None or c["workspace_id"] == workspace_id]
 
     def store_memory_item(self, item: MemoryItem) -> int:
         self.stored_items.append(item)
@@ -374,7 +374,7 @@ class MockStorage:
             "created_at": item.timestamp,
         }
 
-    def search_memory_items(self, query_embedding=None, peer_id=None, budget=None, weights=None,
+    def search_memory_items(self, query_embedding=None, workspace_id=None, budget=None, weights=None,
                              tracer=None, request_id=None, now=None):
         budget = budget or MemoryItemBudget()
         return self.memory_items[:budget.total]
@@ -396,13 +396,13 @@ class MockStorage:
             and (not q or q.lower() in item.content.lower())
         ]
 
-    def store_message(self, turn_id, role, content, peer_id, topic_id=None, request_id=None):
+    def store_message(self, turn_id, role, content, workspace_id, topic_id=None, request_id=None):
         msg = {
             "id": len(self.messages) + 1,
             "turn_id": turn_id,
             "role": role,
             "content": content,
-            "peer_id": peer_id,
+            "workspace_id": workspace_id,
             "topic_id": topic_id,
             "request_id": request_id,
         }
@@ -419,28 +419,28 @@ class MockStorage:
     def get_messages_by_request_id(self, request_id: str) -> list[dict]:
         return [m for m in self.messages if m["request_id"] == request_id]
 
-    def get_recent_turns(self, limit: int, peer_id: str | None = None) -> list[dict]:
+    def get_recent_turns(self, limit: int, workspace_id: str | None = None) -> list[dict]:
         matching = [
             m for m in self.messages
             if m["role"] == "user" and m["request_id"] is not None
-            and (peer_id is None or m["peer_id"] == peer_id)
+            and (workspace_id is None or m["workspace_id"] == workspace_id)
         ]
         return [
             {
-                "request_id": m["request_id"], "peer_id": m["peer_id"],
+                "request_id": m["request_id"], "workspace_id": m["workspace_id"],
                 "topic_id": m["topic_id"], "content": m["content"], "created_at": None,
             }
             for m in reversed(matching[-limit:])
         ]
 
-    def count_recent_turns(self, peer_id: str | None = None) -> int:
+    def count_recent_turns(self, workspace_id: str | None = None) -> int:
         return sum(
             1 for m in self.messages
             if m["role"] == "user" and m["request_id"] is not None
-            and (peer_id is None or m["peer_id"] == peer_id)
+            and (workspace_id is None or m["workspace_id"] == workspace_id)
         )
 
-    def get_stale_active_topics(self, cutoff, peer_id: str | None = None) -> list[dict]:
+    def get_stale_active_topics(self, cutoff, workspace_id: str | None = None) -> list[dict]:
         # Staleness itself is exercised against the real SqliteStore
         # (tests/core/test_sqlite_store.py); here `stale_topic_ids` lets a
         # test control exactly which candidates Eidolon.close_stale_topics
@@ -448,7 +448,7 @@ class MockStorage:
         return [
             t for t in self.topics.values()
             if t["id"] in self.stale_topic_ids and t["status"] == "active"
-            and (peer_id is None or t.get("peer_id") == peer_id)
+            and (workspace_id is None or t.get("workspace_id") == workspace_id)
         ]
 
 

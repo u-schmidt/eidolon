@@ -30,7 +30,7 @@ def store():
 
 
 def _closed_topic(store: SqliteStore, label: str, embedding: list[float] | None = _MATCH_EMBEDDING) -> int:
-    tid = store.create_topic(label, summary="", peer_id="user", embedding=embedding)
+    tid = store.create_topic(label, summary="", workspace_id="user", embedding=embedding)
     store.close_topic(tid, f"{label} summary")
     return tid
 
@@ -70,7 +70,7 @@ class TestConsolidateTopicMatchesCluster:
     def test_merges_tags_from_matched_cluster_and_new_topic(self, store: SqliteStore):
         cid = store.create_cluster("user", "Bike", "summary", tags=["bike"], embedding=_MATCH_EMBEDDING)
         new_topic = store.create_topic(
-            "New development", summary="", peer_id="user", tags=["shopping"], embedding=_MATCH_EMBEDDING
+            "New development", summary="", workspace_id="user", tags=["shopping"], embedding=_MATCH_EMBEDDING
         )
         store.close_topic(new_topic, "summary")
 
@@ -89,7 +89,7 @@ class TestConsolidateTopicMatchesRawTopic:
         ClusterConsolidator(store, llm, MockEmbedder()).consolidate_topic(new_topic, "user")
 
         # Exactly one cluster now exists, holding both topics.
-        clusters = store.search_clusters(query_embedding=_MATCH_EMBEDDING, peer_id="user")
+        clusters = store.search_clusters(query_embedding=_MATCH_EMBEDDING, workspace_id="user")
         assert len(clusters) == 1
         cluster = clusters[0]
         assert cluster["label"] == "Bike saga"
@@ -107,12 +107,12 @@ class TestConsolidateTopicNoMatch:
         llm = MockLLM('{"match_index": null, "label": "", "summary": ""}')
         ClusterConsolidator(store, llm, MockEmbedder()).consolidate_topic(new_topic, "user")
 
-        assert store.search_clusters(query_embedding=_MATCH_EMBEDDING, peer_id="user") == []
+        assert store.search_clusters(query_embedding=_MATCH_EMBEDDING, workspace_id="user") == []
         # Both topics remain individually searchable, not swallowed into a
         # cluster (search_topics excludes anything with cluster_id set) —
         # queried with a real embedding now, since person_match no longer
         # rescues a zero-signal query (see its call site's comment).
-        assert {t["id"] for t in store.search_topics(query_embedding=_MATCH_EMBEDDING, peer_id="user")} == {
+        assert {t["id"] for t in store.search_topics(query_embedding=_MATCH_EMBEDDING, workspace_id="user")} == {
             other, new_topic,
         }
 
@@ -124,7 +124,7 @@ class TestConsolidateTopicFailure:
 
         ClusterConsolidator(store, MockLLM("not valid json"), MockEmbedder()).consolidate_topic(new_topic, "user")
 
-        assert store.search_clusters(query_embedding=_MATCH_EMBEDDING, peer_id="user") == []
+        assert store.search_clusters(query_embedding=_MATCH_EMBEDDING, workspace_id="user") == []
 
     def test_malformed_response_records_error_event(self, store: SqliteStore, caplog):
         _closed_topic(store, "Other topic")
@@ -182,7 +182,7 @@ class TestConsolidateTopicTracing:
         assert event["request_id"] == "req1"
         assert event["session_id"] == "sess1"
         assert event["payload"]["topic_id"] == new_topic
-        assert event["payload"]["peer_id"] == "user"
+        assert event["payload"]["workspace_id"] == "user"
         assert event["payload"]["match_index"] == 1
         assert event["payload"]["resulting_cluster_id"] == cid
         assert event["payload"]["candidates"][0]["kind"] == "cluster"
@@ -200,7 +200,7 @@ class TestConsolidateTopicTracing:
         assert len(metrics.llm_calls) == 1
         assert metrics.llm_calls[0]["call_type"] == "cluster_consolidation"
         assert metrics.llm_calls[0]["succeeded"] is True
-        assert metrics.llm_calls[0]["peer_id"] == "user"
+        assert metrics.llm_calls[0]["workspace_id"] == "user"
         assert metrics.llm_calls[0]["request_id"] == "req1"
 
         assert len(metrics.embedding_calls) == 1

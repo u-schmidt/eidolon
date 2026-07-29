@@ -131,7 +131,7 @@ class TestScoreEnd:
         expectation = EndExpectation(
             facts=[FactExpectation(category="preference", key="bike_budget", value="2000 EUR")]
         )
-        actual = [Fact(peer_id="p1", category="preference", key="bike_budget", value="2000 EUR", source="user")]
+        actual = [Fact(workspace_id="p1", category="preference", key="bike_budget", value="2000 EUR", source="user")]
 
         result = scorer.score_end(expectation, actual, [], [])
 
@@ -145,7 +145,7 @@ class TestScoreEnd:
         expectation = EndExpectation(
             facts=[FactExpectation(category="preference", key="bike_budget", value="2000 EUR")]
         )
-        actual = [Fact(peer_id="p1", category="preference", key="bike_budget", value="2000 EUR", source="user")]
+        actual = [Fact(workspace_id="p1", category="preference", key="bike_budget", value="2000 EUR", source="user")]
 
         result = scorer.score_end(expectation, actual, [], [])
 
@@ -165,7 +165,7 @@ class TestScoreEnd:
         expectation = EndExpectation(
             facts=[FactExpectation(category="preference", key="bike_budget", value="2000 EUR")]
         )
-        actual = [Fact(peer_id="p1", category="finance", key="budget_item", value="2000 euros", source="ai")]
+        actual = [Fact(workspace_id="p1", category="finance", key="budget_item", value="2000 euros", source="ai")]
 
         result = scorer.score_end(expectation, actual, [], [])
 

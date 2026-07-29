@@ -32,7 +32,7 @@ class _FakeEidolonClient:
     Protocol conformance, not a full contract double (see
     test_eidolon_client_contract.py for that)."""
 
-    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
+    def get_active_topic(self, workspace_id: str, session_id: str | None = None) -> int | None:
         return 42
 
     def prepare_context(self, *args, **kwargs) -> PrefetchResult:
@@ -137,7 +137,7 @@ def browse_reader() -> BrowseReader:
 
 def _rpc_call(client: TestClient, token: str | None):
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    return client.post("/active-topic", json={"peer_id": "u1"}, headers=headers)
+    return client.post("/active-topic", json={"workspace_id": "u1"}, headers=headers)
 
 
 class TestHealthz:
@@ -178,7 +178,7 @@ class TestRpcAuthUnaffectedByDashboard:
         assert _rpc_call(client, None).status_code == 401
         # A dashboard credential must not satisfy the RPC's bearer check.
         response = client.post(
-            "/active-topic", json={"peer_id": "u1"},
+            "/active-topic", json={"workspace_id": "u1"},
             auth=("eidolon", "dashsecret"),
         )
         assert response.status_code == 401

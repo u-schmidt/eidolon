@@ -47,8 +47,8 @@ class TestSchema:
         }
         assert {
             "idx_messages_topic",
-            "idx_messages_peer_role",
-            "idx_topics_peer_status",
+            "idx_messages_workspace_role",
+            "idx_topics_workspace_status",
             "idx_memory_items_subject_type",
         } <= names
 
@@ -125,22 +125,22 @@ class TestMigrationAtomicity:
     def test_active_topic_query_uses_index(self, store: SqliteStore):
         """The per-turn get_active_topic lookup must be an index seek, not
         a full table scan — regression guard for the topics index."""
-        store.create_topic("Ongoing", peer_id="user", session_id="web")
+        store.create_topic("Ongoing", workspace_id="user", session_id="web")
         plan = store._conn.execute(
             "EXPLAIN QUERY PLAN "
-            "SELECT id FROM topics WHERE peer_id = ? AND session_id IS ? "
+            "SELECT id FROM topics WHERE workspace_id = ? AND session_id IS ? "
             "AND status = 'active' ORDER BY created_at DESC, id DESC LIMIT 1",
             ("user", "web"),
         ).fetchall()
         detail = " ".join(str(row[3]) for row in plan)
-        assert "idx_topics_peer_status" in detail
+        assert "idx_topics_workspace_status" in detail
         assert "SCAN" not in detail or "USING INDEX" in detail
 
 
 class TestVecIndexAcceleratedSearch:
     """Parallel coverage for the sqlite-vec-accelerated search path —
     proves it returns results equivalent to (not just different from)
-    the brute-force scan, and exercises what's unique to it (peer
+    the brute-force scan, and exercises what's unique to it (workspace
     partitioning via the vector index itself, backfill on connect()).
     Skipped entirely if sqlite-vec isn't installed.
     """
@@ -155,34 +155,34 @@ class TestVecIndexAcceleratedSearch:
         yield s
         s.close()
 
-    def test_search_topics_accelerated_path_is_peer_isolated(self, accel_store: SqliteStore):
-        mine = accel_store.create_topic("Mine", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+    def test_search_topics_accelerated_path_is_workspace_isolated(self, accel_store: SqliteStore):
+        mine = accel_store.create_topic("Mine", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         accel_store.close_topic(mine, "closed")
-        theirs = accel_store.create_topic("Theirs", summary="", peer_id="someone_else", embedding=[1.0, 0.0, 0.0])
+        theirs = accel_store.create_topic("Theirs", summary="", workspace_id="someone_else", embedding=[1.0, 0.0, 0.0])
         accel_store.close_topic(theirs, "closed")
 
-        results = accel_store.search_topics(query_embedding=[1.0, 0.0, 0.0], peer_id="user")
+        results = accel_store.search_topics(query_embedding=[1.0, 0.0, 0.0], workspace_id="user")
 
         assert [r["id"] for r in results] == [mine]
 
     def test_search_topics_accelerated_matches_brute_force_ranking(self, accel_store: SqliteStore):
-        near = accel_store.create_topic("Near", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        near = accel_store.create_topic("Near", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         accel_store.close_topic(near, "closed")
-        far = accel_store.create_topic("Far", summary="", peer_id="user", embedding=[0.0, 1.0, 0.0])
+        far = accel_store.create_topic("Far", summary="", workspace_id="user", embedding=[0.0, 1.0, 0.0])
         accel_store.close_topic(far, "closed")
 
-        results = accel_store.search_topics(query_embedding=[0.9, 0.1, 0.0], peer_id="user")
+        results = accel_store.search_topics(query_embedding=[0.9, 0.1, 0.0], workspace_id="user")
 
         assert [r["id"] for r in results] == [near, far]
 
-    def test_search_memory_items_accelerated_path_finds_real_peer_id(self, accel_store: SqliteStore):
-        msg_id = accel_store.store_message(turn_id=1, role="user", content="hi", peer_id="telegram:12345")
+    def test_search_memory_items_accelerated_path_finds_real_workspace_id(self, accel_store: SqliteStore):
+        msg_id = accel_store.store_message(turn_id=1, role="user", content="hi", workspace_id="telegram:12345")
         item_id = accel_store.store_memory_item(MemoryItem(
             content="about a trip", item_type="essence", source_peer="user", subject_peer="user",
             attribution_type="self_statement", message_id=msg_id, embedding=[1.0, 0.0, 0.0],
         ))
 
-        results = accel_store.search_memory_items(peer_id="telegram:12345", query_embedding=[1.0, 0.0, 0.0])
+        results = accel_store.search_memory_items(workspace_id="telegram:12345", query_embedding=[1.0, 0.0, 0.0])
 
         assert [item.id for item in results] == [item_id]
 
@@ -195,7 +195,7 @@ class TestVecIndexAcceleratedSearch:
         so 55 much-closer fact candidates reliably push the far surprise
         item outside a naive top-50 scan — it must still come back via
         the dedicated bypass fetch."""
-        msg_id = accel_store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        msg_id = accel_store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         for i in range(55):
             accel_store.store_memory_item(MemoryItem(
                 content=f"near fact {i}", item_type="fact", source_peer="user", subject_peer="user",
@@ -207,26 +207,26 @@ class TestVecIndexAcceleratedSearch:
         ))
 
         results = accel_store.search_memory_items(
-            peer_id="user", query_embedding=[1.0, 0.0, 0.0],
+            workspace_id="user", query_embedding=[1.0, 0.0, 0.0],
             budget=MemoryItemBudget(fact=0, surprise=1, feeling=0, free=0),
         )
 
         assert [item.id for item in results] == [surprise_id]
 
-    def test_search_clusters_accelerated_path_is_peer_isolated(self, accel_store: SqliteStore):
+    def test_search_clusters_accelerated_path_is_workspace_isolated(self, accel_store: SqliteStore):
         mine = accel_store.create_cluster("user", "Mine", "summary", embedding=[1.0, 0.0, 0.0])
         accel_store.create_cluster("someone_else", "Theirs", "summary", embedding=[1.0, 0.0, 0.0])
 
-        results = accel_store.search_clusters(query_embedding=[1.0, 0.0, 0.0], peer_id="user")
+        results = accel_store.search_clusters(query_embedding=[1.0, 0.0, 0.0], workspace_id="user")
 
         assert [r["id"] for r in results] == [mine]
 
     def test_search_cluster_candidates_accelerated_path_excludes_self_and_clustered(self, accel_store: SqliteStore):
-        new_topic = accel_store.create_topic("New", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        new_topic = accel_store.create_topic("New", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         accel_store.close_topic(new_topic, "closed")
-        other_topic = accel_store.create_topic("Other", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        other_topic = accel_store.create_topic("Other", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         accel_store.close_topic(other_topic, "closed")
-        clustered_topic = accel_store.create_topic("Clustered", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        clustered_topic = accel_store.create_topic("Clustered", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         accel_store.close_topic(clustered_topic, "closed")
         cid = accel_store.create_cluster("user", "Existing cluster", "summary", embedding=[1.0, 0.0, 0.0])
         accel_store.assign_topic_to_cluster(clustered_topic, cid)
@@ -240,7 +240,7 @@ class TestVecIndexAcceleratedSearch:
         """A topic created through create_topic (not a manual upsert) must
         be findable through the accelerated path right away — proves the
         write-path wiring, not just VecIndex in isolation."""
-        tid = accel_store.create_topic("Bike", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        tid = accel_store.create_topic("Bike", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         accel_store.close_topic(tid, "closed")
 
         assert accel_store.vec_index.knn("vec_topics", "user", [1.0, 0.0, 0.0], k=5) == [
@@ -257,7 +257,7 @@ class TestVecIndexAcceleratedSearch:
 
         without_index = SqliteStore(db_path, use_vec_index=False)
         without_index.connect()
-        tid = without_index.create_topic("Bike", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        tid = without_index.create_topic("Bike", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         without_index.close_topic(tid, "closed")
         without_index.close()
 
@@ -285,7 +285,7 @@ class TestVecIndexAcceleratedSearch:
 
         seed = SqliteStore(db_path, use_vec_index=False)
         seed.connect()
-        seed.create_topic("Bike", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        seed.create_topic("Bike", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         seed.close()
 
         store = SqliteStore(db_path)  # use_vec_index defaults True, triggers a real backfill
@@ -294,7 +294,7 @@ class TestVecIndexAcceleratedSearch:
             second = sqlite3.connect(db_path, timeout=0)
             try:
                 second.execute(
-                    "INSERT INTO messages (turn_id, role, content, peer_id) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO messages (turn_id, role, content, workspace_id) VALUES (?, ?, ?, ?)",
                     (1, "user", "hello", "user"),
                 )
                 second.commit()

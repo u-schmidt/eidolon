@@ -55,13 +55,13 @@ class EidolonHttpClient:
             return None
         return response.json()
 
-    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
-        return self._call("/active-topic", {"peer_id": peer_id, "session_id": session_id})
+    def get_active_topic(self, workspace_id: str, session_id: str | None = None) -> int | None:
+        return self._call("/active-topic", {"workspace_id": workspace_id, "session_id": session_id})
 
     def prepare_context(
         self,
         message: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         active_topic_id: int | None = None,
         *,
@@ -69,7 +69,7 @@ class EidolonHttpClient:
         request_id: str | None = None,
     ) -> PrefetchResult:
         data = self._call("/prepare-context", {
-            "message": message, "peer_id": peer_id, "environment": environment,
+            "message": message, "workspace_id": workspace_id, "environment": environment,
             "active_topic_id": active_topic_id, "session_id": session_id, "request_id": request_id,
         })
         return wire.prefetch_result_from_dict(data)
@@ -91,7 +91,7 @@ class EidolonHttpClient:
     def retrieve_context(
         self,
         message: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         topic_label: str | None = None,
         is_new_topic: bool = False,
@@ -101,7 +101,7 @@ class EidolonHttpClient:
         request_id: str | None = None,
     ) -> ContextBundle:
         data = self._call("/retrieve-context", {
-            "message": message, "peer_id": peer_id, "environment": environment,
+            "message": message, "workspace_id": workspace_id, "environment": environment,
             "topic_label": topic_label, "is_new_topic": is_new_topic,
             "active_topic_id": active_topic_id, "session_id": session_id, "request_id": request_id,
         })
@@ -111,7 +111,7 @@ class EidolonHttpClient:
         self,
         user_message: str,
         ai_response: str,
-        peer_id: str,
+        workspace_id: str,
         environment: EnvironmentSnapshot,
         turn_id: int | None = None,
         old_topic_id: int | None = None,
@@ -121,37 +121,37 @@ class EidolonHttpClient:
         request_id: str | None = None,
     ) -> int | None:
         return self._call("/store-turn", {
-            "user_message": user_message, "ai_response": ai_response, "peer_id": peer_id,
+            "user_message": user_message, "ai_response": ai_response, "workspace_id": workspace_id,
             "environment": environment, "turn_id": turn_id, "old_topic_id": old_topic_id,
             "new_topic_label": new_topic_label, "session_id": session_id, "request_id": request_id,
         })
 
     def consolidate_facts(
         self,
-        peer_id: str,
+        workspace_id: str,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
         self._call("/consolidate-facts", {
-            "peer_id": peer_id, "request_id": request_id, "session_id": session_id,
+            "workspace_id": workspace_id, "request_id": request_id, "session_id": session_id,
         })
 
     def close_stale_topics(
         self,
         cutoff: datetime,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         *,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> list[int]:
         return self._call("/close-stale-topics", {
-            "cutoff": cutoff, "peer_id": peer_id, "request_id": request_id, "session_id": session_id,
+            "cutoff": cutoff, "workspace_id": workspace_id, "request_id": request_id, "session_id": session_id,
         })
 
     def correct_fact(
         self,
-        peer_id: str,
+        workspace_id: str,
         category: str,
         key: str,
         value: str | None = None,
@@ -160,7 +160,7 @@ class EidolonHttpClient:
         session_id: str | None = None,
     ) -> None:
         self._call("/correct-fact", {
-            "peer_id": peer_id, "category": category, "key": key, "value": value,
+            "workspace_id": workspace_id, "category": category, "key": key, "value": value,
             "request_id": request_id, "session_id": session_id,
         })
 

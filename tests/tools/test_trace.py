@@ -48,7 +48,7 @@ def trace_db(tmp_path):
     )
     tracer.record(
         "context_retrieval",
-        {"message": "hello", "peer_id": "user", "topic_label": None, "is_new_topic": False,
+        {"message": "hello", "workspace_id": "user", "topic_label": None, "is_new_topic": False,
          "tags": [], "environment": {"situation": "conversation", "location": None,
                                       "time": None, "day_of_week": None},
          "facts": [{"category": "fitness", "key": "gym", "value": "FitZone"}],
@@ -123,7 +123,7 @@ class TestTracePrinterFormatSummary:
     def test_format_summary_fact_correction(self):
         event = {
             "event_type": "fact_correction",
-            "payload": {"peer_id": "user", "category": "location", "key": "city",
+            "payload": {"workspace_id": "user", "category": "location", "key": "city",
                         "value": "Berlin", "action": "upsert"},
         }
         assert TracePrinter().format_summary(event) == "corrected fact → upsert location.city"
@@ -175,7 +175,7 @@ class TestTracePrinterFormatDetail:
             "duration_ms": 12.5,
             "created_at": "2026-07-19 12:00:00",
             "payload": {
-                "peer_id": "user",
+                "workspace_id": "user",
                 "new_item_count": 2,
                 "total_facts_after": 3,
                 "upserts": [{"category": "location", "key": "city", "value": "Berlin"}],
@@ -193,7 +193,7 @@ class TestTracePrinterFormatDetail:
             "event_type": "fact_correction",
             "duration_ms": 1.0,
             "created_at": "2026-07-19 12:00:00",
-            "payload": {"peer_id": "user", "category": "location", "key": "city",
+            "payload": {"workspace_id": "user", "category": "location", "key": "city",
                         "value": "Berlin", "action": "upsert"},
         }
         detail = TracePrinter().format_detail(event)

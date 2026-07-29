@@ -26,7 +26,7 @@
 # LLM judgment call, never asserted exactly.
 
 name: "bike saga — recurring topic clustering"
-peer_id: "eval-peer-bike-saga"
+workspace_id: "eval-peer-bike-saga"
 language: "de"
 
 turns:

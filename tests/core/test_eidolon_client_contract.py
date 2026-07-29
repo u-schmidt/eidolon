@@ -36,12 +36,12 @@ class TestPrepareContext:
     def test_new_topic_returns_topic_change_and_bundle(self, make_eidolon_client):
         eidolon, storage = _make_eidolon(detection_response="NEW_TOPIC:Bello")
         storage.facts.append(
-            Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")
+            Fact(workspace_id="user", category="basic", key="name", value="Alex", source="user")
         )
         client = make_eidolon_client(eidolon)
 
         result = client.prepare_context(
-            message="Let's talk about Bello", peer_id="user",
+            message="Let's talk about Bello", workspace_id="user",
             environment=EnvironmentSnapshot(situation="conversation"),
         )
 
@@ -53,12 +53,12 @@ class TestPrepareContext:
 
     def test_continue_resolves_current_topic_label_from_summary(self, make_eidolon_client):
         eidolon, storage = _make_eidolon(detection_response="CONTINUE")
-        tid = storage.create_topic("General", peer_id="user")
+        tid = storage.create_topic("General", workspace_id="user")
         storage.topics[tid]["summary"] = "Talking about Bello's diet"
         client = make_eidolon_client(eidolon)
 
         result = client.prepare_context(
-            message="mach weiter", peer_id="user",
+            message="mach weiter", workspace_id="user",
             environment=EnvironmentSnapshot(), active_topic_id=tid,
         )
 
@@ -71,7 +71,7 @@ class TestPrepareContext:
         now = datetime.now(UTC).replace(microsecond=0)
 
         result = client.prepare_context(
-            message="hi", peer_id="user",
+            message="hi", workspace_id="user",
             environment=EnvironmentSnapshot(situation="conversation", time=now, day_of_week="Monday"),
         )
 
@@ -102,11 +102,11 @@ class TestDetectTopic:
 class TestRetrieveContext:
     def test_bundle_contents_round_trip(self, make_eidolon_client):
         eidolon, storage = _make_eidolon()
-        storage.facts.append(Fact(peer_id="user", category="basic", key="name", value="Alex", source="user"))
+        storage.facts.append(Fact(workspace_id="user", category="basic", key="name", value="Alex", source="user"))
         client = make_eidolon_client(eidolon)
 
         bundle = client.retrieve_context(
-            message="test", peer_id="user", environment=EnvironmentSnapshot(),
+            message="test", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label="Test", is_new_topic=True,
         )
 
@@ -124,7 +124,7 @@ class TestStoreTurnAndGetActiveTopic:
         assert client.get_active_topic("user") is None
 
         new_topic_id = client.store_turn(
-            user_message="Let's talk about Bello", ai_response="Sure!", peer_id="user",
+            user_message="Let's talk about Bello", ai_response="Sure!", workspace_id="user",
             environment=EnvironmentSnapshot(), new_topic_label="Bello",
         )
 
@@ -134,10 +134,10 @@ class TestStoreTurnAndGetActiveTopic:
     def test_store_turn_closes_old_topic_on_new_topic_label(self, make_eidolon_client):
         eidolon, storage = _make_eidolon()
         client = make_eidolon_client(eidolon)
-        old_id = storage.create_topic("Old topic", peer_id="user")
+        old_id = storage.create_topic("Old topic", workspace_id="user")
 
         client.store_turn(
-            user_message="new subject", ai_response="ok", peer_id="user",
+            user_message="new subject", ai_response="ok", workspace_id="user",
             environment=EnvironmentSnapshot(), old_topic_id=old_id, new_topic_label="New topic",
         )
 
@@ -158,11 +158,11 @@ class TestCloseStaleTopics:
     def test_closes_only_flagged_stale_topics(self, make_eidolon_client):
         eidolon, storage = _make_eidolon(summary_response="")
         client = make_eidolon_client(eidolon)
-        stale_id = storage.create_topic("Stale", peer_id="user")
-        fresh_id = storage.create_topic("Fresh", peer_id="user")
+        stale_id = storage.create_topic("Stale", workspace_id="user")
+        fresh_id = storage.create_topic("Fresh", workspace_id="user")
         storage.stale_topic_ids.add(stale_id)
 
-        closed = client.close_stale_topics(datetime.now(UTC) - timedelta(hours=1), peer_id="user")
+        closed = client.close_stale_topics(datetime.now(UTC) - timedelta(hours=1), workspace_id="user")
 
         assert closed == [stale_id]
         assert fresh_id not in storage.closed_topics
@@ -186,7 +186,7 @@ class TestInspectCluster:
         eidolon, storage = _make_eidolon()
         client = make_eidolon_client(eidolon)
         cid = storage.create_cluster("user", "Bike shopping", "Recurring bike talk")
-        tid = storage.create_topic("Considering a bike", peer_id="user")
+        tid = storage.create_topic("Considering a bike", workspace_id="user")
         storage.assign_topic_to_cluster(tid, cid)
 
         topics = client.inspect_cluster(cid)
@@ -204,7 +204,7 @@ class TestInspectTopic:
     def test_returns_memory_items(self, make_eidolon_client):
         eidolon, storage = _make_eidolon()
         client = make_eidolon_client(eidolon)
-        tid = storage.create_topic("Considering a bike", peer_id="user")
+        tid = storage.create_topic("Considering a bike", workspace_id="user")
         storage.store_memory_item(MemoryItem(
             content="bike is blue", item_type="fact",
             source_peer="user", subject_peer="user", attribution_type="self_statement",

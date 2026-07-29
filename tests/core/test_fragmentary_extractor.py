@@ -285,7 +285,7 @@ class TestFragmentaryExtractor:
         call = metrics.llm_calls[0]
         assert call["call_type"] == "extraction"
         assert call["succeeded"] is True
-        assert call["peer_id"] == "user"
+        assert call["workspace_id"] == "user"
         assert call["request_id"] == "req1"
         assert call["session_id"] == "sess1"
 
@@ -320,7 +320,7 @@ class TestFragmentaryExtractor:
         assert len(metrics.events) == 1
         assert metrics.events[0]["severity"] == "error"
         assert metrics.events[0]["step"] == "extraction"
-        assert metrics.events[0]["peer_id"] == "user"
+        assert metrics.events[0]["workspace_id"] == "user"
         assert len(metrics.llm_calls) == 1
         assert metrics.llm_calls[0]["succeeded"] is False
 

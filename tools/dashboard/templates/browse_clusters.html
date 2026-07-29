@@ -14,24 +14,24 @@
 
   <form method="get" action="{{ url_for('dashboard_clusters') }}" class="row" style="margin-bottom: 1rem; align-items: center;"
         hx-get="{{ url_for('dashboard_clusters') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML" hx-push-url="true">
-    <input type="text" name="peer_id" value="{{ peer_id }}" placeholder="filter by peer_id">
+    <input type="text" name="workspace_id" value="{{ workspace_id }}" placeholder="filter by workspace_id">
     <button type="submit">Filter</button>
   </form>
 
   <div id="results">
   {% if not page.items %}
-    <p class="muted">No clusters found{% if peer_id %} matching this filter{% endif %}.</p>
+    <p class="muted">No clusters found{% if workspace_id %} matching this filter{% endif %}.</p>
   {% else %}
     <table>
       <thead>
-        <tr><th>ID</th><th>Label</th><th>Peer</th><th>Summary</th><th>Topics</th><th>Created</th></tr>
+        <tr><th>ID</th><th>Label</th><th>Workspace</th><th>Summary</th><th>Topics</th><th>Created</th></tr>
       </thead>
       <tbody>
         {% for c in page.items %}
         <tr>
           <td class="muted"><a href="{{ url_for('dashboard_cluster_detail', cluster_id=c.id) }}">#{{ c.id }}</a></td>
           <td><a href="{{ url_for('dashboard_cluster_detail', cluster_id=c.id) }}">{{ c.label or "—" }}</a></td>
-          <td class="muted">{{ c.peer_id }}</td>
+          <td class="muted">{{ c.workspace_id }}</td>
           <td>{{ c.summary_preview or "—" }}</td>
           <td>{{ c.topic_count }}</td>
           <td><span class="timeago" title="{{ c.created_at }}">{{ c.created_at }}</span></td>
@@ -39,7 +39,7 @@
         {% endfor %}
       </tbody>
     </table>
-    {{ pagination('dashboard_clusters', page, {'peer_id': peer_id}) }}
+    {{ pagination('dashboard_clusters', page, {'workspace_id': workspace_id}) }}
   {% endif %}
   </div>
 {% endblock %}

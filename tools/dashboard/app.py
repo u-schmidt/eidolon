@@ -90,10 +90,10 @@ def create_dashboard_router(
         )
 
     @router.get("/turns", response_class=HTMLResponse, name="dashboard_turns_list")
-    def turns_list(request: Request, peer_id: str | None = None, limit: int = 50) -> HTMLResponse:
-        turns = turn_reader.recent_turns(limit=limit, peer_id=peer_id)
+    def turns_list(request: Request, workspace_id: str | None = None, limit: int = 50) -> HTMLResponse:
+        turns = turn_reader.recent_turns(limit=limit, workspace_id=workspace_id)
         return _templates.TemplateResponse(
-            request, "turns.html", {"turns": turns, "peer_id": peer_id or ""},
+            request, "turns.html", {"turns": turns, "workspace_id": workspace_id or ""},
         )
 
     @router.get("/turns/{request_id}", response_class=HTMLResponse, name="dashboard_turn_detail")
@@ -158,31 +158,31 @@ def create_dashboard_router(
 
     @router.get("/topics", response_class=HTMLResponse, name="dashboard_topics")
     def topics(
-        request: Request, page: int = 1, status: str | None = None, peer_id: str | None = None,
+        request: Request, page: int = 1, status: str | None = None, workspace_id: str | None = None,
     ) -> HTMLResponse:
         # Empty-string query params (a submitted-but-blank filter field, or
         # a pagination link carrying the previous filter state) must mean
         # "no filter", same as an absent param — not a literal "" match.
         status = status or None
-        peer_id = peer_id or None
-        result = browse_reader.topics(page, status=status, peer_id=peer_id)
+        workspace_id = workspace_id or None
+        result = browse_reader.topics(page, status=status, workspace_id=workspace_id)
         return _templates.TemplateResponse(
             request, "browse_topics.html",
-            {"page": result, "status": status or "", "peer_id": peer_id or ""},
+            {"page": result, "status": status or "", "workspace_id": workspace_id or ""},
         )
 
     @router.get("/facts", response_class=HTMLResponse, name="dashboard_facts")
     def facts(
-        request: Request, page: int = 1, category: str | None = None, peer_id: str | None = None,
+        request: Request, page: int = 1, category: str | None = None, workspace_id: str | None = None,
         sort: str | None = None,
     ) -> HTMLResponse:
         category = category or None
-        peer_id = peer_id or None
+        workspace_id = workspace_id or None
         sort = sort or None
-        result = browse_reader.facts(page, category=category, peer_id=peer_id, sort_by=sort)
+        result = browse_reader.facts(page, category=category, workspace_id=workspace_id, sort_by=sort)
         return _templates.TemplateResponse(
             request, "browse_facts.html",
-            {"page": result, "category": category or "", "peer_id": peer_id or "", "sort": sort or ""},
+            {"page": result, "category": category or "", "workspace_id": workspace_id or "", "sort": sort or ""},
         )
 
     @router.get("/memory-items", response_class=HTMLResponse, name="dashboard_memory_items")
@@ -206,12 +206,12 @@ def create_dashboard_router(
         )
 
     @router.get("/clusters", response_class=HTMLResponse, name="dashboard_clusters")
-    def clusters(request: Request, page: int = 1, peer_id: str | None = None) -> HTMLResponse:
-        peer_id = peer_id or None
-        result = browse_reader.clusters(page, peer_id=peer_id)
+    def clusters(request: Request, page: int = 1, workspace_id: str | None = None) -> HTMLResponse:
+        workspace_id = workspace_id or None
+        result = browse_reader.clusters(page, workspace_id=workspace_id)
         return _templates.TemplateResponse(
             request, "browse_clusters.html",
-            {"page": result, "peer_id": peer_id or ""},
+            {"page": result, "workspace_id": workspace_id or ""},
         )
 
     @router.get("/clusters/{cluster_id}", response_class=HTMLResponse, name="dashboard_cluster_detail")

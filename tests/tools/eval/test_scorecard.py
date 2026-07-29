@@ -10,7 +10,7 @@ from tools.eval.scorecard import Scorecard
 
 def _empty_report() -> EvalReport:
     return EvalReport(
-        script_name="s", peer_id="p", model_identity="m", embedder_identity="e", db_path="db",
+        script_name="s", workspace_id="p", model_identity="m", embedder_identity="e", db_path="db",
         git_commit="abc1234",
     )
 
@@ -67,7 +67,7 @@ class TestFromReport:
         report.end_result = EndResult(
             fact_matches=[
                 FactMatch(expected=FactExpectation(category="c", key="k", value="v"), score=0.9,
-                          matched_fact=Fact(peer_id="p", category="c", key="k", value="v", source="ai")),
+                          matched_fact=Fact(workspace_id="p", category="c", key="k", value="v", source="ai")),
                 FactMatch(expected=FactExpectation(category="c", key="k2", value="v2"), score=0.7,
                           matched_fact=None),
             ],

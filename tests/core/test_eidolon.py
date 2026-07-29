@@ -14,7 +14,7 @@ from tests.mocks import MockStorage, SpyTracer
 class TestEidolon:
     def test_prepare_context_returns_bundle(self):
         storage = MockStorage()
-        storage.facts = [Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")]
+        storage.facts = [Fact(workspace_id="user", category="basic", key="name", value="Alex", source="user")]
         llm = MockLLM(detection_response="CONTINUE")
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder)
@@ -22,7 +22,7 @@ class TestEidolon:
         env = EnvironmentSnapshot(location="home")
         result = eidolon.prepare_context(
             message="jep, mach weiter",
-            peer_id="user",
+            workspace_id="user",
             environment=env,
             active_topic_id=1,
         )
@@ -41,7 +41,7 @@ class TestEidolon:
 
         result = eidolon.prepare_context(
             message="Lass uns über Bello sprechen",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
         )
         bundle = result.bundle
@@ -55,13 +55,13 @@ class TestEidolon:
         min_topic_messages key end-to-end — a thin (1-message) topic must
         not surface in related_topics once the threshold excludes it."""
         storage = MockStorage()
-        thin = storage.create_topic("Thin", peer_id="user")
+        thin = storage.create_topic("Thin", workspace_id="user")
         storage.close_topic(thin, "")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thin)
-        thick = storage.create_topic("Thick", peer_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=thin)
+        thick = storage.create_topic("Thick", workspace_id="user")
         storage.close_topic(thick, "")
         for _ in range(3):
-            storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thick)
+            storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=thick)
         llm = MockLLM(detection_response="NEW_TOPIC:Bello Features")
         embedder = MockEmbedder()
         eidolon = Eidolon(
@@ -76,7 +76,7 @@ class TestEidolon:
         )
 
         result = eidolon.prepare_context(
-            message="Lass uns über Bello sprechen", peer_id="user", environment=EnvironmentSnapshot(),
+            message="Lass uns über Bello sprechen", workspace_id="user", environment=EnvironmentSnapshot(),
         )
 
         topic_ids = {t.topic_id for t in result.bundle.related_topics}
@@ -88,9 +88,9 @@ class TestEidolon:
         ('regardless of relevance') — a thin topic must still surface
         there even though the same threshold hides it from related_topics."""
         storage = MockStorage()
-        thin = storage.create_topic("Thin", peer_id="user")
+        thin = storage.create_topic("Thin", workspace_id="user")
         storage.close_topic(thin, "")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thin)
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=thin)
         llm = MockLLM(detection_response="NEW_TOPIC:Bello Features")
         embedder = MockEmbedder()
         eidolon = Eidolon(
@@ -105,7 +105,7 @@ class TestEidolon:
         )
 
         result = eidolon.prepare_context(
-            message="something unrelated", peer_id="user", environment=EnvironmentSnapshot(),
+            message="something unrelated", workspace_id="user", environment=EnvironmentSnapshot(),
         )
 
         assert thin in {t.topic_id for t in result.bundle.recent_topics}
@@ -135,9 +135,9 @@ class TestEidolon:
         detect_topic must also feed it the topic's recent real messages so
         it isn't stuck comparing against a frozen generic string forever."""
         storage = MockStorage()
-        tid = storage.create_topic("General conversation", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="earlier message", peer_id="user", topic_id=tid)
-        storage.store_message(turn_id=1, role="ai", content="earlier reply", peer_id="ai", topic_id=tid)
+        tid = storage.create_topic("General conversation", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="earlier message", workspace_id="user", topic_id=tid)
+        storage.store_message(turn_id=1, role="ai", content="earlier reply", workspace_id="ai", topic_id=tid)
         llm = MockLLM(detection_response="CONTINUE")
         embedder = MockEmbedder()
         tracer = SpyTracer()
@@ -162,15 +162,15 @@ class TestEidolon:
 
     def test_prepare_context_passes_recent_messages_for_active_topic(self):
         storage = MockStorage()
-        tid = storage.create_topic("General conversation", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="earlier message", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("General conversation", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="earlier message", workspace_id="user", topic_id=tid)
         llm = MockLLM(detection_response="CONTINUE")
         embedder = MockEmbedder()
         tracer = SpyTracer()
         eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
 
         eidolon.prepare_context(
-            message="new message", peer_id="user", environment=EnvironmentSnapshot(), active_topic_id=tid,
+            message="new message", workspace_id="user", environment=EnvironmentSnapshot(), active_topic_id=tid,
         )
 
         event = tracer.events_of_type("topic_detection")[0]
@@ -183,7 +183,7 @@ class TestEidolon:
         eidolon = Eidolon(storage, llm, embedder)
 
         result = eidolon.prepare_context(
-            message="Lass uns über Bello sprechen", peer_id="user", environment=EnvironmentSnapshot(),
+            message="Lass uns über Bello sprechen", workspace_id="user", environment=EnvironmentSnapshot(),
         )
 
         assert result.topic_change.type == "NEW_TOPIC"
@@ -192,14 +192,14 @@ class TestEidolon:
 
     def test_retrieve_context(self):
         storage = MockStorage()
-        storage.facts = [Fact(peer_id="user", category="basic", key="name", value="Alex", source="user")]
+        storage.facts = [Fact(workspace_id="user", category="basic", key="name", value="Alex", source="user")]
         llm = MockLLM()
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder)
 
         bundle = eidolon.retrieve_context(
             message="test",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             topic_label="Test",
             is_new_topic=True,
@@ -214,28 +214,28 @@ class TestEidolon:
         blank for the rest of the topic's lifetime (topic_change.label is
         only ever set on NEW_TOPIC)."""
         storage = MockStorage()
-        tid = storage.create_topic("General", peer_id="user")
+        tid = storage.create_topic("General", workspace_id="user")
         storage.topics[tid]["summary"] = "Talking about Bello's diet"
         llm = MockLLM(detection_response="CONTINUE")
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder)
 
         result = eidolon.prepare_context(
-            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(), active_topic_id=tid,
+            message="mach weiter", workspace_id="user", environment=EnvironmentSnapshot(), active_topic_id=tid,
         )
 
         assert result.bundle.current_topic_label == "Talking about Bello's diet"
 
     def test_retrieve_context_continue_resolves_active_topic_label(self):
         storage = MockStorage()
-        tid = storage.create_topic("General", peer_id="user")
+        tid = storage.create_topic("General", workspace_id="user")
         storage.topics[tid]["summary"] = "Talking about Bello's diet"
         llm = MockLLM()
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder)
 
         bundle = eidolon.retrieve_context(
-            message="mach weiter", peer_id="user", environment=EnvironmentSnapshot(),
+            message="mach weiter", workspace_id="user", environment=EnvironmentSnapshot(),
             topic_label=None, is_new_topic=False, active_topic_id=tid,
         )
 
@@ -251,7 +251,7 @@ class TestEidolon:
         eidolon.store_turn(
             user_message="Lass uns über Bello sprechen",
             ai_response="Gerne!",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             old_topic_id=tid,
             new_topic_label="Bello Features",
@@ -264,8 +264,8 @@ class TestEidolon:
         TopicSummarizer instead of overwriting it with the
         'Continued to: ...' placeholder."""
         storage = MockStorage()
-        tid = storage.create_topic("Old Topic", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Old Topic", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
         llm = MockLLM(extraction_response="[]", summary_response="Summary: Crowded gym frustration\nTags: fitness")
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder)
@@ -273,7 +273,7 @@ class TestEidolon:
         eidolon.store_turn(
             user_message="Lass uns über Bello sprechen",
             ai_response="Gerne!",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             old_topic_id=tid,
             new_topic_label="Bello Features",
@@ -286,7 +286,7 @@ class TestEidolon:
         LLM failure, unparseable response), the topic must still end up
         closed — never stuck 'active' forever."""
         storage = MockStorage()
-        tid = storage.create_topic("Old Topic", peer_id="user")
+        tid = storage.create_topic("Old Topic", workspace_id="user")
         # No messages stored under this topic -> summarize() returns
         # False without closing it.
         llm = MockLLM(extraction_response="[]", summary_response="")
@@ -296,7 +296,7 @@ class TestEidolon:
         eidolon.store_turn(
             user_message="Lass uns über Bello sprechen",
             ai_response="Gerne!",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             old_topic_id=tid,
             new_topic_label="Bello Features",
@@ -307,8 +307,8 @@ class TestEidolon:
 
     def test_store_turn_triggers_cluster_consolidation_on_real_summary(self):
         storage = MockStorage()
-        tid = storage.create_topic("Old Topic", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Old Topic", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="Ugh, gym was crowded", workspace_id="user", topic_id=tid)
         storage.cluster_candidates[tid] = [
             {"candidate_kind": "topic", "id": 555, "label": "Other topic", "summary": "summary", "topic_count": 1}
         ]
@@ -323,7 +323,7 @@ class TestEidolon:
         eidolon.store_turn(
             user_message="Lass uns über Bello sprechen",
             ai_response="Gerne!",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             old_topic_id=tid,
             new_topic_label="Bello Features",
@@ -340,7 +340,7 @@ class TestEidolon:
         nothing worth clustering — must not even reach the consolidator,
         regardless of what candidates happen to be sitting there."""
         storage = MockStorage()
-        tid = storage.create_topic("Old Topic", peer_id="user")
+        tid = storage.create_topic("Old Topic", workspace_id="user")
         storage.cluster_candidates[tid] = [
             {"candidate_kind": "topic", "id": 555, "label": "Other topic", "summary": "summary", "topic_count": 1}
         ]
@@ -349,7 +349,7 @@ class TestEidolon:
         eidolon = Eidolon(storage, llm, embedder)
 
         eidolon.store_turn(
-            user_message="msg", ai_response="resp", peer_id="user",
+            user_message="msg", ai_response="resp", workspace_id="user",
             environment=EnvironmentSnapshot(), old_topic_id=tid, new_topic_label="New",
         )
 
@@ -357,8 +357,8 @@ class TestEidolon:
 
     def test_store_turn_skips_cluster_consolidation_when_disabled(self):
         storage = MockStorage()
-        tid = storage.create_topic("Old Topic", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="msg", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Old Topic", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="msg", workspace_id="user", topic_id=tid)
         storage.cluster_candidates[tid] = [
             {"candidate_kind": "topic", "id": 555, "label": "Other topic", "summary": "summary", "topic_count": 1}
         ]
@@ -371,7 +371,7 @@ class TestEidolon:
         eidolon = Eidolon(storage, llm, embedder, clustering_enabled=False)
 
         eidolon.store_turn(
-            user_message="msg", ai_response="resp", peer_id="user",
+            user_message="msg", ai_response="resp", workspace_id="user",
             environment=EnvironmentSnapshot(), old_topic_id=tid, new_topic_label="New",
         )
 
@@ -386,7 +386,7 @@ class TestEidolon:
         eidolon.store_turn(
             user_message="Lass uns über Bello sprechen",
             ai_response="Gerne!",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             new_topic_label="Bello Features",
         )
@@ -411,7 +411,7 @@ class TestEidolon:
         eidolon.store_turn(
             user_message="Lass uns über Bello sprechen",
             ai_response="Gerne!",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             new_topic_label="Bello",
         )
@@ -425,7 +425,7 @@ class TestEidolon:
         must still be linked to the existing active topic, not left with
         topic_id=None — the same resolved_topic_id messages already use."""
         storage = MockStorage()
-        tid = storage.create_topic("Bello Features", peer_id="user")
+        tid = storage.create_topic("Bello Features", workspace_id="user")
         llm = MockLLM(
             extraction_response='[{"content": "User is happy about the gym", '
             '"item_type": "feeling", "source_peer": "user", '
@@ -437,7 +437,7 @@ class TestEidolon:
         eidolon.store_turn(
             user_message="Ich freu mich schon aufs Training",
             ai_response="Nice!",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             old_topic_id=tid,
         )
@@ -455,7 +455,7 @@ class TestEidolon:
         eidolon.store_turn(
             user_message="jep",
             ai_response="ok",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
         )
 
@@ -479,7 +479,7 @@ class TestEidolon:
 
     def test_get_active_topic_delegates_to_storage(self):
         storage = MockStorage()
-        tid = storage.create_topic("Open Topic", peer_id="user")
+        tid = storage.create_topic("Open Topic", workspace_id="user")
         llm = MockLLM()
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder)
@@ -504,7 +504,7 @@ class TestMidConversationRelabel:
         eidolon.store_turn(
             user_message="hi",
             ai_response="hello",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             old_topic_id=old_topic_id,
             new_topic_label=None,
@@ -512,7 +512,7 @@ class TestMidConversationRelabel:
 
     def test_triggers_relabel_once_threshold_reached(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
+        tid = storage.create_topic("", workspace_id="user")
         llm = MockLLM(extraction_response="[]", relabel_response="Buying a bike")
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder, relabel_message_threshold=2)
@@ -523,7 +523,7 @@ class TestMidConversationRelabel:
 
     def test_does_not_trigger_below_threshold(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
+        tid = storage.create_topic("", workspace_id="user")
         llm = MockLLM(extraction_response="[]", relabel_response="Buying a bike")
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder, relabel_message_threshold=10)
@@ -534,7 +534,7 @@ class TestMidConversationRelabel:
 
     def test_does_not_retrigger_already_labeled_topic(self):
         storage = MockStorage()
-        tid = storage.create_topic("Already Real", peer_id="user")
+        tid = storage.create_topic("Already Real", workspace_id="user")
         llm = MockLLM(extraction_response="[]", relabel_response="Different Label")
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder, relabel_message_threshold=1)
@@ -545,7 +545,7 @@ class TestMidConversationRelabel:
 
     def test_relabel_enabled_false_suppresses_trigger(self):
         storage = MockStorage()
-        tid = storage.create_topic("", peer_id="user")
+        tid = storage.create_topic("", workspace_id="user")
         llm = MockLLM(extraction_response="[]", relabel_response="Buying a bike")
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder, relabel_enabled=False, relabel_message_threshold=1)
@@ -563,7 +563,7 @@ class TestMidConversationRelabel:
         eidolon = Eidolon(storage, llm, embedder, relabel_message_threshold=1)
 
         eidolon.store_turn(
-            user_message="hi", ai_response="hello", peer_id="user",
+            user_message="hi", ai_response="hello", workspace_id="user",
             environment=EnvironmentSnapshot(), new_topic_label="Bello Features",
         )
 
@@ -579,7 +579,7 @@ class TestMidConversationRelabel:
                 raise RuntimeError("db unavailable")
 
         storage = FailingStorage()
-        tid = storage.create_topic("", peer_id="user")
+        tid = storage.create_topic("", workspace_id="user")
         llm = MockLLM(extraction_response="[]")
         embedder = MockEmbedder()
         tracer = SpyTracer()
@@ -607,7 +607,7 @@ class TestEidolonTracing:
         eidolon.store_turn(
             user_message="Lass uns über Bello sprechen",
             ai_response="Gerne!",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             new_topic_label="Bello Features",
             session_id="sess1",
@@ -631,7 +631,7 @@ class TestEidolonTracing:
 
         eidolon.prepare_context(
             message="jep, mach weiter",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             active_topic_id=1,
             session_id="sess1",
@@ -666,7 +666,7 @@ class TestEidolonTracing:
         eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
 
         eidolon.retrieve_context(
-            message="hello", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hello", workspace_id="user", environment=EnvironmentSnapshot(),
             request_id="fixed-id",
         )
 
@@ -680,7 +680,7 @@ class TestEidolonTracing:
         eidolon = Eidolon(storage, llm, embedder, tracer=tracer)
 
         eidolon.store_turn(
-            user_message="hi", ai_response="hey", peer_id="user",
+            user_message="hi", ai_response="hey", workspace_id="user",
             environment=EnvironmentSnapshot(), request_id="fixed-id",
         )
 
@@ -698,7 +698,7 @@ class TestEidolonTracing:
 
         eidolon.detect_topic("hello", request_id="turn-1")
         eidolon.retrieve_context(
-            message="hello", peer_id="user", environment=EnvironmentSnapshot(),
+            message="hello", workspace_id="user", environment=EnvironmentSnapshot(),
             request_id="turn-1",
         )
 
@@ -721,7 +721,7 @@ class TestEidolonTracing:
         eidolon.store_turn(
             user_message="FitZone ist voll",
             ai_response="Nervig!",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             new_topic_label="Bello Features",
         )
@@ -745,7 +745,7 @@ class TestEidolonTracing:
         eidolon.store_turn(
             user_message="Hi",
             ai_response="Hello",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             new_topic_label="Bello Features",
         )
@@ -767,7 +767,7 @@ class TestEidolonTracing:
         eidolon.store_turn(
             user_message="I love hiking",
             ai_response="Nice!",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
         )
 
@@ -790,7 +790,7 @@ class TestEidolonTracing:
             eidolon.store_turn(
                 user_message="I love hiking",
                 ai_response="Nice!",
-                peer_id="user",
+                workspace_id="user",
                 environment=EnvironmentSnapshot(),
             )
 
@@ -811,12 +811,12 @@ class TestEidolonTracing:
         eidolon = Eidolon(storage, llm, embedder, facts_consolidation_interval=2, tracer=tracer)
 
         eidolon.store_turn(
-            user_message="turn 1", ai_response="ok", peer_id="user", environment=EnvironmentSnapshot(),
+            user_message="turn 1", ai_response="ok", workspace_id="user", environment=EnvironmentSnapshot(),
         )
         assert tracer.events_of_type("fact_consolidation") == []  # turn 1, not a multiple of 2
 
         eidolon.store_turn(
-            user_message="turn 2", ai_response="ok", peer_id="user", environment=EnvironmentSnapshot(),
+            user_message="turn 2", ai_response="ok", workspace_id="user", environment=EnvironmentSnapshot(),
         )
         events = tracer.events_of_type("fact_consolidation")
         assert len(events) == 1  # turn 2, fires
@@ -834,7 +834,7 @@ class TestEidolonTracing:
         eidolon = Eidolon(storage, llm, embedder, facts_consolidation_interval=1, tracer=tracer)
 
         eidolon.store_turn(
-            user_message="turn 1", ai_response="ok", peer_id="user", environment=EnvironmentSnapshot(),
+            user_message="turn 1", ai_response="ok", workspace_id="user", environment=EnvironmentSnapshot(),
         )
 
         error_events = tracer.events_of_type("error")
@@ -852,7 +852,7 @@ class TestEidolonTracing:
         eidolon.store_turn(
             user_message="Hi",
             ai_response="Hello",
-            peer_id="user",
+            workspace_id="user",
             environment=EnvironmentSnapshot(),
             new_topic_label="Test",
         )
@@ -861,8 +861,8 @@ class TestEidolonTracing:
 class TestCloseStaleTopics:
     def test_closes_with_generated_summary_and_runs_clustering(self):
         storage = MockStorage()
-        tid = storage.create_topic("Old chat", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Old chat", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         storage.stale_topic_ids = {tid}
         llm = MockLLM(summary_response="Summary: wrapped up\nTags: misc")
         eidolon = Eidolon(storage, llm, MockEmbedder())
@@ -875,7 +875,7 @@ class TestCloseStaleTopics:
 
     def test_falls_back_to_placeholder_when_summarizer_cannot_produce_one(self):
         storage = MockStorage()
-        tid = storage.create_topic("Empty topic", peer_id="user")  # no messages -> summarizer returns False
+        tid = storage.create_topic("Empty topic", workspace_id="user")  # no messages -> summarizer returns False
         storage.stale_topic_ids = {tid}
         eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
 
@@ -887,9 +887,9 @@ class TestCloseStaleTopics:
 
     def test_only_closes_topics_storage_reports_as_stale(self):
         storage = MockStorage()
-        stale = storage.create_topic("Stale", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=stale)
-        fresh = storage.create_topic("Fresh", peer_id="user")  # not in stale_topic_ids
+        stale = storage.create_topic("Stale", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=stale)
+        fresh = storage.create_topic("Fresh", workspace_id="user")  # not in stale_topic_ids
         storage.stale_topic_ids = {stale}
         eidolon = Eidolon(storage, MockLLM(summary_response="Summary: x\nTags:"), MockEmbedder())
 
@@ -900,26 +900,26 @@ class TestCloseStaleTopics:
 
     def test_no_candidates_closes_nothing(self):
         storage = MockStorage()
-        storage.create_topic("Active", peer_id="user")  # not marked stale
+        storage.create_topic("Active", workspace_id="user")  # not marked stale
         eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
 
         assert eidolon.close_stale_topics(datetime(2026, 1, 1, tzinfo=UTC)) == []
 
     def test_records_stale_topic_cleanup_trace_event(self):
         storage = MockStorage()
-        tid = storage.create_topic("Old chat", peer_id="user")
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        tid = storage.create_topic("Old chat", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         storage.stale_topic_ids = {tid}
         tracer = SpyTracer()
         eidolon = Eidolon(storage, MockLLM(summary_response="Summary: x\nTags:"), MockEmbedder(), tracer=tracer)
         cutoff = datetime(2026, 1, 1, tzinfo=UTC)
 
-        eidolon.close_stale_topics(cutoff, peer_id="user")
+        eidolon.close_stale_topics(cutoff, workspace_id="user")
 
         events = tracer.events_of_type("stale_topic_cleanup")
         assert len(events) == 1
         assert events[0]["payload"]["cutoff"] == cutoff.isoformat()
-        assert events[0]["payload"]["peer_id"] == "user"
+        assert events[0]["payload"]["workspace_id"] == "user"
         assert events[0]["payload"]["closed_topic_ids"] == [tid]
 
 
@@ -962,7 +962,7 @@ class TestInspectCluster:
     def test_delegates_to_storage_get_topics_by_cluster(self):
         storage = MockStorage()
         cid = storage.create_cluster("user", "Bike", "summary")
-        tid = storage.create_topic("Bought a bike", peer_id="user")
+        tid = storage.create_topic("Bought a bike", workspace_id="user")
         storage.close_topic(tid, "Bought a bike near Fischmarkt")
         storage.assign_topic_to_cluster(tid, cid)
         eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
@@ -1011,7 +1011,7 @@ class TestInspectCluster:
         assert event["request_id"] == "req1"
         assert event["session_id"] == "sess1"
         assert event["payload"] == {
-            "peer_id": "user", "category": "location", "key": "city",
+            "workspace_id": "user", "category": "location", "key": "city",
             "value": "Berlin", "action": "upsert",
         }
 
@@ -1031,7 +1031,7 @@ class TestInspectCluster:
 class TestInspectTopic:
     def test_delegates_to_storage_get_memory_items_by_topic(self):
         storage = MockStorage()
-        tid = storage.create_topic("Bought a bike", peer_id="user")
+        tid = storage.create_topic("Bought a bike", workspace_id="user")
         storage.store_memory_item(MemoryItem(
             content="bike is blue", item_type="fact",
             source_peer="user", subject_peer="user", attribution_type="self_statement",

@@ -77,12 +77,12 @@ class TestFacts:
         facts = store.get_facts("user")
         assert [f.importance for f in facts] == ["high", "medium", "low"]
 
-    def test_get_all_facts_returns_facts_from_every_peer(self, store: StorageProvider):
+    def test_get_all_facts_returns_facts_from_every_workspace(self, store: StorageProvider):
         store.set_fact("u1", "basic", "name", "Alex", "user")
         store.set_fact("u2", "basic", "name", "Sam", "user")
 
         facts = store.get_all_facts()
-        assert {f.peer_id for f in facts} == {"u1", "u2"}
+        assert {f.workspace_id for f in facts} == {"u1", "u2"}
 
     def test_get_all_facts_empty(self, store: StorageProvider):
         assert store.get_all_facts() == []
@@ -90,9 +90,9 @@ class TestFacts:
 
 class TestFactsConsolidation:
     def test_count_user_turns_only_counts_user_role(self, store: StorageProvider):
-        store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
-        store.store_message(turn_id=1, role="ai", content="hello", peer_id="ai")
-        store.store_message(turn_id=2, role="user", content="hi again", peer_id="user")
+        store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
+        store.store_message(turn_id=1, role="ai", content="hello", workspace_id="ai")
+        store.store_message(turn_id=2, role="user", content="hi again", workspace_id="user")
 
         assert store.count_user_turns("user") == 2
         assert store.count_user_turns("someone_else") == 0
@@ -137,9 +137,9 @@ class TestFactsConsolidation:
         store.set_consolidation_checkpoint("user", 9)
         assert store.get_consolidation_checkpoint("user") == 9
 
-    def test_consolidation_checkpoint_is_per_peer(self, store: StorageProvider):
+    def test_consolidation_checkpoint_is_per_workspace(self, store: StorageProvider):
         store.set_consolidation_checkpoint("user", 5)
-        assert store.get_consolidation_checkpoint("other_peer") == 0
+        assert store.get_consolidation_checkpoint("other_workspace") == 0
 
 
 class TestTopics:
@@ -175,17 +175,17 @@ class TestTopics:
         assert store.get_topic(tid)["label"] == "Buying a bike"
 
     def test_count_messages_by_topic_counts_only_that_topics_messages(self, store: StorageProvider):
-        tid_a = store.create_topic("Topic A", peer_id="user")
-        tid_b = store.create_topic("Topic B", peer_id="user")
-        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid_a)
-        store.store_message(turn_id=1, role="ai", content="hello", peer_id="ai", topic_id=tid_a)
-        store.store_message(turn_id=2, role="user", content="other", peer_id="user", topic_id=tid_b)
+        tid_a = store.create_topic("Topic A", workspace_id="user")
+        tid_b = store.create_topic("Topic B", workspace_id="user")
+        store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid_a)
+        store.store_message(turn_id=1, role="ai", content="hello", workspace_id="ai", topic_id=tid_a)
+        store.store_message(turn_id=2, role="user", content="other", workspace_id="user", topic_id=tid_b)
 
         assert store.count_messages_by_topic(tid_a) == 2
         assert store.count_messages_by_topic(tid_b) == 1
 
     def test_count_messages_by_topic_zero_when_none(self, store: StorageProvider):
-        tid = store.create_topic("Fresh", peer_id="user")
+        tid = store.create_topic("Fresh", workspace_id="user")
         assert store.count_messages_by_topic(tid) == 0
 
     def test_store_message_increments_persisted_message_count(self, store: StorageProvider):
@@ -193,43 +193,43 @@ class TestTopics:
         store_message()) — distinct from count_messages_by_topic, which
         recomputes live. Drives search_topics/get_recent_topics'
         min_message_count filter."""
-        tid = store.create_topic("Bello", peer_id="user")
+        tid = store.create_topic("Bello", workspace_id="user")
         assert store.get_topic(tid)["message_count"] == 0
 
-        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         assert store.get_topic(tid)["message_count"] == 1
 
-        store.store_message(turn_id=1, role="ai", content="hello", peer_id="ai", topic_id=tid)
+        store.store_message(turn_id=1, role="ai", content="hello", workspace_id="ai", topic_id=tid)
         assert store.get_topic(tid)["message_count"] == 2
 
     def test_store_message_without_topic_id_does_not_crash(self, store: StorageProvider):
         # No topic to increment — must be a clean no-op, not an error.
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=None)
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=None)
         assert isinstance(msg_id, int)
 
     def test_get_active_topic_returns_open_topic(self, store: StorageProvider):
-        tid = store.create_topic("Ongoing", summary="", peer_id="user")
+        tid = store.create_topic("Ongoing", summary="", workspace_id="user")
         assert store.get_active_topic("user") == tid
 
     def test_get_active_topic_none_when_closed(self, store: StorageProvider):
-        tid = store.create_topic("Done", summary="", peer_id="user")
+        tid = store.create_topic("Done", summary="", workspace_id="user")
         store.close_topic(tid, "Wrapped up")
         assert store.get_active_topic("user") is None
 
-    def test_get_active_topic_none_for_unknown_peer(self, store: StorageProvider):
-        store.create_topic("Ongoing", summary="", peer_id="user")
+    def test_get_active_topic_none_for_unknown_workspace(self, store: StorageProvider):
+        store.create_topic("Ongoing", summary="", workspace_id="user")
         assert store.get_active_topic("someone_else") is None
 
     def test_get_active_topic_picks_most_recent(self, store: StorageProvider):
-        store.create_topic("Older", summary="", peer_id="user")
-        newer = store.create_topic("Newer", summary="", peer_id="user")
+        store.create_topic("Older", summary="", workspace_id="user")
+        newer = store.create_topic("Newer", summary="", workspace_id="user")
         assert store.get_active_topic("user") == newer
 
     def test_get_active_topic_scoped_per_session(self, store: StorageProvider):
-        """A peer's concurrent sessions (web, Telegram, CLI, ...) must each
+        """A workspace's concurrent sessions (web, Telegram, CLI, ...) must each
         get their own active topic, not share whichever is newest."""
-        web_topic = store.create_topic("Web thread", summary="", peer_id="user", session_id="web")
-        telegram_topic = store.create_topic("Telegram thread", summary="", peer_id="user", session_id="telegram")
+        web_topic = store.create_topic("Web thread", summary="", workspace_id="user", session_id="web")
+        telegram_topic = store.create_topic("Telegram thread", summary="", workspace_id="user", session_id="telegram")
 
         assert store.get_active_topic("user", session_id="web") == web_topic
         assert store.get_active_topic("user", session_id="telegram") == telegram_topic
@@ -238,14 +238,14 @@ class TestTopics:
         """None is not a wildcard across sessions — it only matches topics
         created with no session_id (legacy rows, single-session callers
         like the CLI)."""
-        store.create_topic("Web thread", summary="", peer_id="user", session_id="web")
-        sessionless = store.create_topic("CLI thread", summary="", peer_id="user")
+        store.create_topic("Web thread", summary="", workspace_id="user", session_id="web")
+        sessionless = store.create_topic("CLI thread", summary="", workspace_id="user")
 
         assert store.get_active_topic("user") == sessionless
         assert store.get_active_topic("user", session_id="web") != sessionless
 
     def test_create_topic_stores_session_id(self, store: StorageProvider):
-        tid = store.create_topic("Web thread", summary="", peer_id="user", session_id="web")
+        tid = store.create_topic("Web thread", summary="", workspace_id="user", session_id="web")
         assert store.get_active_topic("user", session_id="web") == tid
 
     def test_search_topics_by_tags(self, store: StorageProvider):
@@ -273,7 +273,7 @@ class TestTopics:
         default_results = store.search_topics(tags=["fitness"])
         assert len(default_results) == 1
 
-        # With tag_overlap weight zeroed out and no embedding/peer signal,
+        # With tag_overlap weight zeroed out and no embedding/workspace signal,
         # the topic should score 0 and drop out of the results.
         zeroed_results = store.search_topics(
             tags=["fitness"],
@@ -282,38 +282,38 @@ class TestTopics:
         assert zeroed_results == []
 
     def test_search_topics_person_weight_no_longer_rescues_zero_signal_topics(self, store: StorageProvider):
-        """search_topics used to derive person_match from peer_id ==
-        peer_id — always true for a hard-peer-filtered row, so it was a
+        """search_topics used to derive person_match from workspace_id ==
+        workspace_id — always true for a hard-workspace-filtered row, so it was a
         free +0.2 for every candidate rather than a real signal. That's
         fixed now (person_match is hard False, pending real subject-match
         data — see the comment at its call site), so a topic with no
         tag/semantic match has nothing left to clear score > 0 on."""
-        store.create_topic("Bello", summary="", peer_id="user")
+        store.create_topic("Bello", summary="", workspace_id="user")
         store.close_topic(1, "")
 
-        results = store.search_topics(peer_id="user")
+        results = store.search_topics(workspace_id="user")
         assert results == []
 
-    def test_search_topics_excludes_other_peers_even_with_strong_match(self, store: StorageProvider):
-        """peer_id is a hard SQL filter, not just a soft scoring bonus —
-        a different peer's topic must never surface regardless of how
-        well it scores on tags/semantics. Without this, one peer's
-        conversation could leak into another peer's retrieved context."""
-        store.create_topic("Bello", summary="", tags=["fitness"], peer_id="someone_else", embedding=[1.0, 0.0, 0.0])
+    def test_search_topics_excludes_other_workspaces_even_with_strong_match(self, store: StorageProvider):
+        """workspace_id is a hard SQL filter, not just a soft scoring bonus —
+        a different workspace's topic must never surface regardless of how
+        well it scores on tags/semantics. Without this, one workspace's
+        conversation could leak into another workspace's retrieved context."""
+        store.create_topic("Bello", summary="", tags=["fitness"], workspace_id="someone_else", embedding=[1.0, 0.0, 0.0])
         store.close_topic(1, "")
-        store.create_topic("Bello 2", summary="", tags=["fitness"], peer_id="user", embedding=[1.0, 0.0, 0.0])
+        store.create_topic("Bello 2", summary="", tags=["fitness"], workspace_id="user", embedding=[1.0, 0.0, 0.0])
         store.close_topic(2, "")
 
-        results = store.search_topics(query_embedding=[1.0, 0.0, 0.0], tags=["fitness"], peer_id="user")
+        results = store.search_topics(query_embedding=[1.0, 0.0, 0.0], tags=["fitness"], workspace_id="user")
 
         assert [r["id"] for r in results] == [2]
 
-    def test_search_topics_with_no_peer_id_searches_every_peer(self, store: StorageProvider):
-        """peer_id=None keeps the pre-existing 'search everyone' behavior
+    def test_search_topics_with_no_workspace_id_searches_every_workspace(self, store: StorageProvider):
+        """workspace_id=None keeps the pre-existing 'search everyone' behavior
         for callers that intentionally omit it — not a new default."""
-        store.create_topic("Bello", summary="", tags=["fitness"], peer_id="someone_else")
+        store.create_topic("Bello", summary="", tags=["fitness"], workspace_id="someone_else")
         store.close_topic(1, "")
-        store.create_topic("Bello 2", summary="", tags=["fitness"], peer_id="user")
+        store.create_topic("Bello 2", summary="", tags=["fitness"], workspace_id="user")
         store.close_topic(2, "")
 
         results = store.search_topics(tags=["fitness"])
@@ -394,7 +394,7 @@ class TestTopics:
     def test_search_topics_excludes_clustered_topics(self, store: StorageProvider):
         """Once a topic joins a cluster, its consolidated summary
         represents it — it must not also compete individually."""
-        tid = store.create_topic("Bello", summary="", tags=["fitness"], peer_id="user")
+        tid = store.create_topic("Bello", summary="", tags=["fitness"], workspace_id="user")
         store.close_topic(tid, "")
         cid = store.create_cluster("user", "Fitness", "summary")
         store.assign_topic_to_cluster(tid, cid)
@@ -402,13 +402,13 @@ class TestTopics:
         assert store.search_topics(tags=["fitness"]) == []
 
     def test_search_topics_min_message_count_excludes_thin_topics(self, store: StorageProvider):
-        thin = store.create_topic("Thin", summary="", tags=["fitness"], peer_id="user")
-        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thin)
+        thin = store.create_topic("Thin", summary="", tags=["fitness"], workspace_id="user")
+        store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=thin)
         store.close_topic(thin, "")
 
-        thick = store.create_topic("Thick", summary="", tags=["fitness"], peer_id="user")
+        thick = store.create_topic("Thick", summary="", tags=["fitness"], workspace_id="user")
         for _ in range(3):
-            store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thick)
+            store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=thick)
         store.close_topic(thick, "")
 
         results = store.search_topics(tags=["fitness"], min_message_count=2)
@@ -419,16 +419,16 @@ class TestTopics:
     ):
         """A topic with exactly `min_message_count` messages must be
         excluded — the filter is `>`, not `>=`."""
-        tid = store.create_topic("Exactly at threshold", summary="", tags=["fitness"], peer_id="user")
+        tid = store.create_topic("Exactly at threshold", summary="", tags=["fitness"], workspace_id="user")
         for _ in range(3):
-            store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+            store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         store.close_topic(tid, "")
 
         assert store.search_topics(tags=["fitness"], min_message_count=3) == []
         assert len(store.search_topics(tags=["fitness"], min_message_count=2)) == 1
 
     def test_search_topics_default_min_message_count_applies_no_filtering(self, store: StorageProvider):
-        tid = store.create_topic("Untouched", summary="", tags=["fitness"], peer_id="user")
+        tid = store.create_topic("Untouched", summary="", tags=["fitness"], workspace_id="user")
         store.close_topic(tid, "")  # zero messages
 
         assert [r["id"] for r in store.search_topics(tags=["fitness"])] == [tid]
@@ -437,8 +437,8 @@ class TestTopics:
 class TestGetStaleActiveTopics:
     def test_stale_when_last_message_predates_cutoff(self, store_backend):
         store = store_backend.store
-        tid = store.create_topic("Old chat", summary="", peer_id="user")
-        mid = store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        tid = store.create_topic("Old chat", summary="", workspace_id="user")
+        mid = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         store_backend.backdate("messages", mid, "created_at", datetime(2020, 1, 1, tzinfo=UTC))
 
         stale = store.get_stale_active_topics(datetime(2025, 1, 1, tzinfo=UTC))
@@ -447,15 +447,15 @@ class TestGetStaleActiveTopics:
         assert stale[0]["status"] == "active"
 
     def test_not_stale_when_last_message_after_cutoff(self, store: StorageProvider):
-        tid = store.create_topic("Fresh chat", summary="", peer_id="user")
-        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        tid = store.create_topic("Fresh chat", summary="", workspace_id="user")
+        store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
 
         # cutoff far in the past — the just-stored message is newer than it
         assert store.get_stale_active_topics(datetime(2020, 1, 1, tzinfo=UTC)) == []
 
     def test_falls_back_to_topic_created_at_when_no_messages(self, store_backend):
         store = store_backend.store
-        tid = store.create_topic("Never used", summary="", peer_id="user")
+        tid = store.create_topic("Never used", summary="", workspace_id="user")
         store_backend.backdate("topics", tid, "created_at", datetime(2020, 1, 1, tzinfo=UTC))
 
         stale = store.get_stale_active_topics(datetime(2025, 1, 1, tzinfo=UTC))
@@ -464,27 +464,27 @@ class TestGetStaleActiveTopics:
 
     def test_excludes_closed_topics(self, store_backend):
         store = store_backend.store
-        tid = store.create_topic("Done", summary="", peer_id="user")
+        tid = store.create_topic("Done", summary="", workspace_id="user")
         store.close_topic(tid, "wrapped up")
         store_backend.backdate("topics", tid, "created_at", datetime(2020, 1, 1, tzinfo=UTC))
 
         assert store.get_stale_active_topics(datetime(2025, 1, 1, tzinfo=UTC)) == []
 
-    def test_filters_by_peer_id(self, store_backend):
+    def test_filters_by_workspace_id(self, store_backend):
         store = store_backend.store
-        mine = store.create_topic("Mine", summary="", peer_id="user")
-        theirs = store.create_topic("Theirs", summary="", peer_id="someone_else")
+        mine = store.create_topic("Mine", summary="", workspace_id="user")
+        theirs = store.create_topic("Theirs", summary="", workspace_id="someone_else")
         store_backend.backdate("topics", mine, "created_at", datetime(2020, 1, 1, tzinfo=UTC))
         store_backend.backdate("topics", theirs, "created_at", datetime(2020, 1, 1, tzinfo=UTC))
 
-        stale = store.get_stale_active_topics(datetime(2025, 1, 1, tzinfo=UTC), peer_id="user")
+        stale = store.get_stale_active_topics(datetime(2025, 1, 1, tzinfo=UTC), workspace_id="user")
 
         assert [t["id"] for t in stale] == [mine]
 
     def test_ordered_oldest_first(self, store_backend):
         store = store_backend.store
-        newer = store.create_topic("Newer", summary="", peer_id="user")
-        older = store.create_topic("Older", summary="", peer_id="user")
+        newer = store.create_topic("Newer", summary="", workspace_id="user")
+        older = store.create_topic("Older", summary="", workspace_id="user")
         store_backend.backdate("topics", newer, "created_at", datetime(2020, 6, 1, tzinfo=UTC))
         store_backend.backdate("topics", older, "created_at", datetime(2020, 1, 1, tzinfo=UTC))
 
@@ -495,8 +495,8 @@ class TestGetStaleActiveTopics:
 
 class TestGetRecentTopics:
     def test_returns_closed_topics_newest_first(self, store: StorageProvider):
-        older = store.create_topic("Older", summary="", peer_id="user")
-        newer = store.create_topic("Newer", summary="", peer_id="user")
+        older = store.create_topic("Older", summary="", workspace_id="user")
+        newer = store.create_topic("Newer", summary="", workspace_id="user")
         store.close_topic(older, "Older summary")
         store.close_topic(newer, "Newer summary")
 
@@ -504,17 +504,17 @@ class TestGetRecentTopics:
         assert [t["id"] for t in results] == [newer, older]
 
     def test_excludes_active_topics(self, store: StorageProvider):
-        closed = store.create_topic("Closed", summary="", peer_id="user")
+        closed = store.create_topic("Closed", summary="", workspace_id="user")
         store.close_topic(closed, "Wrapped up")
-        store.create_topic("Still open", summary="", peer_id="user")
+        store.create_topic("Still open", summary="", workspace_id="user")
 
         results = store.get_recent_topics("user", limit=10)
         assert [t["id"] for t in results] == [closed]
 
-    def test_filters_by_peer_id(self, store: StorageProvider):
-        mine = store.create_topic("Mine", summary="", peer_id="user")
+    def test_filters_by_workspace_id(self, store: StorageProvider):
+        mine = store.create_topic("Mine", summary="", workspace_id="user")
         store.close_topic(mine, "")
-        theirs = store.create_topic("Theirs", summary="", peer_id="someone_else")
+        theirs = store.create_topic("Theirs", summary="", workspace_id="someone_else")
         store.close_topic(theirs, "")
 
         results = store.get_recent_topics("user", limit=10)
@@ -522,7 +522,7 @@ class TestGetRecentTopics:
 
     def test_respects_limit(self, store: StorageProvider):
         for i in range(5):
-            tid = store.create_topic(f"Topic {i}", summary="", peer_id="user")
+            tid = store.create_topic(f"Topic {i}", summary="", workspace_id="user")
             store.close_topic(tid, "")
 
         results = store.get_recent_topics("user", limit=2)
@@ -532,40 +532,40 @@ class TestGetRecentTopics:
         assert store.get_recent_topics("user", limit=10) == []
 
     def test_excludes_clustered_topics(self, store: StorageProvider):
-        clustered = store.create_topic("Clustered", summary="", peer_id="user")
+        clustered = store.create_topic("Clustered", summary="", workspace_id="user")
         store.close_topic(clustered, "")
         cid = store.create_cluster("user", "Thread", "summary")
         store.assign_topic_to_cluster(clustered, cid)
-        unclustered = store.create_topic("Unclustered", summary="", peer_id="user")
+        unclustered = store.create_topic("Unclustered", summary="", workspace_id="user")
         store.close_topic(unclustered, "")
 
         results = store.get_recent_topics("user", limit=10)
         assert [t["id"] for t in results] == [unclustered]
 
     def test_min_message_count_excludes_thin_topics(self, store: StorageProvider):
-        thin = store.create_topic("Thin", summary="", peer_id="user")
-        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thin)
+        thin = store.create_topic("Thin", summary="", workspace_id="user")
+        store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=thin)
         store.close_topic(thin, "")
 
-        thick = store.create_topic("Thick", summary="", peer_id="user")
+        thick = store.create_topic("Thick", summary="", workspace_id="user")
         for _ in range(3):
-            store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=thick)
+            store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=thick)
         store.close_topic(thick, "")
 
         results = store.get_recent_topics("user", limit=10, min_message_count=2)
         assert [t["id"] for t in results] == [thick]
 
     def test_min_message_count_boundary_is_strictly_greater_than(self, store: StorageProvider):
-        tid = store.create_topic("Exactly at threshold", summary="", peer_id="user")
+        tid = store.create_topic("Exactly at threshold", summary="", workspace_id="user")
         for _ in range(3):
-            store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+            store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
         store.close_topic(tid, "")
 
         assert store.get_recent_topics("user", limit=10, min_message_count=3) == []
         assert len(store.get_recent_topics("user", limit=10, min_message_count=2)) == 1
 
     def test_default_min_message_count_applies_no_filtering(self, store: StorageProvider):
-        tid = store.create_topic("Untouched", summary="", peer_id="user")
+        tid = store.create_topic("Untouched", summary="", workspace_id="user")
         store.close_topic(tid, "")  # zero messages
 
         assert [t["id"] for t in store.get_recent_topics("user", limit=10)] == [tid]
@@ -574,35 +574,35 @@ class TestGetRecentTopics:
 class TestGetClosedTopicsSince:
     def test_returns_topics_closed_at_or_after_since(self, store_backend):
         store = store_backend.store
-        tid = store.create_topic("Recent", summary="", peer_id="user")
+        tid = store.create_topic("Recent", summary="", workspace_id="user")
         store.close_topic(tid, "wrapped up")
         store_backend.backdate("topics", tid, "closed_at", datetime(2025, 6, 1, tzinfo=UTC))
 
         results = store.get_closed_topics_since(datetime(2025, 1, 1, tzinfo=UTC))
 
         assert [t["id"] for t in results] == [tid]
-        assert results[0]["peer_id"] == "user"
+        assert results[0]["workspace_id"] == "user"
         assert results[0]["message_count"] == 0
 
     def test_excludes_topics_closed_before_since(self, store_backend):
         store = store_backend.store
-        tid = store.create_topic("Old", summary="", peer_id="user")
+        tid = store.create_topic("Old", summary="", workspace_id="user")
         store.close_topic(tid, "wrapped up")
         store_backend.backdate("topics", tid, "closed_at", datetime(2020, 1, 1, tzinfo=UTC))
 
         assert store.get_closed_topics_since(datetime(2025, 1, 1, tzinfo=UTC)) == []
 
     def test_excludes_active_topics(self, store: StorageProvider):
-        store.create_topic("Still open", summary="", peer_id="user")
+        store.create_topic("Still open", summary="", workspace_id="user")
 
         assert store.get_closed_topics_since(datetime(2020, 1, 1, tzinfo=UTC)) == []
 
     def test_ordered_oldest_closed_first(self, store_backend):
         store = store_backend.store
-        newer = store.create_topic("Newer", summary="", peer_id="user")
+        newer = store.create_topic("Newer", summary="", workspace_id="user")
         store.close_topic(newer, "")
         store_backend.backdate("topics", newer, "closed_at", datetime(2025, 6, 1, tzinfo=UTC))
-        older = store.create_topic("Older", summary="", peer_id="user")
+        older = store.create_topic("Older", summary="", workspace_id="user")
         store.close_topic(older, "")
         store_backend.backdate("topics", older, "closed_at", datetime(2025, 1, 1, tzinfo=UTC))
 
@@ -616,8 +616,8 @@ class TestGetClosedTopicsSince:
 
 class TestListTopics:
     def test_returns_every_topic_regardless_of_status(self, store: StorageProvider):
-        open_id = store.create_topic("Open", summary="", peer_id="user")
-        closed_id = store.create_topic("Closed", summary="", peer_id="user")
+        open_id = store.create_topic("Open", summary="", workspace_id="user")
+        closed_id = store.create_topic("Closed", summary="", workspace_id="user")
         store.close_topic(closed_id, "wrapped up")
 
         results = store.list_topics()
@@ -625,18 +625,18 @@ class TestListTopics:
         assert {t["id"] for t in results} == {open_id, closed_id}
 
     def test_filters_by_status(self, store: StorageProvider):
-        open_id = store.create_topic("Open", summary="", peer_id="user")
-        closed_id = store.create_topic("Closed", summary="", peer_id="user")
+        open_id = store.create_topic("Open", summary="", workspace_id="user")
+        closed_id = store.create_topic("Closed", summary="", workspace_id="user")
         store.close_topic(closed_id, "wrapped up")
 
         assert [t["id"] for t in store.list_topics(status="closed")] == [closed_id]
         assert [t["id"] for t in store.list_topics(status="active")] == [open_id]
 
-    def test_filters_by_peer_id(self, store: StorageProvider):
-        u1 = store.create_topic("Mine", summary="", peer_id="u1")
-        store.create_topic("Theirs", summary="", peer_id="u2")
+    def test_filters_by_workspace_id(self, store: StorageProvider):
+        u1 = store.create_topic("Mine", summary="", workspace_id="u1")
+        store.create_topic("Theirs", summary="", workspace_id="u2")
 
-        assert [t["id"] for t in store.list_topics(peer_id="u1")] == [u1]
+        assert [t["id"] for t in store.list_topics(workspace_id="u1")] == [u1]
 
     def test_empty_when_no_topics(self, store: StorageProvider):
         assert store.list_topics() == []
@@ -649,7 +649,7 @@ class TestClusters:
 
         cluster = store.get_cluster(cid)
         assert cluster is not None
-        assert cluster["peer_id"] == "user"
+        assert cluster["workspace_id"] == "user"
         assert cluster["label"] == "Bike purchase"
         assert cluster["summary"] == "User wants a new bike"
         assert cluster["tags"] == ["bike"]
@@ -675,7 +675,7 @@ class TestClusters:
         assert cluster["tags"] == ["bike", "shopping"]
 
     def test_assign_topic_to_cluster_sets_id_and_increments_count(self, store: StorageProvider):
-        tid = store.create_topic("Considering a bike", summary="", peer_id="user")
+        tid = store.create_topic("Considering a bike", summary="", workspace_id="user")
         store.close_topic(tid, "thinking about it")
         cid = store.create_cluster("user", "Bike", "summary")
 
@@ -686,9 +686,9 @@ class TestClusters:
 
     def test_get_topics_by_cluster_oldest_first(self, store: StorageProvider):
         cid = store.create_cluster("user", "Bike", "summary")
-        t1 = store.create_topic("First", summary="", peer_id="user")
+        t1 = store.create_topic("First", summary="", workspace_id="user")
         store.close_topic(t1, "first summary")
-        t2 = store.create_topic("Second", summary="", peer_id="user")
+        t2 = store.create_topic("Second", summary="", workspace_id="user")
         store.close_topic(t2, "second summary")
         store.assign_topic_to_cluster(t1, cid)
         store.assign_topic_to_cluster(t2, cid)
@@ -697,9 +697,9 @@ class TestClusters:
 
     def test_get_recent_topics_in_cluster_newest_first_and_limited(self, store: StorageProvider):
         cid = store.create_cluster("user", "Bike", "summary")
-        t1 = store.create_topic("First", summary="", peer_id="user")
+        t1 = store.create_topic("First", summary="", workspace_id="user")
         store.close_topic(t1, "first")
-        t2 = store.create_topic("Second", summary="", peer_id="user")
+        t2 = store.create_topic("Second", summary="", workspace_id="user")
         store.close_topic(t2, "second")
         store.assign_topic_to_cluster(t1, cid)
         store.assign_topic_to_cluster(t2, cid)
@@ -709,24 +709,24 @@ class TestClusters:
 
     def test_search_clusters_scores_by_semantic_similarity(self, store: StorageProvider):
         store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
-        results = store.search_clusters(query_embedding=[1.0, 0.0, 0.0], peer_id="user")
+        results = store.search_clusters(query_embedding=[1.0, 0.0, 0.0], workspace_id="user")
         assert len(results) == 1
 
-    def test_search_clusters_hard_filters_by_peer_id(self, store: StorageProvider):
-        """Unlike search_topics's soft person-weight bonus, peer_id here
-        is a real SQL filter — clusters must never merge across peers."""
+    def test_search_clusters_hard_filters_by_workspace_id(self, store: StorageProvider):
+        """Unlike search_topics's soft person-weight bonus, workspace_id here
+        is a real SQL filter — clusters must never merge across workspaces."""
         store.create_cluster("someone_else", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
-        results = store.search_clusters(query_embedding=[1.0, 0.0, 0.0], peer_id="user")
+        results = store.search_clusters(query_embedding=[1.0, 0.0, 0.0], workspace_id="user")
         assert results == []
 
-    def test_search_clusters_empty_without_peer_id(self, store: StorageProvider):
+    def test_search_clusters_empty_without_workspace_id(self, store: StorageProvider):
         store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
         assert store.search_clusters(query_embedding=[1.0, 0.0, 0.0]) == []
 
     def test_search_clusters_records_scoring_summary_event(self, store: StorageProvider):
         store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
         tracer = SpyTracer()
-        store.search_clusters(query_embedding=[1.0, 0.0, 0.0], peer_id="user", tracer=tracer, request_id="req1")
+        store.search_clusters(query_embedding=[1.0, 0.0, 0.0], workspace_id="user", tracer=tracer, request_id="req1")
 
         events = tracer.events_of_type("retrieval_scoring_summary")
         assert len(events) == 1
@@ -734,17 +734,17 @@ class TestClusters:
 
 
 class TestListClusters:
-    def test_returns_clusters_from_every_peer(self, store: StorageProvider):
+    def test_returns_clusters_from_every_workspace(self, store: StorageProvider):
         c1 = store.create_cluster("u1", "Bike", "summary")
         c2 = store.create_cluster("u2", "Trip", "summary")
 
         assert {c["id"] for c in store.list_clusters()} == {c1, c2}
 
-    def test_filters_by_peer_id(self, store: StorageProvider):
+    def test_filters_by_workspace_id(self, store: StorageProvider):
         mine = store.create_cluster("u1", "Bike", "summary")
         store.create_cluster("u2", "Trip", "summary")
 
-        assert [c["id"] for c in store.list_clusters(peer_id="u1")] == [mine]
+        assert [c["id"] for c in store.list_clusters(workspace_id="u1")] == [mine]
 
     def test_empty_when_no_clusters(self, store: StorageProvider):
         assert store.list_clusters() == []
@@ -752,9 +752,9 @@ class TestListClusters:
 
 class TestSearchClusterCandidates:
     def test_finds_unclustered_topic_with_matching_embedding(self, store: StorageProvider):
-        other = store.create_topic("Other bike topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        other = store.create_topic("Other bike topic", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         store.close_topic(other, "other summary")
-        new = store.create_topic("New bike topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        new = store.create_topic("New bike topic", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         store.close_topic(new, "new summary")
 
         candidates = store.search_cluster_candidates(new, "user")
@@ -764,7 +764,7 @@ class TestSearchClusterCandidates:
 
     def test_finds_existing_cluster_with_matching_embedding(self, store: StorageProvider):
         cid = store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
-        new = store.create_topic("New bike topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        new = store.create_topic("New bike topic", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         store.close_topic(new, "new summary")
 
         candidates = store.search_cluster_candidates(new, "user")
@@ -773,7 +773,7 @@ class TestSearchClusterCandidates:
         assert candidates[0]["id"] == cid
 
     def test_excludes_the_topic_itself(self, store: StorageProvider):
-        new = store.create_topic("Solo topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        new = store.create_topic("Solo topic", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         store.close_topic(new, "summary")
 
         assert store.search_cluster_candidates(new, "user") == []
@@ -782,34 +782,34 @@ class TestSearchClusterCandidates:
         """The already-clustered topic itself shouldn't reappear as a raw
         'topic' candidate — only its cluster should."""
         cid = store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
-        already = store.create_topic("Already clustered", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        already = store.create_topic("Already clustered", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         store.close_topic(already, "summary")
         store.assign_topic_to_cluster(already, cid)
 
-        new = store.create_topic("New topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        new = store.create_topic("New topic", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         store.close_topic(new, "summary")
 
         candidates = store.search_cluster_candidates(new, "user")
         assert [c["candidate_kind"] for c in candidates] == ["cluster"]
 
-    def test_peer_scoped(self, store: StorageProvider):
-        other_peer_topic = store.create_topic(
-            "Other peer's topic", summary="", peer_id="someone_else", embedding=[1.0, 0.0, 0.0]
+    def test_workspace_scoped(self, store: StorageProvider):
+        other_workspace_topic = store.create_topic(
+            "Other workspace's topic", summary="", workspace_id="someone_else", embedding=[1.0, 0.0, 0.0]
         )
-        store.close_topic(other_peer_topic, "summary")
-        new = store.create_topic("My topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        store.close_topic(other_workspace_topic, "summary")
+        new = store.create_topic("My topic", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         store.close_topic(new, "summary")
 
         assert store.search_cluster_candidates(new, "user") == []
 
     def test_empty_when_topic_has_no_embedding(self, store: StorageProvider):
-        new = store.create_topic("No embedding", summary="", peer_id="user")
+        new = store.create_topic("No embedding", summary="", workspace_id="user")
         store.close_topic(new, "summary")
         assert store.search_cluster_candidates(new, "user") == []
 
     def test_records_scoring_summary_event(self, store: StorageProvider):
         store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
-        new = store.create_topic("New topic", summary="", peer_id="user", embedding=[1.0, 0.0, 0.0])
+        new = store.create_topic("New topic", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         store.close_topic(new, "summary")
 
         tracer = SpyTracer()
@@ -825,14 +825,14 @@ class TestRecentMessagesByTopic:
     def test_returns_most_recent_within_limit_oldest_first(self, store: StorageProvider):
         tid = store.create_topic("Bello", summary="")
         for i in range(5):
-            store.store_message(turn_id=i, role="user", content=f"msg {i}", peer_id="user", topic_id=tid)
+            store.store_message(turn_id=i, role="user", content=f"msg {i}", workspace_id="user", topic_id=tid)
 
         recent = store.get_recent_messages_by_topic(tid, limit=2)
         assert [m["content"] for m in recent] == ["msg 3", "msg 4"]
 
     def test_returns_all_when_fewer_than_limit(self, store: StorageProvider):
         tid = store.create_topic("Bello", summary="")
-        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid)
+        store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
 
         recent = store.get_recent_messages_by_topic(tid, limit=10)
         assert len(recent) == 1
@@ -844,8 +844,8 @@ class TestRecentMessagesByTopic:
     def test_only_messages_for_given_topic(self, store: StorageProvider):
         t1 = store.create_topic("First", summary="")
         t2 = store.create_topic("Second", summary="")
-        store.store_message(turn_id=1, role="user", content="about first", peer_id="user", topic_id=t1)
-        store.store_message(turn_id=2, role="user", content="about second", peer_id="user", topic_id=t2)
+        store.store_message(turn_id=1, role="user", content="about first", workspace_id="user", topic_id=t1)
+        store.store_message(turn_id=2, role="user", content="about second", workspace_id="user", topic_id=t2)
 
         recent = store.get_recent_messages_by_topic(t1, limit=10)
         assert [m["content"] for m in recent] == ["about first"]
@@ -855,10 +855,10 @@ class TestGetMessagesByRequestId:
     def test_returns_both_messages_from_one_turn(self, store: StorageProvider):
         tid = store.create_topic("Bello", summary="")
         store.store_message(
-            turn_id=1, role="user", content="hi", peer_id="user", topic_id=tid, request_id="req1",
+            turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid, request_id="req1",
         )
         store.store_message(
-            turn_id=1, role="ai", content="hello", peer_id="ai", topic_id=tid, request_id="req1",
+            turn_id=1, role="ai", content="hello", workspace_id="ai", topic_id=tid, request_id="req1",
         )
 
         messages = store.get_messages_by_request_id("req1")
@@ -870,74 +870,74 @@ class TestGetMessagesByRequestId:
         assert store.get_messages_by_request_id("nope") == []
 
     def test_does_not_include_messages_from_other_requests(self, store: StorageProvider):
-        store.store_message(turn_id=1, role="user", content="hi", peer_id="user", request_id="req1")
-        store.store_message(turn_id=2, role="user", content="bye", peer_id="user", request_id="req2")
+        store.store_message(turn_id=1, role="user", content="hi", workspace_id="user", request_id="req1")
+        store.store_message(turn_id=2, role="user", content="bye", workspace_id="user", request_id="req2")
 
         messages = store.get_messages_by_request_id("req1")
         assert [m["content"] for m in messages] == ["hi"]
 
     def test_messages_without_request_id_are_not_returned(self, store: StorageProvider):
-        store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         assert store.get_messages_by_request_id("") == []
 
 
 class TestGetRecentTurns:
     def test_lists_user_messages_with_request_id_most_recent_first(self, store: StorageProvider):
         tid = store.create_topic("Bello", summary="")
-        store.store_message(turn_id=1, role="user", content="first", peer_id="user", topic_id=tid, request_id="req1")
-        store.store_message(turn_id=1, role="ai", content="first reply", peer_id="ai", topic_id=tid, request_id="req1")
-        store.store_message(turn_id=2, role="user", content="second", peer_id="user", topic_id=tid, request_id="req2")
+        store.store_message(turn_id=1, role="user", content="first", workspace_id="user", topic_id=tid, request_id="req1")
+        store.store_message(turn_id=1, role="ai", content="first reply", workspace_id="ai", topic_id=tid, request_id="req1")
+        store.store_message(turn_id=2, role="user", content="second", workspace_id="user", topic_id=tid, request_id="req2")
 
         turns = store.get_recent_turns(10)
         assert [t["request_id"] for t in turns] == ["req2", "req1"]
         assert turns[0]["content"] == "second"
 
     def test_excludes_messages_without_request_id(self, store: StorageProvider):
-        store.store_message(turn_id=1, role="user", content="untracked", peer_id="user")
+        store.store_message(turn_id=1, role="user", content="untracked", workspace_id="user")
         assert store.get_recent_turns(10) == []
 
     def test_excludes_ai_role_messages(self, store: StorageProvider):
-        store.store_message(turn_id=1, role="ai", content="reply", peer_id="ai", request_id="req1")
+        store.store_message(turn_id=1, role="ai", content="reply", workspace_id="ai", request_id="req1")
         assert store.get_recent_turns(10) == []
 
     def test_respects_limit(self, store: StorageProvider):
         for i in range(3):
-            store.store_message(turn_id=i, role="user", content=f"msg {i}", peer_id="user", request_id=f"req{i}")
+            store.store_message(turn_id=i, role="user", content=f"msg {i}", workspace_id="user", request_id=f"req{i}")
 
         assert len(store.get_recent_turns(2)) == 2
 
-    def test_filters_by_peer_id(self, store: StorageProvider):
-        store.store_message(turn_id=1, role="user", content="mine", peer_id="user", request_id="req1")
-        store.store_message(turn_id=2, role="user", content="theirs", peer_id="telegram:999", request_id="req2")
+    def test_filters_by_workspace_id(self, store: StorageProvider):
+        store.store_message(turn_id=1, role="user", content="mine", workspace_id="user", request_id="req1")
+        store.store_message(turn_id=2, role="user", content="theirs", workspace_id="telegram:999", request_id="req2")
 
-        turns = store.get_recent_turns(10, peer_id="user")
+        turns = store.get_recent_turns(10, workspace_id="user")
         assert [t["request_id"] for t in turns] == ["req1"]
 
 
 class TestCountRecentTurns:
     def test_counts_user_messages_with_request_id(self, store: StorageProvider):
-        store.store_message(turn_id=1, role="user", content="first", peer_id="user", request_id="req1")
-        store.store_message(turn_id=1, role="ai", content="first reply", peer_id="ai", request_id="req1")
-        store.store_message(turn_id=2, role="user", content="second", peer_id="user", request_id="req2")
+        store.store_message(turn_id=1, role="user", content="first", workspace_id="user", request_id="req1")
+        store.store_message(turn_id=1, role="ai", content="first reply", workspace_id="ai", request_id="req1")
+        store.store_message(turn_id=2, role="user", content="second", workspace_id="user", request_id="req2")
 
         assert store.count_recent_turns() == 2
 
     def test_excludes_messages_without_request_id(self, store: StorageProvider):
-        store.store_message(turn_id=1, role="user", content="untracked", peer_id="user")
+        store.store_message(turn_id=1, role="user", content="untracked", workspace_id="user")
         assert store.count_recent_turns() == 0
 
-    def test_filters_by_peer_id(self, store: StorageProvider):
-        store.store_message(turn_id=1, role="user", content="mine", peer_id="user", request_id="req1")
-        store.store_message(turn_id=2, role="user", content="theirs", peer_id="telegram:999", request_id="req2")
+    def test_filters_by_workspace_id(self, store: StorageProvider):
+        store.store_message(turn_id=1, role="user", content="mine", workspace_id="user", request_id="req1")
+        store.store_message(turn_id=2, role="user", content="theirs", workspace_id="telegram:999", request_id="req2")
 
-        assert store.count_recent_turns(peer_id="user") == 1
+        assert store.count_recent_turns(workspace_id="user") == 1
 
     def test_zero_when_no_turns(self, store: StorageProvider):
         assert store.count_recent_turns() == 0
 
     def test_matches_get_recent_turns_length_when_under_limit(self, store: StorageProvider):
         for i in range(5):
-            store.store_message(turn_id=i, role="user", content=f"msg {i}", peer_id="user", request_id=f"req{i}")
+            store.store_message(turn_id=i, role="user", content=f"msg {i}", workspace_id="user", request_id=f"req{i}")
 
         assert store.count_recent_turns() == len(store.get_recent_turns(100))
 
@@ -975,67 +975,67 @@ class TestMemoryItems:
     def test_get_memory_item_not_found(self, store: StorageProvider):
         assert store.get_memory_item(999) is None
 
-    def test_search_by_peer(self, store: StorageProvider):
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+    def test_search_by_workspace(self, store: StorageProvider):
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         store.store_memory_item(MemoryItem(
             content="About Bello", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
             message_id=msg_id, embedding=[1.0, 0.0, 0.0],
         ))
-        other_msg_id = store.store_message(turn_id=1, role="ai", content="hi", peer_id="someone_else")
+        other_msg_id = store.store_message(turn_id=1, role="ai", content="hi", workspace_id="someone_else")
         store.store_memory_item(MemoryItem(
             content="About Mampfi", item_type="essence",
             source_peer="ai", subject_peer="user", attribution_type="observation",
             message_id=other_msg_id, embedding=[1.0, 0.0, 0.0],
         ))
 
-        results = store.search_memory_items(peer_id="user", query_embedding=[1.0, 0.0, 0.0])
+        results = store.search_memory_items(workspace_id="user", query_embedding=[1.0, 0.0, 0.0])
         assert [item.content for item in results] == ["About Bello"]
 
-    def test_search_memory_items_excludes_other_peers_even_with_matching_source_peer(self, store: StorageProvider):
+    def test_search_memory_items_excludes_other_workspaces_even_with_matching_source_peer(self, store: StorageProvider):
         """Regression: source_peer/subject_peer are always the fixed
-        "user"/"ai"/"other" extraction vocabulary, never the real peer_id
-        — an item belonging to a different real peer must never surface
+        "user"/"ai"/"other" extraction vocabulary, never the real workspace_id
+        — an item belonging to a different real workspace must never surface
         just because its source_peer happens to say "user" too, even
         with a strong semantic match."""
-        mine_msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        mine_msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         store.store_memory_item(MemoryItem(
             content="Mine", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
             message_id=mine_msg_id, embedding=[1.0, 0.0, 0.0],
         ))
-        theirs_msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="telegram:999")
+        theirs_msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="telegram:999")
         store.store_memory_item(MemoryItem(
             content="Theirs", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
             message_id=theirs_msg_id, embedding=[1.0, 0.0, 0.0],
         ))
 
-        results = store.search_memory_items(peer_id="user", query_embedding=[1.0, 0.0, 0.0])
+        results = store.search_memory_items(workspace_id="user", query_embedding=[1.0, 0.0, 0.0])
         assert [item.content for item in results] == ["Mine"]
 
-    def test_search_memory_items_finds_items_for_a_real_non_literal_peer_id(self, store: StorageProvider):
-        """The messages join makes peer-scoping work for any real peer_id
+    def test_search_memory_items_finds_items_for_a_real_non_literal_workspace_id(self, store: StorageProvider):
+        """The messages join makes workspace-scoping work for any real workspace_id
         — not just the literal string "user", which is all the old
         source_peer/subject_peer comparison ever matched."""
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="telegram:12345")
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="telegram:12345")
         store.store_memory_item(MemoryItem(
             content="About a trip", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
             message_id=msg_id, embedding=[1.0, 0.0, 0.0],
         ))
 
-        results = store.search_memory_items(peer_id="telegram:12345", query_embedding=[1.0, 0.0, 0.0])
+        results = store.search_memory_items(workspace_id="telegram:12345", query_embedding=[1.0, 0.0, 0.0])
         assert [item.content for item in results] == ["About a trip"]
 
     def test_search_memory_items_records_scoring_summary_event(self, store: StorageProvider):
-        msg_id1 = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        msg_id1 = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         store.store_memory_item(MemoryItem(
             content="About Bello", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
             message_id=msg_id1, embedding=[1.0, 0.0, 0.0],
         ))
-        msg_id2 = store.store_message(turn_id=2, role="user", content="hi", peer_id="user")
+        msg_id2 = store.store_message(turn_id=2, role="user", content="hi", workspace_id="user")
         store.store_memory_item(MemoryItem(
             content="About Mampfi", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
@@ -1044,7 +1044,7 @@ class TestMemoryItems:
 
         tracer = SpyTracer()
         results = store.search_memory_items(
-            peer_id="user", query_embedding=[1.0, 0.0, 0.0],
+            workspace_id="user", query_embedding=[1.0, 0.0, 0.0],
             budget=MemoryItemBudget(fact=0, surprise=0, feeling=0, free=1),
             tracer=tracer, request_id="req1",
         )
@@ -1062,13 +1062,13 @@ class TestMemoryItems:
         assert included_flags.count(False) == 1
 
     def test_search_memory_items_no_tracer_does_not_raise(self, store: StorageProvider):
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         store.store_memory_item(MemoryItem(
             content="About Bello", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
             message_id=msg_id, embedding=[1.0, 0.0, 0.0],
         ))
-        results = store.search_memory_items(peer_id="user", query_embedding=[1.0, 0.0, 0.0])
+        results = store.search_memory_items(workspace_id="user", query_embedding=[1.0, 0.0, 0.0])
         assert len(results) == 1
 
 
@@ -1077,7 +1077,7 @@ class TestSearchMemoryItemsTieredBudget:
         """A fact-typed candidate with a much lower score than an
         essence-typed one still gets its reserved slot — tiers aren't a
         single blind top-K across all types."""
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         fact_id = store.store_memory_item(MemoryItem(
             content="fact", item_type="fact", source_peer="user", subject_peer="user",
             attribution_type="self_statement", message_id=msg_id, embedding=[0.1, 1.0, 0.0],
@@ -1088,17 +1088,17 @@ class TestSearchMemoryItemsTieredBudget:
         ))
 
         results = store.search_memory_items(
-            peer_id="user", query_embedding=[1.0, 0.0, 0.0],
+            workspace_id="user", query_embedding=[1.0, 0.0, 0.0],
             budget=MemoryItemBudget(fact=1, surprise=0, feeling=0, free=1),
         )
 
         assert {item.id for item in results} == {fact_id, essence_id}
 
     def test_exhausted_reservation_rolls_into_free_pool_not_dropped(self, store: StorageProvider):
-        """No surprise-type items exist for this peer — that reserved slot
+        """No surprise-type items exist for this workspace — that reserved slot
         must not just vanish; the total returned count stays the same,
         with an extra essence item filling the rolled-over free slot."""
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         first_id = store.store_memory_item(MemoryItem(
             content="essence one", item_type="essence", source_peer="user", subject_peer="user",
             attribution_type="self_statement", message_id=msg_id, embedding=[1.0, 0.0, 0.0],
@@ -1109,7 +1109,7 @@ class TestSearchMemoryItemsTieredBudget:
         ))
 
         results = store.search_memory_items(
-            peer_id="user", query_embedding=[1.0, 0.0, 0.0],
+            workspace_id="user", query_embedding=[1.0, 0.0, 0.0],
             budget=MemoryItemBudget(fact=0, surprise=1, feeling=0, free=1),
         )
 
@@ -1119,7 +1119,7 @@ class TestSearchMemoryItemsTieredBudget:
         """A surprise-typed item semantically distant from the query must
         still surface when the budget reserves a slot for it, even with
         many closer fact/essence candidates competing for attention."""
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         for i in range(10):
             store.store_memory_item(MemoryItem(
                 content=f"near fact {i}", item_type="fact", source_peer="user", subject_peer="user",
@@ -1131,7 +1131,7 @@ class TestSearchMemoryItemsTieredBudget:
         ))
 
         results = store.search_memory_items(
-            peer_id="user", query_embedding=[1.0, 0.0, 0.0],
+            workspace_id="user", query_embedding=[1.0, 0.0, 0.0],
             budget=MemoryItemBudget(fact=0, surprise=1, feeling=0, free=0),
         )
 
@@ -1140,9 +1140,9 @@ class TestSearchMemoryItemsTieredBudget:
 
 class TestMemoryItemsByTurn:
     def test_returns_only_items_from_the_given_turn(self, store: StorageProvider):
-        turn1_user_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
-        turn1_ai_id = store.store_message(turn_id=1, role="ai", content="hello", peer_id="ai")
-        turn2_user_id = store.store_message(turn_id=2, role="user", content="bye", peer_id="user")
+        turn1_user_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
+        turn1_ai_id = store.store_message(turn_id=1, role="ai", content="hello", workspace_id="ai")
+        turn2_user_id = store.store_message(turn_id=2, role="user", content="bye", workspace_id="user")
 
         first = MemoryItem(
             content="User greeted", item_type="essence",
@@ -1168,7 +1168,7 @@ class TestMemoryItemsByTurn:
         assert [item.content for item in results] == ["User greeted", "AI greeted back"]
 
     def test_ordered_oldest_first(self, store: StorageProvider):
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         for content in ("third", "first", "second"):
             store.store_memory_item(MemoryItem(
                 content=content, item_type="essence",
@@ -1185,7 +1185,7 @@ class TestMemoryItemsByTurn:
         assert store.get_memory_items_by_turn(999) == []
 
     def test_embedding_round_trips(self, store: StorageProvider):
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         store.store_memory_item(MemoryItem(
             content="About Bello", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
@@ -1197,7 +1197,7 @@ class TestMemoryItemsByTurn:
         assert results[0].embedding == pytest.approx([0.1, 0.2, 0.3], abs=1e-6)
 
     def test_no_embedding_stays_none(self, store: StorageProvider):
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         store.store_memory_item(MemoryItem(
             content="About Bello", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
@@ -1211,8 +1211,8 @@ class TestMemoryItemsByTurn:
 
 class TestMemoryItemsByTopic:
     def test_returns_only_items_from_the_given_topic(self, store: StorageProvider):
-        t1 = store.create_topic("First", summary="", peer_id="user")
-        t2 = store.create_topic("Second", summary="", peer_id="user")
+        t1 = store.create_topic("First", summary="", workspace_id="user")
+        t2 = store.create_topic("Second", summary="", workspace_id="user")
 
         first = MemoryItem(
             content="fact about topic 1", item_type="fact",
@@ -1238,7 +1238,7 @@ class TestMemoryItemsByTopic:
         assert [item.content for item in results] == ["fact about topic 1", "essence of topic 1"]
 
     def test_ordered_oldest_first(self, store: StorageProvider):
-        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        topic_id = store.create_topic("Topic", summary="", workspace_id="user")
         for content in ("third", "first", "second"):
             store.store_memory_item(MemoryItem(
                 content=content, item_type="essence",
@@ -1252,14 +1252,14 @@ class TestMemoryItemsByTopic:
         assert results[0].id < results[1].id < results[2].id
 
     def test_empty_when_topic_has_no_items(self, store: StorageProvider):
-        topic_id = store.create_topic("Empty", summary="", peer_id="user")
+        topic_id = store.create_topic("Empty", summary="", workspace_id="user")
         assert store.get_memory_items_by_topic(topic_id) == []
 
 
 class TestListMemoryItems:
     def test_returns_every_item_across_topics(self, store: StorageProvider):
-        t1 = store.create_topic("First", summary="", peer_id="user")
-        t2 = store.create_topic("Second", summary="", peer_id="user")
+        t1 = store.create_topic("First", summary="", workspace_id="user")
+        t2 = store.create_topic("Second", summary="", workspace_id="user")
         id1 = store.store_memory_item(MemoryItem(
             content="a", item_type="fact", source_peer="user", subject_peer="user",
             attribution_type="self_statement", topic_id=t1,
@@ -1272,7 +1272,7 @@ class TestListMemoryItems:
         assert {item.id for item in store.list_memory_items()} == {id1, id2}
 
     def test_filters_by_item_type(self, store: StorageProvider):
-        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        topic_id = store.create_topic("Topic", summary="", workspace_id="user")
         fact_id = store.store_memory_item(MemoryItem(
             content="a fact", item_type="fact", source_peer="user", subject_peer="user",
             attribution_type="self_statement", topic_id=topic_id,
@@ -1286,8 +1286,8 @@ class TestListMemoryItems:
         assert [item.id for item in results] == [fact_id]
 
     def test_filters_by_topic_id(self, store: StorageProvider):
-        t1 = store.create_topic("First", summary="", peer_id="user")
-        t2 = store.create_topic("Second", summary="", peer_id="user")
+        t1 = store.create_topic("First", summary="", workspace_id="user")
+        t2 = store.create_topic("Second", summary="", workspace_id="user")
         id1 = store.store_memory_item(MemoryItem(
             content="a", item_type="fact", source_peer="user", subject_peer="user",
             attribution_type="self_statement", topic_id=t1,
@@ -1304,7 +1304,7 @@ class TestListMemoryItems:
         assert store.list_memory_items() == []
 
     def test_filters_by_q_substring_case_insensitive(self, store: StorageProvider):
-        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        topic_id = store.create_topic("Topic", summary="", workspace_id="user")
         match_id = store.store_memory_item(MemoryItem(
             content="Loves hiking in the Alps", item_type="fact", source_peer="user", subject_peer="user",
             attribution_type="self_statement", topic_id=topic_id,
@@ -1318,7 +1318,7 @@ class TestListMemoryItems:
         assert [item.id for item in results] == [match_id]
 
     def test_q_with_no_match_returns_empty(self, store: StorageProvider):
-        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        topic_id = store.create_topic("Topic", summary="", workspace_id="user")
         store.store_memory_item(MemoryItem(
             content="Loves hiking", item_type="fact", source_peer="user", subject_peer="user",
             attribution_type="self_statement", topic_id=topic_id,
@@ -1329,7 +1329,7 @@ class TestListMemoryItems:
     def test_q_treats_percent_and_underscore_literally(self, store: StorageProvider):
         """% and _ are SQL LIKE wildcards — a literal search for them must
         not match unrelated content, i.e. they're escaped, not interpreted."""
-        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        topic_id = store.create_topic("Topic", summary="", workspace_id="user")
         literal_id = store.store_memory_item(MemoryItem(
             content="Score was 50% on the exam", item_type="fact", source_peer="user", subject_peer="user",
             attribution_type="self_statement", topic_id=topic_id,
@@ -1343,7 +1343,7 @@ class TestListMemoryItems:
         assert [item.id for item in results] == [literal_id]
 
     def test_combines_q_with_item_type_filter(self, store: StorageProvider):
-        topic_id = store.create_topic("Topic", summary="", peer_id="user")
+        topic_id = store.create_topic("Topic", summary="", workspace_id="user")
         fact_id = store.store_memory_item(MemoryItem(
             content="Loves hiking", item_type="fact", source_peer="user", subject_peer="user",
             attribution_type="self_statement", topic_id=topic_id,
@@ -1369,13 +1369,13 @@ class TestScoreBreakdownCharacterization:
     _WEIGHTS = {"semantic": 0.5, "tag_overlap": 0.3, "person": 0.2, "temporal": 0.0}
 
     def test_topic_breakdown_shape(self, store: StorageProvider):
-        tid = store.create_topic("Bello", summary="", peer_id="user", tags=["fitness"],
+        tid = store.create_topic("Bello", summary="", workspace_id="user", tags=["fitness"],
                                  embedding=[1.0, 0.0, 0.0])
         store.close_topic(tid, "")
 
         tracer = SpyTracer()
         store.search_topics(
-            query_embedding=[1.0, 0.0, 0.0], tags=["fitness"], peer_id="user",
+            query_embedding=[1.0, 0.0, 0.0], tags=["fitness"], workspace_id="user",
             weights=self._WEIGHTS, tracer=tracer, now=self._NOW,
         )
 
@@ -1387,7 +1387,7 @@ class TestScoreBreakdownCharacterization:
             "semantic_weighted": pytest.approx(0.5),
             "tag_overlap_raw": pytest.approx(1.0),
             "tag_overlap_weighted": pytest.approx(0.3),
-            # search_topics() no longer derives person_match from peer_id
+            # search_topics() no longer derives person_match from workspace_id
             # (that comparison was a tautology, not a signal — see the
             # comment at its call site) — always False until there's a
             # real subject-relevance signal to feed it.
@@ -1399,7 +1399,7 @@ class TestScoreBreakdownCharacterization:
         }
 
     def test_memory_item_breakdown_shape_omits_tag_and_person(self, store: StorageProvider):
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         item_id = store.store_memory_item(MemoryItem(
             content="About Bello", item_type="essence",
             source_peer="user", subject_peer="user", attribution_type="self_statement",
@@ -1408,7 +1408,7 @@ class TestScoreBreakdownCharacterization:
 
         tracer = SpyTracer()
         store.search_memory_items(
-            query_embedding=[1.0, 0.0, 0.0], peer_id="user",
+            query_embedding=[1.0, 0.0, 0.0], workspace_id="user",
             weights=self._WEIGHTS, tracer=tracer, now=self._NOW,
         )
 
@@ -1426,7 +1426,7 @@ class TestScoreBreakdownCharacterization:
 
     def test_cluster_candidate_breakdown_shape_includes_candidate_kind(self, store: StorageProvider):
         cid = store.create_cluster("user", "Bike", "summary", tags=["fitness"], embedding=[1.0, 0.0, 0.0])
-        new = store.create_topic("New topic", summary="", peer_id="user", tags=["fitness"],
+        new = store.create_topic("New topic", summary="", workspace_id="user", tags=["fitness"],
                                  embedding=[1.0, 0.0, 0.0])
         store.close_topic(new, "summary")
 
@@ -1467,7 +1467,7 @@ class TestTemporalScoring:
         assert [r["id"] for r in results] == [new, old]
 
     def test_does_not_surface_irrelevant_recent_topic(self, store: StorageProvider):
-        """A brand-new topic with no tag/semantic/peer overlap must stay out —
+        """A brand-new topic with no tag/semantic/workspace overlap must stay out —
         temporal re-ranks relevant candidates, it never creates relevance."""
         t = store.create_topic("Unrelated", tags=["cooking"])
         store.close_topic(t, "unrelated")  # closed_at = now, i.e. very recent
@@ -1477,7 +1477,7 @@ class TestTemporalScoring:
 
     def test_reranks_equally_relevant_memory_items_by_recency(self, store_backend):
         store = store_backend.store
-        msg_id = store.store_message(turn_id=1, role="user", content="hi", peer_id="user")
+        msg_id = store.store_message(turn_id=1, role="user", content="hi", workspace_id="user")
         old_id = store.store_memory_item(MemoryItem(
             content="old", item_type="essence", source_peer="user",
             subject_peer="user", attribution_type="self_statement",
@@ -1491,5 +1491,5 @@ class TestTemporalScoring:
         store_backend.backdate("memory_items", old_id, "created_at", datetime(2020, 1, 1, tzinfo=UTC))
         store_backend.backdate("memory_items", new_id, "created_at", datetime(2025, 12, 31, tzinfo=UTC))
 
-        results = store.search_memory_items(peer_id="user", query_embedding=[1.0, 0.0, 0.0], now=self._NOW)
+        results = store.search_memory_items(workspace_id="user", query_embedding=[1.0, 0.0, 0.0], now=self._NOW)
         assert [item.id for item in results] == [new_id, old_id]

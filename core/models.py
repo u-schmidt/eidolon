@@ -107,9 +107,9 @@ class ClusterSummary:
 
 @dataclass
 class Fact:
-    """A structured, near-constant piece of information about a peer."""
+    """A structured, near-constant piece of information about a workspace."""
 
-    peer_id: str
+    workspace_id: str
     category: str
     key: str
     value: str
@@ -160,6 +160,6 @@ class Topic:
     tags: list[str] = field(default_factory=list)
     embedding: list[float] | None = None
     status: Literal["active", "closed"] = "active"
-    peer_id: str | None = None
+    workspace_id: str | None = None
     created_at: datetime | None = None
     closed_at: datetime | None = None

@@ -4,7 +4,7 @@ Implements the ``StorageProvider`` protocol using SQLite with:
 - Auto-migration via ``PRAGMA user_version``
 - JSON tags for flexible topic tagging
 - BLOB embedding storage (source of truth) + an optional sqlite-vec
-  index (``VecIndex``) for fast peer-partitioned KNN search
+  index (``VecIndex``) for fast workspace-partitioned KNN search
 - Cosine-similarity brute-force fallback when the index isn't available
 """
 
@@ -131,23 +131,23 @@ class SqliteStore:
         one-time pass at process startup, not a per-query cost.
         """
         vi = self.vec_index
-        for topic_id, peer_id, blob, cluster_id in self._conn.execute(
-            "SELECT id, peer_id, embedding, cluster_id FROM topics WHERE embedding IS NOT NULL"
+        for topic_id, workspace_id, blob, cluster_id in self._conn.execute(
+            "SELECT id, workspace_id, embedding, cluster_id FROM topics WHERE embedding IS NOT NULL"
         ).fetchall():
-            if peer_id is None:
-                continue  # can't partition a vector search without a peer_id
-            vi.upsert("vec_topics", topic_id, peer_id, _deserialize_embedding(blob), cluster_id=cluster_id)
+            if workspace_id is None:
+                continue  # can't partition a vector search without a workspace_id
+            vi.upsert("vec_topics", topic_id, workspace_id, _deserialize_embedding(blob), cluster_id=cluster_id)
 
-        for item_id, peer_id, blob in self._conn.execute(
-            "SELECT mi.id, m.peer_id, mi.embedding FROM memory_items mi "
+        for item_id, workspace_id, blob in self._conn.execute(
+            "SELECT mi.id, m.workspace_id, mi.embedding FROM memory_items mi "
             "JOIN messages m ON mi.message_id = m.id WHERE mi.embedding IS NOT NULL"
         ).fetchall():
-            vi.upsert("vec_memory_items", item_id, peer_id, _deserialize_embedding(blob))
+            vi.upsert("vec_memory_items", item_id, workspace_id, _deserialize_embedding(blob))
 
-        for cluster_id, peer_id, blob in self._conn.execute(
-            "SELECT id, peer_id, embedding FROM topic_clusters WHERE embedding IS NOT NULL"
+        for cluster_id, workspace_id, blob in self._conn.execute(
+            "SELECT id, workspace_id, embedding FROM topic_clusters WHERE embedding IS NOT NULL"
         ).fetchall():
-            vi.upsert("vec_clusters", cluster_id, peer_id, _deserialize_embedding(blob))
+            vi.upsert("vec_clusters", cluster_id, workspace_id, _deserialize_embedding(blob))
 
         self._conn.commit()
 
@@ -164,53 +164,53 @@ class SqliteStore:
 
     # ── Facts ───────────────────────────────────────────────
 
-    def get_facts(self, peer_id: str) -> list[Fact]:
+    def get_facts(self, workspace_id: str) -> list[Fact]:
         rows = self._conn.execute(
-            "SELECT peer_id, category, key, value, source, importance, created_at "
-            "FROM facts WHERE peer_id = ? "
+            "SELECT workspace_id, category, key, value, source, importance, created_at "
+            "FROM facts WHERE workspace_id = ? "
             "ORDER BY CASE importance WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, category, key",
-            (peer_id,),
+            (workspace_id,),
         ).fetchall()
         return [
-            Fact(peer_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4], importance=r[5], created_at=r[6])
+            Fact(workspace_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4], importance=r[5], created_at=r[6])
             for r in rows
         ]
 
     def get_all_facts(self) -> list[Fact]:
         rows = self._conn.execute(
-            "SELECT peer_id, category, key, value, source, importance, created_at "
-            "FROM facts ORDER BY peer_id, category, key",
+            "SELECT workspace_id, category, key, value, source, importance, created_at "
+            "FROM facts ORDER BY workspace_id, category, key",
         ).fetchall()
         return [
-            Fact(peer_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4], importance=r[5], created_at=r[6])
+            Fact(workspace_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4], importance=r[5], created_at=r[6])
             for r in rows
         ]
 
     def set_fact(
-        self, peer_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
+        self, workspace_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
     ) -> None:
         self._conn.execute(
-            "INSERT INTO facts (peer_id, category, key, value, source, importance) "
+            "INSERT INTO facts (workspace_id, category, key, value, source, importance) "
             "VALUES (?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(peer_id, category, key) DO UPDATE SET "
+            "ON CONFLICT(workspace_id, category, key) DO UPDATE SET "
             "value=excluded.value, source=excluded.source, importance=excluded.importance",
-            (peer_id, category, key, value, source, importance),
+            (workspace_id, category, key, value, source, importance),
         )
         self._conn.commit()
 
-    def delete_fact(self, peer_id: str, category: str, key: str) -> None:
+    def delete_fact(self, workspace_id: str, category: str, key: str) -> None:
         self._conn.execute(
-            "DELETE FROM facts WHERE peer_id = ? AND category = ? AND key = ?",
-            (peer_id, category, key),
+            "DELETE FROM facts WHERE workspace_id = ? AND category = ? AND key = ?",
+            (workspace_id, category, key),
         )
         self._conn.commit()
 
     # ── Facts Consolidation ────────────────────────────────
 
-    def count_user_turns(self, peer_id: str) -> int:
+    def count_user_turns(self, workspace_id: str) -> int:
         row = self._conn.execute(
-            "SELECT COUNT(*) FROM messages WHERE peer_id = ? AND role = 'user'",
-            (peer_id,),
+            "SELECT COUNT(*) FROM messages WHERE workspace_id = ? AND role = 'user'",
+            (workspace_id,),
         ).fetchone()
         return row[0]
 
@@ -231,19 +231,19 @@ class SqliteStore:
             for r in rows
         ]
 
-    def get_consolidation_checkpoint(self, peer_id: str) -> int:
+    def get_consolidation_checkpoint(self, workspace_id: str) -> int:
         row = self._conn.execute(
-            "SELECT last_item_id FROM fact_consolidation_state WHERE peer_id = ?",
-            (peer_id,),
+            "SELECT last_item_id FROM fact_consolidation_state WHERE workspace_id = ?",
+            (workspace_id,),
         ).fetchone()
         return row[0] if row else 0
 
-    def set_consolidation_checkpoint(self, peer_id: str, last_item_id: int) -> None:
+    def set_consolidation_checkpoint(self, workspace_id: str, last_item_id: int) -> None:
         self._conn.execute(
-            "INSERT INTO fact_consolidation_state (peer_id, last_item_id, last_run_at) "
+            "INSERT INTO fact_consolidation_state (workspace_id, last_item_id, last_run_at) "
             "VALUES (?, ?, CURRENT_TIMESTAMP) "
-            "ON CONFLICT(peer_id) DO UPDATE SET last_item_id=excluded.last_item_id, last_run_at=excluded.last_run_at",
-            (peer_id, last_item_id),
+            "ON CONFLICT(workspace_id) DO UPDATE SET last_item_id=excluded.last_item_id, last_run_at=excluded.last_run_at",
+            (workspace_id, last_item_id),
         )
         self._conn.commit()
 
@@ -255,24 +255,24 @@ class SqliteStore:
         summary: str = "",
         tags: list[str] | None = None,
         embedding: list[float] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         session_id: str | None = None,
     ) -> int:
         tags_json = json.dumps(tags or [])
         embed_blob = _serialize_embedding(embedding) if embedding else None
         cur = self._conn.execute(
-            "INSERT INTO topics (label, summary, tags, embedding, peer_id, session_id) VALUES (?, ?, ?, ?, ?, ?)",
-            (label, summary, tags_json, embed_blob, peer_id, session_id),
+            "INSERT INTO topics (label, summary, tags, embedding, workspace_id, session_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (label, summary, tags_json, embed_blob, workspace_id, session_id),
         )
         self._conn.commit()
         topic_id: int = cur.lastrowid  # type: ignore[assignment]
-        if embedding and peer_id:
-            self.vec_index.upsert("vec_topics", topic_id, peer_id, embedding, cluster_id=None)
+        if embedding and workspace_id:
+            self.vec_index.upsert("vec_topics", topic_id, workspace_id, embedding, cluster_id=None)
         return topic_id
 
     def get_topic(self, topic_id: int) -> dict | None:
         row = self._conn.execute(
-            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at, message_count "
+            "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at, message_count "
             "FROM topics WHERE id = ?",
             (topic_id,),
         ).fetchone()
@@ -284,7 +284,7 @@ class SqliteStore:
             "summary": row[2],
             "tags": json.loads(row[3]),
             "status": row[4],
-            "peer_id": row[5],
+            "workspace_id": row[5],
             "created_at": row[6],
             "closed_at": row[7],
             "message_count": row[8],
@@ -297,11 +297,11 @@ class SqliteStore:
         )
         self._conn.commit()
 
-    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
+    def get_active_topic(self, workspace_id: str, session_id: str | None = None) -> int | None:
         """Return the id of the most recently opened 'active' topic for
-        this peer *and* session.
+        this workspace *and* session.
 
-        Scoped per (peer_id, session_id) — a peer with several concurrent
+        Scoped per (workspace_id, session_id) — a workspace with several concurrent
         sessions (web, Telegram, CLI, ...) gets one independent active
         topic per session, not one shared across all of them. Passing no
         session_id matches only topics created with none (e.g. legacy
@@ -309,7 +309,7 @@ class SqliteStore:
         like the CLI) — it is not a wildcard across sessions.
 
         If more than one is somehow left 'active' for the same
-        (peer_id, session_id) (e.g. a crash mid topic transition), the
+        (workspace_id, session_id) (e.g. a crash mid topic transition), the
         most recent wins; older orphans stay open until explicitly
         closed — no automatic cleanup here.
         """
@@ -317,13 +317,13 @@ class SqliteStore:
         # resolution — two topics created within the same second would
         # otherwise sort ambiguously.
         row = self._conn.execute(
-            "SELECT id FROM topics WHERE peer_id = ? AND session_id IS ? AND status = 'active' "
+            "SELECT id FROM topics WHERE workspace_id = ? AND session_id IS ? AND status = 'active' "
             "ORDER BY created_at DESC, id DESC LIMIT 1",
-            (peer_id, session_id),
+            (workspace_id, session_id),
         ).fetchone()
         return row[0] if row else None
 
-    def get_stale_active_topics(self, cutoff: datetime, peer_id: str | None = None) -> list[dict]:
+    def get_stale_active_topics(self, cutoff: datetime, workspace_id: str | None = None) -> list[dict]:
         """Return 'active' topics whose last message predates `cutoff`,
         oldest first — candidates for graceful cleanup (see
         `Eidolon.close_stale_topics`) when a topic was never properly
@@ -332,18 +332,18 @@ class SqliteStore:
 
         A topic's own `created_at` stands in for "last activity" when it
         has no messages yet (e.g. a topic row created but never actually
-        used). `peer_id=None` scans every peer's active topics.
+        used). `workspace_id=None` scans every workspace's active topics.
         """
         query = (
-            "SELECT t.id, t.label, t.summary, t.tags, t.status, t.peer_id, t.created_at, t.closed_at, "
+            "SELECT t.id, t.label, t.summary, t.tags, t.status, t.workspace_id, t.created_at, t.closed_at, "
             "COALESCE(MAX(m.created_at), t.created_at) AS last_activity "
             "FROM topics t LEFT JOIN messages m ON m.topic_id = t.id "
             "WHERE t.status = 'active'"
         )
         params: list[str] = []
-        if peer_id is not None:
-            query += " AND t.peer_id = ?"
-            params.append(peer_id)
+        if workspace_id is not None:
+            query += " AND t.workspace_id = ?"
+            params.append(workspace_id)
         query += " GROUP BY t.id ORDER BY last_activity ASC"
         rows = self._conn.execute(query, params).fetchall()
 
@@ -358,26 +358,26 @@ class SqliteStore:
                 "summary": row[2],
                 "tags": json.loads(row[3]),
                 "status": row[4],
-                "peer_id": row[5],
+                "workspace_id": row[5],
                 "created_at": row[6],
                 "closed_at": row[7],
                 "last_activity": row[8],
             })
         return stale
 
-    def get_recent_topics(self, peer_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
-        """Return `peer_id`'s most recently closed topics, newest first.
+    def get_recent_topics(self, workspace_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
+        """Return `workspace_id`'s most recently closed topics, newest first.
 
         Ordered purely by `closed_at` — no relevance scoring, unlike
         `search_topics`. `id DESC` as a tiebreak for the same reason as
         `get_active_topic`: CURRENT_TIMESTAMP only has second resolution.
         """
         rows = self._conn.execute(
-            "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
-            "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ? "
+            "SELECT id, label, summary, tags, embedding, status, workspace_id, created_at, closed_at "
+            "FROM topics WHERE status='closed' AND cluster_id IS NULL AND workspace_id = ? "
             "AND message_count > ? "
             "ORDER BY closed_at DESC, id DESC LIMIT ?",
-            (peer_id, min_message_count, limit),
+            (workspace_id, min_message_count, limit),
         ).fetchall()
         return [
             {
@@ -386,7 +386,7 @@ class SqliteStore:
                 "summary": row[2],
                 "tags": json.loads(row[3]),
                 "status": row[5],
-                "peer_id": row[6],
+                "workspace_id": row[6],
                 "created_at": row[7],
                 "closed_at": row[8],
             }
@@ -395,7 +395,7 @@ class SqliteStore:
 
     def get_closed_topics_since(self, since: datetime) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, peer_id, label, created_at, closed_at, message_count "
+            "SELECT id, workspace_id, label, created_at, closed_at, message_count "
             "FROM topics WHERE status = 'closed' ORDER BY closed_at ASC"
         ).fetchall()
         result = []
@@ -405,7 +405,7 @@ class SqliteStore:
                 continue
             result.append({
                 "id": row[0],
-                "peer_id": row[1],
+                "workspace_id": row[1],
                 "label": row[2],
                 "created_at": row[3],
                 "closed_at": row[4],
@@ -413,9 +413,9 @@ class SqliteStore:
             })
         return result
 
-    def list_topics(self, status: str | None = None, peer_id: str | None = None) -> list[dict]:
+    def list_topics(self, status: str | None = None, workspace_id: str | None = None) -> list[dict]:
         query = (
-            "SELECT id, label, status, peer_id, cluster_id, created_at, closed_at, message_count "
+            "SELECT id, label, status, workspace_id, cluster_id, created_at, closed_at, message_count "
             "FROM topics"
         )
         conditions = []
@@ -423,9 +423,9 @@ class SqliteStore:
         if status is not None:
             conditions.append("status = ?")
             params.append(status)
-        if peer_id is not None:
-            conditions.append("peer_id = ?")
-            params.append(peer_id)
+        if workspace_id is not None:
+            conditions.append("workspace_id = ?")
+            params.append(workspace_id)
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY created_at DESC, id DESC"
@@ -435,7 +435,7 @@ class SqliteStore:
                 "id": row[0],
                 "label": row[1],
                 "status": row[2],
-                "peer_id": row[3],
+                "workspace_id": row[3],
                 "cluster_id": row[4],
                 "created_at": row[5],
                 "closed_at": row[6],
@@ -453,11 +453,11 @@ class SqliteStore:
             (embed_blob, topic_id),
         )
         self._conn.commit()
-        # peer_id/cluster_id aren't parameters here (this method predates
+        # workspace_id/cluster_id aren't parameters here (this method predates
         # the vector index) — cheap lookup rather than changing the
         # public signature every other caller already depends on.
         row = self._conn.execute(
-            "SELECT peer_id, cluster_id FROM topics WHERE id = ?", (topic_id,)
+            "SELECT workspace_id, cluster_id FROM topics WHERE id = ?", (topic_id,)
         ).fetchone()
         if row and row[0]:
             self.vec_index.upsert("vec_topics", topic_id, row[0], embedding, cluster_id=row[1])
@@ -505,7 +505,7 @@ class SqliteStore:
         self,
         query_embedding: list[float] | None = None,
         tags: list[str] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
@@ -513,18 +513,18 @@ class SqliteStore:
         now: datetime | None = None,
         min_message_count: int = -1,
     ) -> list[dict]:
-        """Search topics by embedding similarity, tag overlap, peer, and recency.
+        """Search topics by embedding similarity, tag overlap, workspace, and recency.
 
-        `peer_id`, when given, is a hard SQL filter — only that peer's closed,
+        `workspace_id`, when given, is a hard SQL filter — only that workspace's closed,
         unclustered topics are ever scanned or scored, both to bound the
-        scan cost and to prevent a different peer's topic from ever
-        surfacing in this peer's results regardless of how well it scores.
-        `peer_id=None` searches every peer (used by callers that
+        scan cost and to prevent a different workspace's topic from ever
+        surfacing in this workspace's results regardless of how well it scores.
+        `workspace_id=None` searches every workspace (used by callers that
         intentionally want that).
 
         `weights` overrides the semantic/tag_overlap/person/temporal scoring
         weights when provided (see `RetrievalScorer`). `person` still
-        contributes as before — with `peer_id` now a hard filter it's
+        contributes as before — with `workspace_id` now a hard filter it's
         satisfied by every surviving candidate, so it no longer
         differentiates ranking, but its score contribution is unchanged for
         backward compatibility. The `temporal` term is a recency
@@ -553,43 +553,43 @@ class SqliteStore:
         """
         scorer = RetrievalScorer(weights, now)
         # Hard-filtered in SQL when given — not just a soft scoring bonus.
-        # Without this, a different peer's highly-relevant-by-content topic
+        # Without this, a different workspace's highly-relevant-by-content topic
         # could outscore and surface ahead of (or alongside) the querying
-        # peer's own topics: a real cross-peer context leak, not just a
-        # performance concern. `peer_id=None` keeps the old "search
+        # workspace's own topics: a real cross-workspace context leak, not just a
+        # performance concern. `workspace_id=None` keeps the old "search
         # everyone" behavior for callers that intentionally omit it.
         #
         # When the vector index is available and there's a real query to
         # search by, it pre-filters to the nearest-by-embedding candidates
         # (see _knn_prefilter_k) so the scan below runs over that small set
-        # instead of every one of the peer's topics — the accelerated path.
+        # instead of every one of the workspace's topics — the accelerated path.
         # A pre-computed similarity for each candidate comes along with it,
         # so the expensive BLOB-deserialize-and-cosine step is skipped
         # entirely for those rows.
         semantic_lookup: dict[int, float] | None = None
-        if self.vec_index.available and query_embedding and peer_id:
-            knn_hits = self.vec_index.knn("vec_topics", peer_id, query_embedding, k=_knn_prefilter_k(limit))
+        if self.vec_index.available and query_embedding and workspace_id:
+            knn_hits = self.vec_index.knn("vec_topics", workspace_id, query_embedding, k=_knn_prefilter_k(limit))
             semantic_lookup = dict(knn_hits)
             if not semantic_lookup:
                 rows = []
             else:
                 placeholders = ",".join("?" * len(semantic_lookup))
                 rows = self._conn.execute(
-                    f"SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
+                    f"SELECT id, label, summary, tags, embedding, status, workspace_id, created_at, closed_at "
                     f"FROM topics WHERE id IN ({placeholders}) AND status='closed' AND cluster_id IS NULL "
                     f"AND message_count > ?",
                     (*semantic_lookup.keys(), min_message_count),
                 ).fetchall()
-        elif peer_id:
+        elif workspace_id:
             rows = self._conn.execute(
-                "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
-                "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ? "
+                "SELECT id, label, summary, tags, embedding, status, workspace_id, created_at, closed_at "
+                "FROM topics WHERE status='closed' AND cluster_id IS NULL AND workspace_id = ? "
                 "AND message_count > ?",
-                (peer_id, min_message_count),
+                (workspace_id, min_message_count),
             ).fetchall()
         else:
             rows = self._conn.execute(
-                "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
+                "SELECT id, label, summary, tags, embedding, status, workspace_id, created_at, closed_at "
                 "FROM topics WHERE status='closed' AND cluster_id IS NULL AND message_count > ?",
                 (min_message_count,),
             ).fetchall()
@@ -602,7 +602,7 @@ class SqliteStore:
                 "summary": row[2],
                 "tags": json.loads(row[3]),
                 "status": row[5],
-                "peer_id": row[6],
+                "workspace_id": row[6],
                 "created_at": row[7],
                 "closed_at": row[8],
             }
@@ -615,13 +615,13 @@ class SqliteStore:
                 query_tags=tags,
                 candidate_tags=topic["tags"],
                 include_person=True,
-                # Not peer_id-derived: this row's peer_id already equals the
-                # query's (the WHERE clause above guarantees it when peer_id
-                # is given, and bool(peer_id) is False otherwise), so
+                # Not workspace_id-derived: this row's workspace_id already equals the
+                # query's (the WHERE clause above guarantees it when workspace_id
+                # is given, and bool(workspace_id) is False otherwise), so
                 # comparing them again is a tautology, not a signal — same
-                # peer-vs-subject conflation search_memory_items' docstring
+                # workspace-vs-subject conflation search_memory_items' docstring
                 # already documents removing once (a topic's *identity*
-                # peer_id was being used as a stand-in for whether it's
+                # workspace_id was being used as a stand-in for whether it's
                 # topically about the same *person/subject*, two different
                 # things). Left as a hard False — dormant, not deleted —
                 # until there's an actual subject-relevance signal to
@@ -636,16 +636,16 @@ class SqliteStore:
 
     # ── Topic Clusters ─────────────────────────────────────
 
-    def get_clusters(self, peer_id: str) -> list[dict]:
+    def get_clusters(self, workspace_id: str) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, peer_id, label, summary, tags, topic_count, created_at, updated_at "
-            "FROM topic_clusters WHERE peer_id = ? ORDER BY id",
-            (peer_id,),
+            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
+            "FROM topic_clusters WHERE workspace_id = ? ORDER BY id",
+            (workspace_id,),
         ).fetchall()
         return [
             {
                 "id": row[0],
-                "peer_id": row[1],
+                "workspace_id": row[1],
                 "label": row[2],
                 "summary": row[3],
                 "tags": json.loads(row[4]),
@@ -656,21 +656,21 @@ class SqliteStore:
             for row in rows
         ]
 
-    def list_clusters(self, peer_id: str | None = None) -> list[dict]:
+    def list_clusters(self, workspace_id: str | None = None) -> list[dict]:
         query = (
-            "SELECT id, peer_id, label, summary, tags, topic_count, created_at, updated_at "
+            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
             "FROM topic_clusters"
         )
         params: list[str] = []
-        if peer_id is not None:
-            query += " WHERE peer_id = ?"
-            params.append(peer_id)
+        if workspace_id is not None:
+            query += " WHERE workspace_id = ?"
+            params.append(workspace_id)
         query += " ORDER BY created_at DESC, id DESC"
         rows = self._conn.execute(query, params).fetchall()
         return [
             {
                 "id": row[0],
-                "peer_id": row[1],
+                "workspace_id": row[1],
                 "label": row[2],
                 "summary": row[3],
                 "tags": json.loads(row[4]),
@@ -683,7 +683,7 @@ class SqliteStore:
 
     def create_cluster(
         self,
-        peer_id: str,
+        workspace_id: str,
         label: str,
         summary: str,
         tags: list[str] | None = None,
@@ -692,18 +692,18 @@ class SqliteStore:
         tags_json = json.dumps(tags or [])
         embed_blob = _serialize_embedding(embedding) if embedding else None
         cur = self._conn.execute(
-            "INSERT INTO topic_clusters (peer_id, label, summary, tags, embedding) VALUES (?, ?, ?, ?, ?)",
-            (peer_id, label, summary, tags_json, embed_blob),
+            "INSERT INTO topic_clusters (workspace_id, label, summary, tags, embedding) VALUES (?, ?, ?, ?, ?)",
+            (workspace_id, label, summary, tags_json, embed_blob),
         )
         self._conn.commit()
         cluster_id: int = cur.lastrowid  # type: ignore[assignment]
         if embedding:
-            self.vec_index.upsert("vec_clusters", cluster_id, peer_id, embedding)
+            self.vec_index.upsert("vec_clusters", cluster_id, workspace_id, embedding)
         return cluster_id
 
     def get_cluster(self, cluster_id: int) -> dict | None:
         row = self._conn.execute(
-            "SELECT id, peer_id, label, summary, tags, topic_count, created_at, updated_at "
+            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
             "FROM topic_clusters WHERE id = ?",
             (cluster_id,),
         ).fetchone()
@@ -711,7 +711,7 @@ class SqliteStore:
             return None
         return {
             "id": row[0],
-            "peer_id": row[1],
+            "workspace_id": row[1],
             "label": row[2],
             "summary": row[3],
             "tags": json.loads(row[4]),
@@ -743,11 +743,11 @@ class SqliteStore:
         self._conn.execute(f"UPDATE topic_clusters SET {', '.join(sets)} WHERE id = ?", params)
         self._conn.commit()
         if embedding is not None:
-            peer_row = self._conn.execute(
-                "SELECT peer_id FROM topic_clusters WHERE id = ?", (cluster_id,)
+            workspace_row = self._conn.execute(
+                "SELECT workspace_id FROM topic_clusters WHERE id = ?", (cluster_id,)
             ).fetchone()
-            if peer_row and peer_row[0]:
-                self.vec_index.upsert("vec_clusters", cluster_id, peer_row[0], embedding)
+            if workspace_row and workspace_row[0]:
+                self.vec_index.upsert("vec_clusters", cluster_id, workspace_row[0], embedding)
 
     def assign_topic_to_cluster(self, topic_id: int, cluster_id: int) -> None:
         self._conn.execute("UPDATE topics SET cluster_id = ? WHERE id = ?", (cluster_id, topic_id))
@@ -759,7 +759,7 @@ class SqliteStore:
 
     def get_topics_by_cluster(self, cluster_id: int) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
+            "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at "
             "FROM topics WHERE cluster_id = ? ORDER BY closed_at ASC, id ASC",
             (cluster_id,),
         ).fetchall()
@@ -770,7 +770,7 @@ class SqliteStore:
                 "summary": row[2],
                 "tags": json.loads(row[3]),
                 "status": row[4],
-                "peer_id": row[5],
+                "workspace_id": row[5],
                 "created_at": row[6],
                 "closed_at": row[7],
             }
@@ -779,7 +779,7 @@ class SqliteStore:
 
     def get_recent_topics_in_cluster(self, cluster_id: int, limit: int) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
+            "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at "
             "FROM topics WHERE cluster_id = ? ORDER BY closed_at DESC, id DESC LIMIT ?",
             (cluster_id, limit),
         ).fetchall()
@@ -790,7 +790,7 @@ class SqliteStore:
                 "summary": row[2],
                 "tags": json.loads(row[3]),
                 "status": row[4],
-                "peer_id": row[5],
+                "workspace_id": row[5],
                 "created_at": row[6],
                 "closed_at": row[7],
             }
@@ -801,7 +801,7 @@ class SqliteStore:
         self,
         query_embedding: list[float] | None = None,
         tags: list[str] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
@@ -810,10 +810,10 @@ class SqliteStore:
     ) -> list[dict]:
         """See StorageProvider.search_clusters. Same scoring shape as
         search_topics, but scanning topic_clusters and hard-filtering
-        peer_id in SQL instead of scoring it as a soft "person" bonus —
-        clusters must never merge across peers.
+        workspace_id in SQL instead of scoring it as a soft "person" bonus —
+        clusters must never merge across workspaces.
         """
-        if not peer_id:
+        if not workspace_id:
             return []
         scorer = RetrievalScorer(weights, now)
 
@@ -821,29 +821,29 @@ class SqliteStore:
         # nearest-by-embedding clusters via the vector index.
         semantic_lookup: dict[int, float] | None = None
         if self.vec_index.available and query_embedding:
-            knn_hits = self.vec_index.knn("vec_clusters", peer_id, query_embedding, k=_knn_prefilter_k(limit))
+            knn_hits = self.vec_index.knn("vec_clusters", workspace_id, query_embedding, k=_knn_prefilter_k(limit))
             semantic_lookup = dict(knn_hits)
             if not semantic_lookup:
                 rows = []
             else:
                 placeholders = ",".join("?" * len(semantic_lookup))
                 rows = self._conn.execute(
-                    f"SELECT id, peer_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
+                    f"SELECT id, workspace_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
                     f"FROM topic_clusters WHERE id IN ({placeholders})",
                     tuple(semantic_lookup.keys()),
                 ).fetchall()
         else:
             rows = self._conn.execute(
-                "SELECT id, peer_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
-                "FROM topic_clusters WHERE peer_id = ?",
-                (peer_id,),
+                "SELECT id, workspace_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
+                "FROM topic_clusters WHERE workspace_id = ?",
+                (workspace_id,),
             ).fetchall()
 
         scored: list[tuple[float, dict, dict]] = []
         for row in rows:
             cluster = {
                 "id": row[0],
-                "peer_id": row[1],
+                "workspace_id": row[1],
                 "label": row[2],
                 "summary": row[3],
                 "tags": json.loads(row[4]),
@@ -851,7 +851,7 @@ class SqliteStore:
                 "created_at": row[7],
                 "updated_at": row[8],
             }
-            # No "person" term — peer_id is already a hard SQL filter above.
+            # No "person" term — workspace_id is already a hard SQL filter above.
             score, breakdown = scorer.score(
                 candidate_type="cluster",
                 candidate_id=cluster["id"],
@@ -870,7 +870,7 @@ class SqliteStore:
     def search_cluster_candidates(
         self,
         topic_id: int,
-        peer_id: str,
+        workspace_id: str,
         limit: int = 5,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
@@ -894,7 +894,7 @@ class SqliteStore:
 
         scored: list[tuple[float, dict, dict]] = []
 
-        # Topic-side candidates: still-unclustered topics for this peer,
+        # Topic-side candidates: still-unclustered topics for this workspace,
         # excluding topic_id itself. Accelerated path (see search_topics)
         # uses vec_topics' unclustered_only filter — vec0 has no "exclude
         # this id" option, so topic_id is dropped from the KNN hits after
@@ -902,7 +902,7 @@ class SqliteStore:
         topic_semantic_lookup: dict[int, float] | None = None
         if self.vec_index.available:
             knn_hits = self.vec_index.knn(
-                "vec_topics", peer_id, query_embedding, k=_knn_prefilter_k(limit) + 1, unclustered_only=True
+                "vec_topics", workspace_id, query_embedding, k=_knn_prefilter_k(limit) + 1, unclustered_only=True
             )
             topic_semantic_lookup = {tid: sim for tid, sim in knn_hits if tid != topic_id}
             if not topic_semantic_lookup:
@@ -917,8 +917,8 @@ class SqliteStore:
         else:
             topic_rows = self._conn.execute(
                 "SELECT id, label, summary, tags, embedding, created_at, closed_at "
-                "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = ? AND id != ?",
-                (peer_id, topic_id),
+                "FROM topics WHERE status='closed' AND cluster_id IS NULL AND workspace_id = ? AND id != ?",
+                (workspace_id, topic_id),
             ).fetchall()
         for row in topic_rows:
             candidate = {
@@ -941,10 +941,10 @@ class SqliteStore:
             )
             scored.append((score, candidate, breakdown))
 
-        # Cluster-side candidates: existing clusters for this peer.
+        # Cluster-side candidates: existing clusters for this workspace.
         cluster_semantic_lookup: dict[int, float] | None = None
         if self.vec_index.available:
-            knn_hits = self.vec_index.knn("vec_clusters", peer_id, query_embedding, k=_knn_prefilter_k(limit))
+            knn_hits = self.vec_index.knn("vec_clusters", workspace_id, query_embedding, k=_knn_prefilter_k(limit))
             cluster_semantic_lookup = dict(knn_hits)
             if not cluster_semantic_lookup:
                 cluster_rows = []
@@ -958,8 +958,8 @@ class SqliteStore:
         else:
             cluster_rows = self._conn.execute(
                 "SELECT id, label, summary, tags, embedding, updated_at "
-                "FROM topic_clusters WHERE peer_id = ?",
-                (peer_id,),
+                "FROM topic_clusters WHERE workspace_id = ?",
+                (workspace_id,),
             ).fetchall()
         for row in cluster_rows:
             cluster_full = self.get_cluster(row[0])
@@ -1001,10 +1001,10 @@ class SqliteStore:
         self._conn.commit()
         item_id: int = cur.lastrowid  # type: ignore[assignment]
         if item.embedding and item.message_id:
-            # memory_items carries no peer_id of its own — resolved via
+            # memory_items carries no workspace_id of its own — resolved via
             # the same messages join search_memory_items uses.
             msg_row = self._conn.execute(
-                "SELECT peer_id FROM messages WHERE id = ?", (item.message_id,)
+                "SELECT workspace_id FROM messages WHERE id = ?", (item.message_id,)
             ).fetchone()
             if msg_row and msg_row[0]:
                 self.vec_index.upsert("vec_memory_items", item_id, msg_row[0], item.embedding)
@@ -1032,28 +1032,28 @@ class SqliteStore:
     def search_memory_items(
         self,
         query_embedding: list[float] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         budget: MemoryItemBudget | None = None,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
         request_id: str | None = None,
         now: datetime | None = None,
     ) -> list[MemoryItem]:
-        """Search memory items by embedding similarity, peer, and recency.
+        """Search memory items by embedding similarity, workspace, and recency.
 
-        `peer_id`, when given, is a hard SQL filter, joined through
-        `messages` (memory_items carry no peer_id column of their own —
-        only a `message_id`, and `messages.peer_id` is the real identifier).
-        `peer_id=None` searches every peer.
+        `workspace_id`, when given, is a hard SQL filter, joined through
+        `messages` (memory_items carry no workspace_id column of their own —
+        only a `message_id`, and `messages.workspace_id` is the real identifier).
+        `workspace_id=None` searches every workspace.
 
         This replaces a previous soft "person" score that compared
-        `peer_id` against `source_peer`/`subject_peer` — those are always
+        `workspace_id` against `source_peer`/`subject_peer` — those are always
         `FragmentaryExtractor`'s fixed `"user"/"ai"/"other"` vocabulary, a
-        different value space from the real peer_id (same confusion
+        different value space from the real workspace_id (same confusion
         `FactConsolidator` had — see `_PROFILE_SUBJECT` there). That
-        comparison only ever matched when `peer_id` happened to literally
-        equal `"user"`; for any real multi-tenant peer_id it silently never
-        fired, so memory-item retrieval had no working peer-scoping signal
+        comparison only ever matched when `workspace_id` happened to literally
+        equal `"user"`; for any real multi-tenant workspace_id it silently never
+        fired, so memory-item retrieval had no working workspace-scoping signal
         at all beyond semantic similarity. There is no `person` scoring
         dimension anymore — the join makes it a hard prerequisite, not a
         ranking signal.
@@ -1082,12 +1082,12 @@ class SqliteStore:
         scorer = RetrievalScorer(weights, now)
         # Accelerated path (see search_topics for the full explanation):
         # pre-filter to the nearest-by-embedding candidates via the vector
-        # index — peer-scoping happened when each item was upserted there
+        # index — workspace-scoping happened when each item was upserted there
         # (via the same messages join, at write time), so a plain id-fetch
         # is enough here, no join needed.
         semantic_lookup: dict[int, float] | None = None
-        if self.vec_index.available and query_embedding and peer_id:
-            knn_hits = self.vec_index.knn("vec_memory_items", peer_id, query_embedding, k=_knn_prefilter_k(budget.total))
+        if self.vec_index.available and query_embedding and workspace_id:
+            knn_hits = self.vec_index.knn("vec_memory_items", workspace_id, query_embedding, k=_knn_prefilter_k(budget.total))
             semantic_lookup = dict(knn_hits)
             if not semantic_lookup:
                 rows = []
@@ -1105,17 +1105,17 @@ class SqliteStore:
                     "SELECT mi.id, mi.content, mi.item_type, mi.source_peer, mi.subject_peer, "
                     "mi.attribution_type, mi.topic_id, mi.message_id, mi.embedding, mi.created_at "
                     "FROM memory_items mi JOIN messages m ON mi.message_id = m.id "
-                    "WHERE m.peer_id = ? AND mi.item_type IN ('surprise', 'feeling')",
-                    (peer_id,),
+                    "WHERE m.workspace_id = ? AND mi.item_type IN ('surprise', 'feeling')",
+                    (workspace_id,),
                 ).fetchall()
                 rows.extend(r for r in bypass_rows if r[0] not in knn_ids)
-        elif peer_id:
+        elif workspace_id:
             rows = self._conn.execute(
                 "SELECT mi.id, mi.content, mi.item_type, mi.source_peer, mi.subject_peer, "
                 "mi.attribution_type, mi.topic_id, mi.message_id, mi.embedding, mi.created_at "
                 "FROM memory_items mi JOIN messages m ON mi.message_id = m.id "
-                "WHERE m.peer_id = ?",
-                (peer_id,),
+                "WHERE m.workspace_id = ?",
+                (workspace_id,),
             ).fetchall()
         else:
             rows = self._conn.execute(
@@ -1137,7 +1137,7 @@ class SqliteStore:
                 message_id=row[7],
                 timestamp=row[9],
             )
-            # No tag_overlap (items carry no tags) and no person term (peer_id
+            # No tag_overlap (items carry no tags) and no person term (workspace_id
             # is a hard SQL filter above). row[9] is the raw created_at string
             # (item.timestamp is typed datetime but carries this string at runtime).
             # A rare-type bypass row (id not in semantic_lookup) must not
@@ -1239,14 +1239,14 @@ class SqliteStore:
         turn_id: int,
         role: str,
         content: str,
-        peer_id: str,
+        workspace_id: str,
         topic_id: int | None = None,
         request_id: str | None = None,
     ) -> int:
         cur = self._conn.execute(
-            "INSERT INTO messages (turn_id, role, content, peer_id, topic_id, request_id) "
+            "INSERT INTO messages (turn_id, role, content, workspace_id, topic_id, request_id) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (turn_id, role, content, peer_id, topic_id, request_id),
+            (turn_id, role, content, workspace_id, topic_id, request_id),
         )
         if topic_id is not None:
             self._conn.execute(
@@ -1258,7 +1258,7 @@ class SqliteStore:
 
     def get_messages_by_topic(self, topic_id: int) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, turn_id, role, content, peer_id, created_at "
+            "SELECT id, turn_id, role, content, workspace_id, created_at "
             "FROM messages WHERE topic_id = ? ORDER BY turn_id, id",
             (topic_id,),
         ).fetchall()
@@ -1268,7 +1268,7 @@ class SqliteStore:
                 "turn_id": r[1],
                 "role": r[2],
                 "content": r[3],
-                "peer_id": r[4],
+                "workspace_id": r[4],
                 "created_at": r[5],
             }
             for r in rows
@@ -1276,7 +1276,7 @@ class SqliteStore:
 
     def get_recent_messages_by_topic(self, topic_id: int, limit: int) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, turn_id, role, content, peer_id, created_at "
+            "SELECT id, turn_id, role, content, workspace_id, created_at "
             "FROM messages WHERE topic_id = ? ORDER BY id DESC LIMIT ?",
             (topic_id, limit),
         ).fetchall()
@@ -1286,7 +1286,7 @@ class SqliteStore:
                 "turn_id": r[1],
                 "role": r[2],
                 "content": r[3],
-                "peer_id": r[4],
+                "workspace_id": r[4],
                 "created_at": r[5],
             }
             for r in reversed(rows)
@@ -1294,7 +1294,7 @@ class SqliteStore:
 
     def get_messages_by_request_id(self, request_id: str) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, turn_id, role, content, peer_id, topic_id, created_at "
+            "SELECT id, turn_id, role, content, workspace_id, topic_id, created_at "
             "FROM messages WHERE request_id = ? ORDER BY id",
             (request_id,),
         ).fetchall()
@@ -1304,38 +1304,38 @@ class SqliteStore:
                 "turn_id": r[1],
                 "role": r[2],
                 "content": r[3],
-                "peer_id": r[4],
+                "workspace_id": r[4],
                 "topic_id": r[5],
                 "created_at": r[6],
             }
             for r in rows
         ]
 
-    def get_recent_turns(self, limit: int, peer_id: str | None = None) -> list[dict]:
-        if peer_id is not None:
+    def get_recent_turns(self, limit: int, workspace_id: str | None = None) -> list[dict]:
+        if workspace_id is not None:
             rows = self._conn.execute(
-                "SELECT request_id, peer_id, topic_id, content, created_at FROM messages "
-                "WHERE role = 'user' AND request_id IS NOT NULL AND peer_id = ? "
+                "SELECT request_id, workspace_id, topic_id, content, created_at FROM messages "
+                "WHERE role = 'user' AND request_id IS NOT NULL AND workspace_id = ? "
                 "ORDER BY id DESC LIMIT ?",
-                (peer_id, limit),
+                (workspace_id, limit),
             ).fetchall()
         else:
             rows = self._conn.execute(
-                "SELECT request_id, peer_id, topic_id, content, created_at FROM messages "
+                "SELECT request_id, workspace_id, topic_id, content, created_at FROM messages "
                 "WHERE role = 'user' AND request_id IS NOT NULL "
                 "ORDER BY id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
         return [
-            {"request_id": r[0], "peer_id": r[1], "topic_id": r[2], "content": r[3], "created_at": r[4]}
+            {"request_id": r[0], "workspace_id": r[1], "topic_id": r[2], "content": r[3], "created_at": r[4]}
             for r in rows
         ]
 
-    def count_recent_turns(self, peer_id: str | None = None) -> int:
-        if peer_id is not None:
+    def count_recent_turns(self, workspace_id: str | None = None) -> int:
+        if workspace_id is not None:
             row = self._conn.execute(
-                "SELECT COUNT(*) FROM messages WHERE role = 'user' AND request_id IS NOT NULL AND peer_id = ?",
-                (peer_id,),
+                "SELECT COUNT(*) FROM messages WHERE role = 'user' AND request_id IS NOT NULL AND workspace_id = ?",
+                (workspace_id,),
             ).fetchone()
         else:
             row = self._conn.execute(

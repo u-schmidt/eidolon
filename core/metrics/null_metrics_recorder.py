@@ -28,7 +28,7 @@ class NullMetricsRecorder:
         step: str,
         message: str,
         *,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
@@ -40,7 +40,7 @@ class NullMetricsRecorder:
         duration_ms: float,
         succeeded: bool,
         *,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
@@ -55,7 +55,7 @@ class NullMetricsRecorder:
         *,
         entity_type: str | None = None,
         entity_id: str | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:

@@ -59,7 +59,7 @@ def environment_from_dict(d: dict[str, Any] | None) -> EnvironmentSnapshot | Non
 
 def fact_from_dict(d: dict[str, Any]) -> Fact:
     return Fact(
-        peer_id=d["peer_id"],
+        workspace_id=d["workspace_id"],
         category=d["category"],
         key=d["key"],
         value=d["value"],

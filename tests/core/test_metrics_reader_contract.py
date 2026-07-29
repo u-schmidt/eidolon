@@ -20,7 +20,7 @@ class TestEventsForRequest:
     def test_reads_back_written_rows(self, metrics_recorder: MetricsRecorder, metrics_reader: MetricsReader):
         metrics_recorder.record_event(
             "error", "fact_consolidation", "boom",
-            peer_id="user", request_id="req1", session_id="sess1",
+            workspace_id="user", request_id="req1", session_id="sess1",
         )
 
         rows = metrics_reader.events_for_request("req1")
@@ -28,7 +28,7 @@ class TestEventsForRequest:
         assert rows[0]["severity"] == "error"
         assert rows[0]["step"] == "fact_consolidation"
         assert rows[0]["message"] == "boom"
-        assert rows[0]["peer_id"] == "user"
+        assert rows[0]["workspace_id"] == "user"
         assert rows[0]["session_id"] == "sess1"
         assert rows[0]["created_at"] is not None
 
@@ -47,7 +47,7 @@ class TestLlmCallsForRequest:
     def test_reads_back_written_rows(self, metrics_recorder: MetricsRecorder, metrics_reader: MetricsReader):
         metrics_recorder.record_llm_call(
             "topic_detection", 123.4, True,
-            peer_id="user", request_id="req1", session_id="sess1",
+            workspace_id="user", request_id="req1", session_id="sess1",
         )
 
         rows = metrics_reader.llm_calls_for_request("req1")
@@ -94,7 +94,7 @@ class TestEventsSince:
     def test_reads_back_written_rows(self, metrics_recorder: MetricsRecorder, metrics_reader: MetricsReader):
         metrics_recorder.record_event(
             "error", "fact_consolidation", "boom",
-            peer_id="user", request_id="req1", session_id="sess1",
+            workspace_id="user", request_id="req1", session_id="sess1",
         )
 
         rows = metrics_reader.events_since(datetime.now(UTC) - timedelta(hours=1))

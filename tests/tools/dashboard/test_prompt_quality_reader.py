@@ -55,7 +55,7 @@ def _consolidation_event(upserts: list[dict]) -> dict:
 
 
 def _correction_event(category: str, key: str, action: str) -> dict:
-    return {"payload": {"peer_id": "u1", "category": category, "key": key, "value": "x", "action": action}}
+    return {"payload": {"workspace_id": "u1", "category": category, "key": key, "value": "x", "action": action}}
 
 
 class TestContinueFallback:
@@ -162,8 +162,8 @@ class TestTypeCounts:
 class TestFactCategoryOutliers:
     def test_flags_facts_outside_configured_categories(self):
         storage = MockStorage()
-        storage.facts.append(Fact(peer_id="u1", category="basic", key="name", value="Alex", source="user"))
-        storage.facts.append(Fact(peer_id="u1", category="typo_category", key="thing", value="x", source="ai"))
+        storage.facts.append(Fact(workspace_id="u1", category="basic", key="name", value="Alex", source="user"))
+        storage.facts.append(Fact(workspace_id="u1", category="typo_category", key="thing", value="x", source="ai"))
         reader = PromptQualityReader(FakeTraceReader(), storage, ["basic", "work"])
 
         outliers = reader.summary(_NOW).fact_category_outliers
@@ -176,7 +176,7 @@ class TestFactCategoryOutliers:
         # not passing any topic_detection/etc events at all and still
         # getting the outlier back.
         storage = MockStorage()
-        storage.facts.append(Fact(peer_id="u1", category="bad", key="k", value="v", source="ai"))
+        storage.facts.append(Fact(workspace_id="u1", category="bad", key="k", value="v", source="ai"))
         reader = PromptQualityReader(FakeTraceReader(), storage, ["basic"])
 
         assert len(reader.summary(_NOW).fact_category_outliers) == 1

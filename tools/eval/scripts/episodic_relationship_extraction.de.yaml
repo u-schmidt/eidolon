@@ -18,7 +18,7 @@
 # new material the LLM reviews together.
 
 name: "episodic-sounding mention reveals a durable correspondence relationship"
-peer_id: "eval-peer-episodic-relationship"
+workspace_id: "eval-peer-episodic-relationship"
 language: "de"
 
 turns:

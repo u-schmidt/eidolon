@@ -96,7 +96,7 @@ Each model role (`llm`, `embedder`, and any future role) is a **self-contained**
 | `deployment.server_url`/`token`/`timeout` | string/float | Remote server connection (`mode: server` only); `token` also settable via `EIDOLON_DEPLOYMENT_TOKEN` |
 | `retrieval.semantic` | float | Embedding similarity weight (0-1) |
 | `retrieval.tag_overlap` | float | Tag overlap weight (0-1) |
-| `retrieval.person` | float | Same peer weight (0-1) |
+| `retrieval.person` | float | Reserved for a future subject-relevance signal (does this topic concern the same person/entity as the current message?); currently dormant (always 0) for topic search (0-1) |
 | `retrieval.temporal` | float | Temporal closeness weight (0-1) |
 | `retrieval.related_topics` | int | Related topics injected per turn (default 5) |
 | `retrieval.memory_items_fact` | int | Reserved memory-item slots for item_type=fact (default 4) |
@@ -109,9 +109,10 @@ Each model role (`llm`, `embedder`, and any future role) is a **self-contained**
 | `maintenance.enabled` | bool | Auto-close stale-open topics (default `false`) — see [Stale-topic maintenance](#stale-topic-maintenance) below |
 | `maintenance.interval_hours` | float | Minimum time between sweep attempts (default 1) |
 | `maintenance.stale_after_hours` | float | How long a topic must be idle to count as stale (default 24) |
-| `maintenance.peer_id` | string | Restrict the sweep to one peer (default: every peer) |
+| `maintenance.workspace_id` | string | Restrict the sweep to one workspace (default: every workspace) |
 | `language` | string | Language code for stop word filtering (`en`, `de`) |
 | `timezone` | string | IANA zone name (e.g. `Europe/Berlin`) for displaying the injected `[Environment]` time (default `UTC`); stored timestamps stay UTC internally |
+| `workspace_id` | string | Pins this profile's own identity — the partition key separating one caller's memories from another's. Only needed if more than one Hermes profile shares this same Eidolon backend; otherwise the per-session identity Hermes provides (or the `"user"` fallback) is enough on its own. Read once at startup |
 
 ### Deployment mode
 
@@ -140,7 +141,7 @@ Here's specifically what each means for *this plugin's* `eidolon.yaml`:
 
 ### Stale-topic maintenance
 
-Hermes has no session-end hook, so a topic a peer just abandons
+Hermes has no session-end hook, so a topic a caller just abandons
 mid-conversation stays `active` in storage forever unless something
 closes it — see ROADMAP.md's "Topics never close on their own" entry.
 Off by default (`maintenance.enabled: false`); when enabled, the
@@ -150,7 +151,7 @@ idle past `maintenance.stale_after_hours` — rather than running on a
 fixed timer independent of activity. That distinction matters: closing
 a topic while its owner is still away risks fragmenting a conversation
 they'd have naturally continued (topic detection has nothing "active"
-left to compare against once a topic is closed, so a returning peer's
+left to compare against once a topic is closed, so a returning caller's
 continuation gets forced into a new topic instead of resuming the old
 one). Piggybacking on activity means a topic only ever closes once
 some turn — anyone's, not necessarily its owner's — proves enough idle
@@ -209,7 +210,7 @@ adapter runs in:
 
 | Layer | Description | Persistence |
 |---|---|---|
-| **Facts** | A small, curated profile of durable identity-level facts about a peer (name, location, relationships, health, work, stable preferences) — reconciled periodically, not per-turn | Persistent across sessions |
+| **Facts** | A small, curated profile of durable identity-level facts about a caller (name, location, relationships, health, work, stable preferences) — reconciled periodically, not per-turn | Persistent across sessions |
 | **Topics** | Episodic conversation segments with summaries, tags, embeddings | Persistent across sessions |
 | **Memory Items** | Extracted fragments (essence, fact, surprise, feeling) with perspective attribution | Persistent across sessions |
 | **Messages** | Raw conversation turns, linked to topics and memory items | Persistent across sessions |

@@ -58,8 +58,8 @@ def _context_event(facts: list[dict]) -> dict:
 class TestTopRetrievedAndNeverIncluded:
     def test_tallies_included_and_scored_counts(self):
         storage = MockStorage()
-        topic_a = storage.create_topic("Topic A", peer_id="u1")
-        topic_b = storage.create_topic("Topic B", peer_id="u1")
+        topic_a = storage.create_topic("Topic A", workspace_id="u1")
+        topic_b = storage.create_topic("Topic B", workspace_id="u1")
         events = [
             _scoring_event([
                 _candidate("topic", topic_a, 0.5, included=True),
@@ -122,8 +122,8 @@ class TestScoreComponents:
 class TestNearMisses:
     def test_includes_candidates_within_margin_excludes_others(self):
         storage = MockStorage()
-        topic_close = storage.create_topic("Close call", peer_id="u1")
-        topic_far = storage.create_topic("Not close", peer_id="u1")
+        topic_close = storage.create_topic("Close call", workspace_id="u1")
+        topic_far = storage.create_topic("Not close", workspace_id="u1")
         events = [
             _scoring_event([
                 _candidate("topic", 99, 0.50, included=True),
@@ -151,7 +151,7 @@ class TestNearMisses:
 
     def test_near_miss_kind_filter_scopes_to_one_kind(self):
         storage = MockStorage()
-        topic_id = storage.create_topic("Close topic", peer_id="u1")
+        topic_id = storage.create_topic("Close topic", workspace_id="u1")
         item_id = storage.store_memory_item(MemoryItem(
             content="close item", item_type="fact", source_peer="u1", subject_peer="u1",
             attribution_type="self_statement", topic_id=topic_id,
@@ -172,7 +172,7 @@ class TestNearMisses:
 
     def test_near_miss_kind_filter_empty_for_absent_kind(self):
         storage = MockStorage()
-        topic_id = storage.create_topic("Close topic", peer_id="u1")
+        topic_id = storage.create_topic("Close topic", workspace_id="u1")
         events = [
             _scoring_event([
                 _candidate("topic", 99, 0.50, included=True),

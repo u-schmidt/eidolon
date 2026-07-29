@@ -100,7 +100,7 @@ class InjectionSimulator:
             situation=env_payload.get("situation"),
         )
         facts = [
-            Fact(peer_id=payload.get("peer_id", ""), category=f["category"], key=f["key"],
+            Fact(workspace_id=payload.get("workspace_id", ""), category=f["category"], key=f["key"],
                  value=f["value"], source="", created_at=f.get("created_at"))
             for f in payload.get("facts", [])
         ]

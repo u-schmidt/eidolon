@@ -233,11 +233,11 @@ class MaintenanceConfig:
     effect on existing data.
 
     Deliberately *not* timer-driven — a topic is only ever closed as a
-    side effect of some other real turn happening (any peer, any
+    side effect of some other real turn happening (any workspace, any
     session), checked no more often than ``interval_hours``. Closing a
     topic independently of activity risks fragmenting a conversation a
-    peer would have naturally continued: once closed, topic detection
-    has nothing "active" left to compare against, so a returning peer's
+    workspace would have naturally continued: once closed, topic detection
+    has nothing "active" left to compare against, so a returning workspace's
     continuation gets forced into a new topic instead of resuming the
     old one.
     """
@@ -245,7 +245,7 @@ class MaintenanceConfig:
     enabled: bool = False
     interval_hours: float = 1.0
     stale_after_hours: float = 24.0  # mirrors tools/cli.py's --stale-older-than-hours default
-    peer_id: str | None = None  # restrict the sweep to one peer; None = every peer
+    workspace_id: str | None = None  # restrict the sweep to one workspace; None = every workspace
 
 
 @dataclass
@@ -268,6 +268,17 @@ class EidolonConfig:
     maintenance: MaintenanceConfig = field(default_factory=MaintenanceConfig)
     language: str = "en"
     timezone: str = "UTC"  # IANA name (e.g. "Europe/Berlin"); used to display env time
+    # A profile-scoped identity override, read once at adapter startup —
+    # lets a Hermes profile pin its own workspace via its own eidolon.yaml
+    # (same placement/purpose as Honcho's honcho.json "workspace" field
+    # one directory up) instead of relying only on Hermes's user_id/
+    # user_id_alt kwargs, which distinguish platform end-users sharing one
+    # profile, not profiles from each other — a local desktop/CLI session
+    # has neither, so without this every such profile collapses to the
+    # same "user" fallback if it shares a backend with another. See
+    # adapters/hermes/memory_provider.py's initialize() for the full
+    # resolution order. None = no override, fall through as before.
+    workspace_id: str | None = None
 
     def require_model(self, role: str) -> ModelConfig:
         """Return the fully-specified ``ModelConfig`` for ``role``.
@@ -350,8 +361,9 @@ class EidolonConfig:
                 "enabled": self.maintenance.enabled,
                 "interval_hours": self.maintenance.interval_hours,
                 "stale_after_hours": self.maintenance.stale_after_hours,
-                "peer_id": self.maintenance.peer_id,
+                "workspace_id": self.maintenance.workspace_id,
             },
             "language": self.language,
             "timezone": self.timezone,
+            "workspace_id": self.workspace_id,
         }

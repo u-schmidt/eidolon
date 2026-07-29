@@ -111,7 +111,7 @@ def client(storage: MockStorage) -> TestClient:
 
 class TestLanding:
     def test_shows_recent_activity(self, client: TestClient, storage: MockStorage):
-        storage.store_message(turn_id=1, role="user", content="hello there", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hello there", workspace_id="u1", request_id="req1")
 
         response = client.get("/")
         assert response.status_code == 200
@@ -153,7 +153,7 @@ class TestLanding:
 
 class TestTurnsList:
     def test_lists_recent_turns(self, client: TestClient, storage: MockStorage):
-        storage.store_message(turn_id=1, role="user", content="hello there", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hello there", workspace_id="u1", request_id="req1")
 
         response = client.get("/turns")
         assert response.status_code == 200
@@ -165,11 +165,11 @@ class TestTurnsList:
         assert response.status_code == 200
         assert "No turns found" in response.text
 
-    def test_filters_by_peer_id(self, client: TestClient, storage: MockStorage):
-        storage.store_message(turn_id=1, role="user", content="mine", peer_id="u1", request_id="req1")
-        storage.store_message(turn_id=2, role="user", content="theirs", peer_id="u2", request_id="req2")
+    def test_filters_by_workspace_id(self, client: TestClient, storage: MockStorage):
+        storage.store_message(turn_id=1, role="user", content="mine", workspace_id="u1", request_id="req1")
+        storage.store_message(turn_id=2, role="user", content="theirs", workspace_id="u2", request_id="req2")
 
-        response = client.get("/turns", params={"peer_id": "u1"})
+        response = client.get("/turns", params={"workspace_id": "u1"})
         assert response.status_code == 200
         assert "mine" in response.text
         assert "theirs" not in response.text
@@ -177,8 +177,8 @@ class TestTurnsList:
 
 class TestTurnDetail:
     def test_skeleton_mode_renders(self, client: TestClient, storage: MockStorage):
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
-        storage.store_message(turn_id=1, role="ai", content="hello", peer_id="ai", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="ai", content="hello", workspace_id="ai", request_id="req1")
 
         response = client.get("/turns/req1")
         assert response.status_code == 200
@@ -186,7 +186,7 @@ class TestTurnDetail:
         assert "hi" in response.text
 
     def test_rich_mode_renders(self, storage: MockStorage):
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace = _FakeTraceReader({
             "req1": [
                 {"event_type": "topic_detection", "payload": {"message": "hi"}, "duration_ms": 5.0,
@@ -205,7 +205,7 @@ class TestTurnDetail:
         assert response.status_code == 404
 
     def test_retrieval_scoring_summary_shows_candidate_label(self, storage: MockStorage):
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         topic_id = storage.create_topic("Bello Features", summary="", tags=[])
         trace = _FakeTraceReader({
             "req1": [
@@ -233,7 +233,7 @@ class TestTurnDetail:
         assert "Bello Features" in response.text
 
     def test_timing_headline_and_waterfall_render(self, storage: MockStorage):
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace = _FakeTraceReader({
             "req1": [
                 {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
@@ -270,7 +270,7 @@ class TestTurnDetail:
         assert bar_svg.group(0).count("<rect") == 3
 
     def test_waterfall_excludes_wrapping_events_but_steps_list_keeps_them(self, storage: MockStorage):
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace = _FakeTraceReader({
             "req1": [
                 {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
@@ -302,7 +302,7 @@ class TestTurnDetail:
         assert "Turn complete (sync)" in response.text
 
     def test_timing_headline_omits_gap_when_only_one_duration_present(self, storage: MockStorage):
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace = _FakeTraceReader({
             "req1": [
                 {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
@@ -319,7 +319,7 @@ class TestTurnDetail:
         assert "Not available for this turn" not in response.text
 
     def test_timing_degrades_gracefully_without_wrapping_events(self, storage: MockStorage):
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
         trace = _FakeTraceReader({
             "req1": [
                 {"event_type": "topic_detection", "payload": {}, "duration_ms": 5.0,
@@ -334,7 +334,7 @@ class TestTurnDetail:
         assert "Not available for this turn" in response.text
 
     def test_no_timing_section_for_skeleton_only_turn(self, client: TestClient, storage: MockStorage):
-        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
 
         response = client.get("/turns/req1")
         assert response.status_code == 200
@@ -362,7 +362,7 @@ class TestPerformance:
     def test_renders_call_type_stats(self, storage: MockStorage):
         metrics = _MetricsReaderWithData(llm_calls=[
             {"call_type": "topic_detection", "duration_ms": 12.5, "succeeded": True,
-             "peer_id": "u1", "session_id": None, "created_at": "2026-07-26T18:00:00+00:00"},
+             "workspace_id": "u1", "session_id": None, "created_at": "2026-07-26T18:00:00+00:00"},
         ])
         turn_reader = TurnReader(storage, metrics, _FakeTraceReader())
         client = TestClient(_wrap(turn_reader, storage, metrics_reader=metrics))
@@ -374,7 +374,7 @@ class TestPerformance:
     def test_renders_top_error_sources(self, storage: MockStorage):
         metrics = _MetricsReaderWithData(events=[
             {"severity": "error", "step": "extraction", "message": "boom",
-             "peer_id": "u1", "session_id": "s1", "created_at": "2026-07-26T18:00:00+00:00"},
+             "workspace_id": "u1", "session_id": "s1", "created_at": "2026-07-26T18:00:00+00:00"},
         ])
         turn_reader = TurnReader(storage, metrics, _FakeTraceReader())
         client = TestClient(_wrap(turn_reader, storage, metrics_reader=metrics))
@@ -516,7 +516,7 @@ class TestPromptQuality:
                 {"payload": {"upserts": [{"category": "work", "key": "role", "value": "senior engineer"}]}},
             ],
         })
-        storage.facts.append(Fact(peer_id="u1", category="typo_cat", key="k", value="v", source="ai"))
+        storage.facts.append(Fact(workspace_id="u1", category="typo_cat", key="k", value="v", source="ai"))
         turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
         client = TestClient(_wrap(turn_reader, storage, trace_reader=trace, fact_categories=["basic"]))
 
@@ -550,7 +550,7 @@ class TestTopicLifecycle:
         assert "No topics closed in this window" in response.text
 
     def test_renders_lifespan_and_stale_sweep(self, storage: MockStorage):
-        tid = storage.create_topic("Short-lived topic", peer_id="u1")
+        tid = storage.create_topic("Short-lived topic", workspace_id="u1")
         storage.close_topic(tid, "done")
         storage.topics[tid]["created_at"] = "2026-07-28T10:00:00"
         storage.topics[tid]["closed_at"] = "2026-07-28T10:30:00"
@@ -636,13 +636,13 @@ class TestBrowseTopics:
         assert "No topics found" in response.text
 
     def test_renders_and_filters(self, storage: MockStorage):
-        tid = storage.create_topic("Bike trip", peer_id="u1")
+        tid = storage.create_topic("Bike trip", workspace_id="u1")
         storage.close_topic(tid, "done")
-        storage.create_topic("Open one", peer_id="u2")
+        storage.create_topic("Open one", workspace_id="u2")
         turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
         client = TestClient(_wrap(turn_reader, storage))
 
-        response = client.get("/topics", params={"status": "closed", "peer_id": "u1"})
+        response = client.get("/topics", params={"status": "closed", "workspace_id": "u1"})
         assert response.status_code == 200
         assert "Bike trip" in response.text
         assert "Open one" not in response.text
@@ -651,11 +651,11 @@ class TestBrowseTopics:
         # A submitted-but-blank <select>/pagination link carries status=""
         # over the wire — must behave like "no filter", not "status equals
         # the empty string" (which would hide every topic).
-        storage.create_topic("Only topic", peer_id="u1")
+        storage.create_topic("Only topic", workspace_id="u1")
         turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
         client = TestClient(_wrap(turn_reader, storage))
 
-        response = client.get("/topics", params={"status": "", "peer_id": ""})
+        response = client.get("/topics", params={"status": "", "workspace_id": ""})
         assert response.status_code == 200
         assert "Only topic" in response.text
 
@@ -667,8 +667,8 @@ class TestBrowseFacts:
         assert "No facts found" in response.text
 
     def test_renders_and_filters(self, storage: MockStorage):
-        storage.facts.append(Fact(peer_id="u1", category="basic", key="name", value="Alex", source="user"))
-        storage.facts.append(Fact(peer_id="u1", category="work", key="role", value="engineer", source="ai"))
+        storage.facts.append(Fact(workspace_id="u1", category="basic", key="name", value="Alex", source="user"))
+        storage.facts.append(Fact(workspace_id="u1", category="work", key="role", value="engineer", source="ai"))
         turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
         client = TestClient(_wrap(turn_reader, storage))
 
@@ -679,7 +679,7 @@ class TestBrowseFacts:
 
     def test_pagination_link_carries_filter_and_page(self, storage: MockStorage):
         for i in range(60):
-            storage.facts.append(Fact(peer_id="u1", category="basic", key=f"k{i}", value="v", source="user"))
+            storage.facts.append(Fact(workspace_id="u1", category="basic", key=f"k{i}", value="v", source="user"))
         turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
         client = TestClient(_wrap(turn_reader, storage))
 
@@ -689,8 +689,8 @@ class TestBrowseFacts:
         assert 'href="http://testserver/facts?category=basic&amp;page=2"' in response.text
 
     def test_sort_by_importance_orders_high_first(self, storage: MockStorage):
-        storage.facts.append(Fact(peer_id="u1", category="a", key="low", value="v", source="user", importance="low"))
-        storage.facts.append(Fact(peer_id="u1", category="a", key="high", value="v", source="user", importance="high"))
+        storage.facts.append(Fact(workspace_id="u1", category="a", key="low", value="v", source="user", importance="low"))
+        storage.facts.append(Fact(workspace_id="u1", category="a", key="high", value="v", source="user", importance="high"))
         turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
         client = TestClient(_wrap(turn_reader, storage))
 
@@ -706,8 +706,8 @@ class TestBrowseMemoryItems:
         assert "No memory items found" in response.text
 
     def test_renders_and_filters(self, storage: MockStorage):
-        t1 = storage.create_topic("First", peer_id="u1")
-        t2 = storage.create_topic("Second", peer_id="u1")
+        t1 = storage.create_topic("First", workspace_id="u1")
+        t2 = storage.create_topic("Second", workspace_id="u1")
         storage.store_memory_item(MemoryItem(
             content="a fact", item_type="fact", source_peer="u1", subject_peer="u1",
             attribution_type="self_statement", topic_id=t1,
@@ -729,7 +729,7 @@ class TestBrowseMemoryItems:
         assert response.status_code == 200
 
     def test_search_by_q_filters_content(self, storage: MockStorage):
-        topic_id = storage.create_topic("Topic", peer_id="u1")
+        topic_id = storage.create_topic("Topic", workspace_id="u1")
         storage.store_memory_item(MemoryItem(
             content="loves hiking", item_type="fact", source_peer="u1", subject_peer="u1",
             attribution_type="self_statement", topic_id=topic_id,
@@ -759,7 +759,7 @@ class TestBrowseClusters:
         turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
         client = TestClient(_wrap(turn_reader, storage))
 
-        response = client.get("/clusters", params={"peer_id": "u1"})
+        response = client.get("/clusters", params={"workspace_id": "u1"})
         assert response.status_code == 200
         assert "Bike" in response.text
         assert "Trip" not in response.text
@@ -781,8 +781,8 @@ class TestClusterDetail:
 
     def test_renders_cluster_and_member_topics(self, storage: MockStorage):
         cid = storage.create_cluster("u1", "Bike", "a long cluster summary", tags=["fitness"])
-        t1 = storage.create_topic("First ride", peer_id="u1")
-        t2 = storage.create_topic("Second ride", peer_id="u1")
+        t1 = storage.create_topic("First ride", workspace_id="u1")
+        t2 = storage.create_topic("Second ride", workspace_id="u1")
         storage.assign_topic_to_cluster(t1, cid)
         storage.assign_topic_to_cluster(t2, cid)
         turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())

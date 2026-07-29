@@ -143,51 +143,51 @@ class PostgresStore:
 
     # ── Facts ───────────────────────────────────────────────
 
-    def get_facts(self, peer_id: str) -> list[Fact]:
+    def get_facts(self, workspace_id: str) -> list[Fact]:
         rows = self._conn.execute(
-            "SELECT peer_id, category, key, value, source, importance, created_at "
-            "FROM facts WHERE peer_id = %s "
+            "SELECT workspace_id, category, key, value, source, importance, created_at "
+            "FROM facts WHERE workspace_id = %s "
             "ORDER BY CASE importance WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, category, key",
-            (peer_id,),
+            (workspace_id,),
         ).fetchall()
         return [
-            Fact(peer_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4], importance=r[5], created_at=r[6])
+            Fact(workspace_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4], importance=r[5], created_at=r[6])
             for r in rows
         ]
 
     def get_all_facts(self) -> list[Fact]:
         rows = self._conn.execute(
-            "SELECT peer_id, category, key, value, source, importance, created_at "
-            "FROM facts ORDER BY peer_id, category, key",
+            "SELECT workspace_id, category, key, value, source, importance, created_at "
+            "FROM facts ORDER BY workspace_id, category, key",
         ).fetchall()
         return [
-            Fact(peer_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4], importance=r[5], created_at=r[6])
+            Fact(workspace_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4], importance=r[5], created_at=r[6])
             for r in rows
         ]
 
     def set_fact(
-        self, peer_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
+        self, workspace_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
     ) -> None:
         self._conn.execute(
-            "INSERT INTO facts (peer_id, category, key, value, source, importance) "
+            "INSERT INTO facts (workspace_id, category, key, value, source, importance) "
             "VALUES (%s, %s, %s, %s, %s, %s) "
-            "ON CONFLICT (peer_id, category, key) DO UPDATE SET "
+            "ON CONFLICT (workspace_id, category, key) DO UPDATE SET "
             "value=excluded.value, source=excluded.source, importance=excluded.importance",
-            (peer_id, category, key, value, source, importance),
+            (workspace_id, category, key, value, source, importance),
         )
 
-    def delete_fact(self, peer_id: str, category: str, key: str) -> None:
+    def delete_fact(self, workspace_id: str, category: str, key: str) -> None:
         self._conn.execute(
-            "DELETE FROM facts WHERE peer_id = %s AND category = %s AND key = %s",
-            (peer_id, category, key),
+            "DELETE FROM facts WHERE workspace_id = %s AND category = %s AND key = %s",
+            (workspace_id, category, key),
         )
 
     # ── Facts Consolidation ────────────────────────────────
 
-    def count_user_turns(self, peer_id: str) -> int:
+    def count_user_turns(self, workspace_id: str) -> int:
         row = self._conn.execute(
-            "SELECT COUNT(*) FROM messages WHERE peer_id = %s AND role = 'user'",
-            (peer_id,),
+            "SELECT COUNT(*) FROM messages WHERE workspace_id = %s AND role = 'user'",
+            (workspace_id,),
         ).fetchone()
         return row[0] if row else 0
 
@@ -208,19 +208,19 @@ class PostgresStore:
             for r in rows
         ]
 
-    def get_consolidation_checkpoint(self, peer_id: str) -> int:
+    def get_consolidation_checkpoint(self, workspace_id: str) -> int:
         row = self._conn.execute(
-            "SELECT last_item_id FROM fact_consolidation_state WHERE peer_id = %s",
-            (peer_id,),
+            "SELECT last_item_id FROM fact_consolidation_state WHERE workspace_id = %s",
+            (workspace_id,),
         ).fetchone()
         return row[0] if row else 0
 
-    def set_consolidation_checkpoint(self, peer_id: str, last_item_id: int) -> None:
+    def set_consolidation_checkpoint(self, workspace_id: str, last_item_id: int) -> None:
         self._conn.execute(
-            "INSERT INTO fact_consolidation_state (peer_id, last_item_id, last_run_at) "
+            "INSERT INTO fact_consolidation_state (workspace_id, last_item_id, last_run_at) "
             "VALUES (%s, %s, now()) "
-            "ON CONFLICT (peer_id) DO UPDATE SET last_item_id=excluded.last_item_id, last_run_at=excluded.last_run_at",
-            (peer_id, last_item_id),
+            "ON CONFLICT (workspace_id) DO UPDATE SET last_item_id=excluded.last_item_id, last_run_at=excluded.last_run_at",
+            (workspace_id, last_item_id),
         )
 
     # ── Topics ─────────────────────────────────────────────
@@ -231,20 +231,20 @@ class PostgresStore:
         summary: str = "",
         tags: list[str] | None = None,
         embedding: list[float] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         session_id: str | None = None,
     ) -> int:
         row = self._conn.execute(
-            "INSERT INTO topics (label, summary, tags, embedding, peer_id, session_id) "
+            "INSERT INTO topics (label, summary, tags, embedding, workspace_id, session_id) "
             "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-            (label, summary, Jsonb(tags or []), embedding, peer_id, session_id),
+            (label, summary, Jsonb(tags or []), embedding, workspace_id, session_id),
         ).fetchone()
         assert row is not None  # RETURNING id always yields a row on successful INSERT
         return row[0]
 
     def get_topic(self, topic_id: int) -> dict | None:
         row = self._conn.execute(
-            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at, message_count "
+            "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at, message_count "
             "FROM topics WHERE id = %s",
             (topic_id,),
         ).fetchone()
@@ -256,7 +256,7 @@ class PostgresStore:
             "summary": row[2],
             "tags": row[3],  # jsonb round-trips to a Python list already
             "status": row[4],
-            "peer_id": row[5],
+            "workspace_id": row[5],
             "created_at": row[6],
             "closed_at": row[7],
             "message_count": row[8],
@@ -268,33 +268,33 @@ class PostgresStore:
             (summary, topic_id),
         )
 
-    def get_active_topic(self, peer_id: str, session_id: str | None = None) -> int | None:
+    def get_active_topic(self, workspace_id: str, session_id: str | None = None) -> int | None:
         """See StorageProvider.get_active_topic / SqliteStore's docstring
-        for the full (peer_id, session_id) scoping rationale. Uses
+        for the full (workspace_id, session_id) scoping rationale. Uses
         Postgres's ``IS NOT DISTINCT FROM`` — the exact NULL-safe
         equivalent of SQLite's ``session_id IS ?`` binding."""
         row = self._conn.execute(
-            "SELECT id FROM topics WHERE peer_id = %s AND session_id IS NOT DISTINCT FROM %s AND status = 'active' "
+            "SELECT id FROM topics WHERE workspace_id = %s AND session_id IS NOT DISTINCT FROM %s AND status = 'active' "
             "ORDER BY created_at DESC, id DESC LIMIT 1",
-            (peer_id, session_id),
+            (workspace_id, session_id),
         ).fetchone()
         return row[0] if row else None
 
-    def get_stale_active_topics(self, cutoff: datetime, peer_id: str | None = None) -> list[dict]:
+    def get_stale_active_topics(self, cutoff: datetime, workspace_id: str | None = None) -> list[dict]:
         """See SqliteStore.get_stale_active_topics. Real TIMESTAMPTZ
         columns mean the staleness comparison can happen directly in SQL
         (via HAVING) rather than SQLite's Python-side string-timestamp
         parsing workaround."""
         query = (
-            "SELECT t.id, t.label, t.summary, t.tags, t.status, t.peer_id, t.created_at, t.closed_at, "
+            "SELECT t.id, t.label, t.summary, t.tags, t.status, t.workspace_id, t.created_at, t.closed_at, "
             "COALESCE(MAX(m.created_at), t.created_at) AS last_activity "
             "FROM topics t LEFT JOIN messages m ON m.topic_id = t.id "
             "WHERE t.status = 'active'"
         )
         params: list = []
-        if peer_id is not None:
-            query += " AND t.peer_id = %s"
-            params.append(peer_id)
+        if workspace_id is not None:
+            query += " AND t.workspace_id = %s"
+            params.append(workspace_id)
         query += " GROUP BY t.id HAVING COALESCE(MAX(m.created_at), t.created_at) < %s ORDER BY last_activity ASC"
         params.append(cutoff)
         rows = self._conn.execute(query, params).fetchall()
@@ -306,7 +306,7 @@ class PostgresStore:
                 "summary": row[2],
                 "tags": row[3],
                 "status": row[4],
-                "peer_id": row[5],
+                "workspace_id": row[5],
                 "created_at": row[6],
                 "closed_at": row[7],
                 "last_activity": row[8],
@@ -314,13 +314,13 @@ class PostgresStore:
             for row in rows
         ]
 
-    def get_recent_topics(self, peer_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
+    def get_recent_topics(self, workspace_id: str, limit: int, min_message_count: int = -1) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, label, summary, tags, embedding, status, peer_id, created_at, closed_at "
-            "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = %s "
+            "SELECT id, label, summary, tags, embedding, status, workspace_id, created_at, closed_at "
+            "FROM topics WHERE status='closed' AND cluster_id IS NULL AND workspace_id = %s "
             "AND message_count > %s "
             "ORDER BY closed_at DESC, id DESC LIMIT %s",
-            (peer_id, min_message_count, limit),
+            (workspace_id, min_message_count, limit),
         ).fetchall()
         return [
             {
@@ -329,7 +329,7 @@ class PostgresStore:
                 "summary": row[2],
                 "tags": row[3],
                 "status": row[5],
-                "peer_id": row[6],
+                "workspace_id": row[6],
                 "created_at": row[7],
                 "closed_at": row[8],
             }
@@ -338,14 +338,14 @@ class PostgresStore:
 
     def get_closed_topics_since(self, since: datetime) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, peer_id, label, created_at, closed_at, message_count "
+            "SELECT id, workspace_id, label, created_at, closed_at, message_count "
             "FROM topics WHERE status = 'closed' AND closed_at >= %s ORDER BY closed_at ASC",
             (since,),
         ).fetchall()
         return [
             {
                 "id": row[0],
-                "peer_id": row[1],
+                "workspace_id": row[1],
                 "label": row[2],
                 "created_at": row[3],
                 "closed_at": row[4],
@@ -354,9 +354,9 @@ class PostgresStore:
             for row in rows
         ]
 
-    def list_topics(self, status: str | None = None, peer_id: str | None = None) -> list[dict]:
+    def list_topics(self, status: str | None = None, workspace_id: str | None = None) -> list[dict]:
         query = (
-            "SELECT id, label, status, peer_id, cluster_id, created_at, closed_at, message_count "
+            "SELECT id, label, status, workspace_id, cluster_id, created_at, closed_at, message_count "
             "FROM topics"
         )
         conditions = []
@@ -364,9 +364,9 @@ class PostgresStore:
         if status is not None:
             conditions.append("status = %s")
             params.append(status)
-        if peer_id is not None:
-            conditions.append("peer_id = %s")
-            params.append(peer_id)
+        if workspace_id is not None:
+            conditions.append("workspace_id = %s")
+            params.append(workspace_id)
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY created_at DESC, id DESC"
@@ -376,7 +376,7 @@ class PostgresStore:
                 "id": row[0],
                 "label": row[1],
                 "status": row[2],
-                "peer_id": row[3],
+                "workspace_id": row[3],
                 "cluster_id": row[4],
                 "created_at": row[5],
                 "closed_at": row[6],
@@ -404,7 +404,7 @@ class PostgresStore:
         self,
         query_embedding: list[float] | None = None,
         tags: list[str] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
@@ -413,7 +413,7 @@ class PostgresStore:
         min_message_count: int = -1,
     ) -> list[dict]:
         """See StorageProvider.search_topics / SqliteStore's docstring for
-        the full scoring semantics (peer_id as a hard filter, temporal as
+        the full scoring semantics (workspace_id as a hard filter, temporal as
         a re-ranking-only signal, etc.) — unchanged here. `min_message_count`
         soft-hides "mini-topics", applied in every branch's WHERE clause
         before ranking, same as SqliteStore.
@@ -433,39 +433,39 @@ class PostgresStore:
 
         if query_embedding is not None:
             k = _knn_prefilter_k(limit)
-            if peer_id:
+            if workspace_id:
                 rows = self._conn.execute(
-                    "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at, "
+                    "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at, "
                     "1 - (embedding <=> %(q)s::vector) AS similarity "
-                    "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = %(peer_id)s "
+                    "FROM topics WHERE status='closed' AND cluster_id IS NULL AND workspace_id = %(workspace_id)s "
                     "AND embedding IS NOT NULL AND message_count > %(min_msgs)s "
                     "ORDER BY embedding <=> %(q)s::vector LIMIT %(k)s",
-                    {"q": query_embedding, "peer_id": peer_id, "k": k, "min_msgs": min_message_count},
+                    {"q": query_embedding, "workspace_id": workspace_id, "k": k, "min_msgs": min_message_count},
                 ).fetchall()
             else:
                 rows = self._conn.execute(
-                    "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at, "
+                    "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at, "
                     "1 - (embedding <=> %(q)s::vector) AS similarity "
                     "FROM topics WHERE status='closed' AND cluster_id IS NULL AND embedding IS NOT NULL "
                     "AND message_count > %(min_msgs)s "
                     "ORDER BY embedding <=> %(q)s::vector LIMIT %(k)s",
                     {"q": query_embedding, "k": k, "min_msgs": min_message_count},
                 ).fetchall()
-        elif peer_id:
+        elif workspace_id:
             rows = [
                 (*r, 0.0)
                 for r in self._conn.execute(
-                    "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
-                    "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = %s "
+                    "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at "
+                    "FROM topics WHERE status='closed' AND cluster_id IS NULL AND workspace_id = %s "
                     "AND message_count > %s",
-                    (peer_id, min_message_count),
+                    (workspace_id, min_message_count),
                 ).fetchall()
             ]
         else:
             rows = [
                 (*r, 0.0)
                 for r in self._conn.execute(
-                    "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
+                    "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at "
                     "FROM topics WHERE status='closed' AND cluster_id IS NULL AND message_count > %s",
                     (min_message_count,),
                 ).fetchall()
@@ -479,7 +479,7 @@ class PostgresStore:
                 "summary": row[2],
                 "tags": row[3],
                 "status": row[4],
-                "peer_id": row[5],
+                "workspace_id": row[5],
                 "created_at": row[6],
                 "closed_at": row[7],
             }
@@ -492,12 +492,12 @@ class PostgresStore:
                 query_tags=tags,
                 candidate_tags=topic["tags"],
                 include_person=True,
-                # Not peer_id-derived: this row's peer_id already equals the
+                # Not workspace_id-derived: this row's workspace_id already equals the
                 # query's (the WHERE clause above guarantees it), so
                 # comparing them again is a tautology, not a signal — same
-                # peer-vs-subject conflation search_memory_items' docstring
+                # workspace-vs-subject conflation search_memory_items' docstring
                 # already documents removing once (a topic's *identity*
-                # peer_id was being used as a stand-in for whether it's
+                # workspace_id was being used as a stand-in for whether it's
                 # topically about the same *person/subject*, two different
                 # things). Left as a hard False — dormant, not deleted —
                 # until there's an actual subject-relevance signal to
@@ -512,16 +512,16 @@ class PostgresStore:
 
     # ── Topic Clusters ─────────────────────────────────────
 
-    def get_clusters(self, peer_id: str) -> list[dict]:
+    def get_clusters(self, workspace_id: str) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, peer_id, label, summary, tags, topic_count, created_at, updated_at "
-            "FROM topic_clusters WHERE peer_id = %s ORDER BY id",
-            (peer_id,),
+            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
+            "FROM topic_clusters WHERE workspace_id = %s ORDER BY id",
+            (workspace_id,),
         ).fetchall()
         return [
             {
                 "id": row[0],
-                "peer_id": row[1],
+                "workspace_id": row[1],
                 "label": row[2],
                 "summary": row[3],
                 "tags": row[4],
@@ -532,21 +532,21 @@ class PostgresStore:
             for row in rows
         ]
 
-    def list_clusters(self, peer_id: str | None = None) -> list[dict]:
+    def list_clusters(self, workspace_id: str | None = None) -> list[dict]:
         query = (
-            "SELECT id, peer_id, label, summary, tags, topic_count, created_at, updated_at "
+            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
             "FROM topic_clusters"
         )
         params: list = []
-        if peer_id is not None:
-            query += " WHERE peer_id = %s"
-            params.append(peer_id)
+        if workspace_id is not None:
+            query += " WHERE workspace_id = %s"
+            params.append(workspace_id)
         query += " ORDER BY created_at DESC, id DESC"
         rows = self._conn.execute(query, params).fetchall()
         return [
             {
                 "id": row[0],
-                "peer_id": row[1],
+                "workspace_id": row[1],
                 "label": row[2],
                 "summary": row[3],
                 "tags": row[4],
@@ -559,23 +559,23 @@ class PostgresStore:
 
     def create_cluster(
         self,
-        peer_id: str,
+        workspace_id: str,
         label: str,
         summary: str,
         tags: list[str] | None = None,
         embedding: list[float] | None = None,
     ) -> int:
         row = self._conn.execute(
-            "INSERT INTO topic_clusters (peer_id, label, summary, tags, embedding) "
+            "INSERT INTO topic_clusters (workspace_id, label, summary, tags, embedding) "
             "VALUES (%s, %s, %s, %s, %s) RETURNING id",
-            (peer_id, label, summary, Jsonb(tags or []), embedding),
+            (workspace_id, label, summary, Jsonb(tags or []), embedding),
         ).fetchone()
         assert row is not None  # RETURNING id always yields a row on successful INSERT
         return row[0]
 
     def get_cluster(self, cluster_id: int) -> dict | None:
         row = self._conn.execute(
-            "SELECT id, peer_id, label, summary, tags, topic_count, created_at, updated_at "
+            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
             "FROM topic_clusters WHERE id = %s",
             (cluster_id,),
         ).fetchone()
@@ -583,7 +583,7 @@ class PostgresStore:
             return None
         return {
             "id": row[0],
-            "peer_id": row[1],
+            "workspace_id": row[1],
             "label": row[2],
             "summary": row[3],
             "tags": row[4],
@@ -630,28 +630,28 @@ class PostgresStore:
 
     def get_topics_by_cluster(self, cluster_id: int) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
+            "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at "
             "FROM topics WHERE cluster_id = %s ORDER BY closed_at ASC, id ASC",
             (cluster_id,),
         ).fetchall()
         return [
             {
                 "id": row[0], "label": row[1], "summary": row[2], "tags": row[3],
-                "status": row[4], "peer_id": row[5], "created_at": row[6], "closed_at": row[7],
+                "status": row[4], "workspace_id": row[5], "created_at": row[6], "closed_at": row[7],
             }
             for row in rows
         ]
 
     def get_recent_topics_in_cluster(self, cluster_id: int, limit: int) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, label, summary, tags, status, peer_id, created_at, closed_at "
+            "SELECT id, label, summary, tags, status, workspace_id, created_at, closed_at "
             "FROM topics WHERE cluster_id = %s ORDER BY closed_at DESC, id DESC LIMIT %s",
             (cluster_id, limit),
         ).fetchall()
         return [
             {
                 "id": row[0], "label": row[1], "summary": row[2], "tags": row[3],
-                "status": row[4], "peer_id": row[5], "created_at": row[6], "closed_at": row[7],
+                "status": row[4], "workspace_id": row[5], "created_at": row[6], "closed_at": row[7],
             }
             for row in rows
         ]
@@ -660,7 +660,7 @@ class PostgresStore:
         self,
         query_embedding: list[float] | None = None,
         tags: list[str] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         limit: int = 5,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
@@ -668,34 +668,34 @@ class PostgresStore:
         now: datetime | None = None,
     ) -> list[dict]:
         """See StorageProvider.search_clusters / SqliteStore's docstring.
-        peer_id is required (returns [] without one) and hard-filtered —
-        clusters must never merge across peers."""
-        if not peer_id:
+        workspace_id is required (returns [] without one) and hard-filtered —
+        clusters must never merge across workspaces."""
+        if not workspace_id:
             return []
         scorer = RetrievalScorer(weights, now)
 
         if query_embedding is not None:
             rows = self._conn.execute(
-                "SELECT id, peer_id, label, summary, tags, topic_count, created_at, updated_at, "
+                "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at, "
                 "1 - (embedding <=> %(q)s::vector) AS similarity "
-                "FROM topic_clusters WHERE peer_id = %(peer_id)s AND embedding IS NOT NULL "
+                "FROM topic_clusters WHERE workspace_id = %(workspace_id)s AND embedding IS NOT NULL "
                 "ORDER BY embedding <=> %(q)s::vector LIMIT %(k)s",
-                {"q": query_embedding, "peer_id": peer_id, "k": _knn_prefilter_k(limit)},
+                {"q": query_embedding, "workspace_id": workspace_id, "k": _knn_prefilter_k(limit)},
             ).fetchall()
         else:
             rows = [
                 (*r, 0.0)
                 for r in self._conn.execute(
-                    "SELECT id, peer_id, label, summary, tags, topic_count, created_at, updated_at "
-                    "FROM topic_clusters WHERE peer_id = %s",
-                    (peer_id,),
+                    "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
+                    "FROM topic_clusters WHERE workspace_id = %s",
+                    (workspace_id,),
                 ).fetchall()
             ]
 
         scored: list[tuple[float, dict, dict]] = []
         for row in rows:
             cluster = {
-                "id": row[0], "peer_id": row[1], "label": row[2], "summary": row[3],
+                "id": row[0], "workspace_id": row[1], "label": row[2], "summary": row[3],
                 "tags": row[4], "topic_count": row[5], "created_at": row[6], "updated_at": row[7],
             }
             score, breakdown = scorer.score(
@@ -716,7 +716,7 @@ class PostgresStore:
     def search_cluster_candidates(
         self,
         topic_id: int,
-        peer_id: str,
+        workspace_id: str,
         limit: int = 5,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
@@ -741,10 +741,10 @@ class PostgresStore:
         topic_rows = self._conn.execute(
             "SELECT id, label, summary, tags, created_at, closed_at, "
             "1 - (embedding <=> %(q)s::vector) AS similarity "
-            "FROM topics WHERE status='closed' AND cluster_id IS NULL AND peer_id = %(peer_id)s "
+            "FROM topics WHERE status='closed' AND cluster_id IS NULL AND workspace_id = %(workspace_id)s "
             "AND id != %(topic_id)s AND embedding IS NOT NULL "
             "ORDER BY embedding <=> %(q)s::vector LIMIT %(k)s",
-            {"q": query_embedding, "peer_id": peer_id, "topic_id": topic_id, "k": _knn_prefilter_k(limit) + 1},
+            {"q": query_embedding, "workspace_id": workspace_id, "topic_id": topic_id, "k": _knn_prefilter_k(limit) + 1},
         ).fetchall()
         for row in topic_rows:
             candidate = {
@@ -766,9 +766,9 @@ class PostgresStore:
         cluster_rows = self._conn.execute(
             "SELECT id, label, summary, tags, updated_at, topic_count, "
             "1 - (embedding <=> %(q)s::vector) AS similarity "
-            "FROM topic_clusters WHERE peer_id = %(peer_id)s AND embedding IS NOT NULL "
+            "FROM topic_clusters WHERE workspace_id = %(workspace_id)s AND embedding IS NOT NULL "
             "ORDER BY embedding <=> %(q)s::vector LIMIT %(k)s",
-            {"q": query_embedding, "peer_id": peer_id, "k": _knn_prefilter_k(limit)},
+            {"q": query_embedding, "workspace_id": workspace_id, "k": _knn_prefilter_k(limit)},
         ).fetchall()
         for row in cluster_rows:
             candidate = {
@@ -827,7 +827,7 @@ class PostgresStore:
     def search_memory_items(
         self,
         query_embedding: list[float] | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         budget: MemoryItemBudget | None = None,
         weights: dict[str, float] | None = None,
         tracer: Tracer | None = None,
@@ -835,27 +835,27 @@ class PostgresStore:
         now: datetime | None = None,
     ) -> list[MemoryItem]:
         """See StorageProvider.search_memory_items / SqliteStore's
-        docstring — peer_id, when given, is a hard filter joined through
-        messages (memory_items carry no peer_id of their own)."""
+        docstring — workspace_id, when given, is a hard filter joined through
+        messages (memory_items carry no workspace_id of their own)."""
         budget = budget or MemoryItemBudget()
         scorer = RetrievalScorer(weights, now)
 
-        if query_embedding is not None and peer_id:
+        if query_embedding is not None and workspace_id:
             rows = list(self._conn.execute(
                 "SELECT mi.id, mi.content, mi.item_type, mi.source_peer, mi.subject_peer, "
                 "mi.attribution_type, mi.topic_id, mi.message_id, mi.created_at, "
                 "1 - (mi.embedding <=> %(q)s::vector) AS similarity "
                 "FROM memory_items mi JOIN messages m ON mi.message_id = m.id "
-                "WHERE m.peer_id = %(peer_id)s AND mi.embedding IS NOT NULL "
+                "WHERE m.workspace_id = %(workspace_id)s AND mi.embedding IS NOT NULL "
                 "ORDER BY mi.embedding <=> %(q)s::vector LIMIT %(k)s",
-                {"q": query_embedding, "peer_id": peer_id, "k": _knn_prefilter_k(budget.total)},
+                {"q": query_embedding, "workspace_id": workspace_id, "k": _knn_prefilter_k(budget.total)},
             ).fetchall())
             if budget.surprise > 0 or budget.feeling > 0:
                 # Rare-type bypass: surprise/feeling are uncommon enough
                 # that the KNN LIMIT above (embedding-similarity-only, no
                 # item_type awareness) could exclude every candidate of
                 # that type before type-aware selection ever runs. Fetch
-                # every surprise/feeling item for this peer directly
+                # every surprise/feeling item for this workspace directly
                 # instead — real similarity via the same SQL expression,
                 # just without the ORDER BY/LIMIT restriction — deduped
                 # against the KNN pool's own ids.
@@ -865,20 +865,20 @@ class PostgresStore:
                     "mi.attribution_type, mi.topic_id, mi.message_id, mi.created_at, "
                     "1 - (mi.embedding <=> %(q)s::vector) AS similarity "
                     "FROM memory_items mi JOIN messages m ON mi.message_id = m.id "
-                    "WHERE m.peer_id = %(peer_id)s AND mi.embedding IS NOT NULL "
+                    "WHERE m.workspace_id = %(workspace_id)s AND mi.embedding IS NOT NULL "
                     "AND mi.item_type IN ('surprise', 'feeling')",
-                    {"q": query_embedding, "peer_id": peer_id},
+                    {"q": query_embedding, "workspace_id": workspace_id},
                 ).fetchall()
                 rows.extend(r for r in bypass_rows if r[0] not in knn_ids)
-        elif peer_id:
+        elif workspace_id:
             rows = [
                 (*r, 0.0)
                 for r in self._conn.execute(
                     "SELECT mi.id, mi.content, mi.item_type, mi.source_peer, mi.subject_peer, "
                     "mi.attribution_type, mi.topic_id, mi.message_id, mi.created_at "
                     "FROM memory_items mi JOIN messages m ON mi.message_id = m.id "
-                    "WHERE m.peer_id = %s",
-                    (peer_id,),
+                    "WHERE m.workspace_id = %s",
+                    (workspace_id,),
                 ).fetchall()
             ]
         else:
@@ -979,16 +979,16 @@ class PostgresStore:
     # ── Messages ───────────────────────────────────────────
 
     def store_message(
-        self, turn_id: int, role: str, content: str, peer_id: str, topic_id: int | None = None,
+        self, turn_id: int, role: str, content: str, workspace_id: str, topic_id: int | None = None,
         request_id: str | None = None,
     ) -> int:
         # with conn.transaction(): see assign_topic_to_cluster's docstring
         # — the INSERT and topics.message_count UPDATE commit together.
         with self._conn.transaction():
             row = self._conn.execute(
-                "INSERT INTO messages (turn_id, role, content, peer_id, topic_id, request_id) "
+                "INSERT INTO messages (turn_id, role, content, workspace_id, topic_id, request_id) "
                 "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-                (turn_id, role, content, peer_id, topic_id, request_id),
+                (turn_id, role, content, workspace_id, topic_id, request_id),
             ).fetchone()
             if topic_id is not None:
                 self._conn.execute(
@@ -1000,65 +1000,65 @@ class PostgresStore:
 
     def get_messages_by_topic(self, topic_id: int) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, turn_id, role, content, peer_id, created_at "
+            "SELECT id, turn_id, role, content, workspace_id, created_at "
             "FROM messages WHERE topic_id = %s ORDER BY turn_id, id",
             (topic_id,),
         ).fetchall()
         return [
-            {"id": r[0], "turn_id": r[1], "role": r[2], "content": r[3], "peer_id": r[4], "created_at": r[5]}
+            {"id": r[0], "turn_id": r[1], "role": r[2], "content": r[3], "workspace_id": r[4], "created_at": r[5]}
             for r in rows
         ]
 
     def get_recent_messages_by_topic(self, topic_id: int, limit: int) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, turn_id, role, content, peer_id, created_at "
+            "SELECT id, turn_id, role, content, workspace_id, created_at "
             "FROM messages WHERE topic_id = %s ORDER BY id DESC LIMIT %s",
             (topic_id, limit),
         ).fetchall()
         return [
-            {"id": r[0], "turn_id": r[1], "role": r[2], "content": r[3], "peer_id": r[4], "created_at": r[5]}
+            {"id": r[0], "turn_id": r[1], "role": r[2], "content": r[3], "workspace_id": r[4], "created_at": r[5]}
             for r in reversed(rows)
         ]
 
     def get_messages_by_request_id(self, request_id: str) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, turn_id, role, content, peer_id, topic_id, created_at "
+            "SELECT id, turn_id, role, content, workspace_id, topic_id, created_at "
             "FROM messages WHERE request_id = %s ORDER BY id",
             (request_id,),
         ).fetchall()
         return [
             {
                 "id": r[0], "turn_id": r[1], "role": r[2], "content": r[3],
-                "peer_id": r[4], "topic_id": r[5], "created_at": r[6],
+                "workspace_id": r[4], "topic_id": r[5], "created_at": r[6],
             }
             for r in rows
         ]
 
-    def get_recent_turns(self, limit: int, peer_id: str | None = None) -> list[dict]:
-        if peer_id is not None:
+    def get_recent_turns(self, limit: int, workspace_id: str | None = None) -> list[dict]:
+        if workspace_id is not None:
             rows = self._conn.execute(
-                "SELECT request_id, peer_id, topic_id, content, created_at FROM messages "
-                "WHERE role = 'user' AND request_id IS NOT NULL AND peer_id = %s "
+                "SELECT request_id, workspace_id, topic_id, content, created_at FROM messages "
+                "WHERE role = 'user' AND request_id IS NOT NULL AND workspace_id = %s "
                 "ORDER BY id DESC LIMIT %s",
-                (peer_id, limit),
+                (workspace_id, limit),
             ).fetchall()
         else:
             rows = self._conn.execute(
-                "SELECT request_id, peer_id, topic_id, content, created_at FROM messages "
+                "SELECT request_id, workspace_id, topic_id, content, created_at FROM messages "
                 "WHERE role = 'user' AND request_id IS NOT NULL "
                 "ORDER BY id DESC LIMIT %s",
                 (limit,),
             ).fetchall()
         return [
-            {"request_id": r[0], "peer_id": r[1], "topic_id": r[2], "content": r[3], "created_at": r[4]}
+            {"request_id": r[0], "workspace_id": r[1], "topic_id": r[2], "content": r[3], "created_at": r[4]}
             for r in rows
         ]
 
-    def count_recent_turns(self, peer_id: str | None = None) -> int:
-        if peer_id is not None:
+    def count_recent_turns(self, workspace_id: str | None = None) -> int:
+        if workspace_id is not None:
             row = self._conn.execute(
-                "SELECT COUNT(*) FROM messages WHERE role = 'user' AND request_id IS NOT NULL AND peer_id = %s",
-                (peer_id,),
+                "SELECT COUNT(*) FROM messages WHERE role = 'user' AND request_id IS NOT NULL AND workspace_id = %s",
+                (workspace_id,),
             ).fetchone()
         else:
             row = self._conn.execute(

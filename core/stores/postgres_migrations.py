@@ -81,6 +81,27 @@ POSTGRES_MIGRATIONS: dict[int, str] = {
     ALTER TABLE messages ADD COLUMN request_id TEXT;
     CREATE INDEX IF NOT EXISTS idx_messages_request ON messages(request_id);
     """,
+    # peer_id -> workspace_id — see core/stores/migrations.py's version
+    # 11 for the full rationale (mirrors it exactly). Note: the
+    # auto-generated name of facts' UNIQUE(peer_id, category, key)
+    # constraint still contains "peer_id" after this — Postgres doesn't
+    # rename constraint names on a column rename, only the column itself
+    # (which is what actually matters functionally) — left as a cosmetic
+    # loose end rather than guessing at the exact generated name.
+    5: """
+    ALTER TABLE topics RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE messages RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE facts RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE fact_consolidation_state RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE topic_clusters RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE events RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE llm_calls RENAME COLUMN peer_id TO workspace_id;
+    ALTER TABLE embedding_calls RENAME COLUMN peer_id TO workspace_id;
+
+    ALTER INDEX idx_messages_peer_role RENAME TO idx_messages_workspace_role;
+    ALTER INDEX idx_topics_peer_status RENAME TO idx_topics_workspace_status;
+    ALTER INDEX idx_topic_clusters_peer RENAME TO idx_topic_clusters_workspace;
+    """,
 }
 
 

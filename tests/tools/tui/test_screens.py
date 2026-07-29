@@ -63,7 +63,7 @@ def trace_db(tmp_path):
     )
     tracer.record(
         "context_retrieval",
-        {"message": "hello there", "peer_id": "user", "topic_label": None, "is_new_topic": False,
+        {"message": "hello there", "workspace_id": "user", "topic_label": None, "is_new_topic": False,
          "tags": [], "environment": {"situation": "conversation", "location": None,
                                       "time": None, "day_of_week": None},
          "facts": [{"category": "fitness", "key": "gym", "value": "FitZone"}],

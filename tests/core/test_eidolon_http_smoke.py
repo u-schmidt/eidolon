@@ -78,14 +78,14 @@ class TestEidolonHttpClientRealServer:
         assert client.get_active_topic("user") is None
 
         result = client.prepare_context(
-            message="Let's talk about Bello", peer_id="user",
+            message="Let's talk about Bello", workspace_id="user",
             environment=EnvironmentSnapshot(situation="conversation"),
         )
         assert result.topic_change.type == "NEW_TOPIC"
         assert result.bundle.current_topic_label == result.topic_change.label
 
         new_topic_id = client.store_turn(
-            user_message="Let's talk about Bello", ai_response="Sure!", peer_id="user",
+            user_message="Let's talk about Bello", ai_response="Sure!", workspace_id="user",
             environment=EnvironmentSnapshot(situation="conversation"),
             new_topic_label=result.topic_change.label,
         )

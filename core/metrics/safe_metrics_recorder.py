@@ -45,14 +45,14 @@ class SafeMetricsRecorder:
         step: str,
         message: str,
         *,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
         try:
             self._wrapped.record_event(
                 severity, step, message,
-                peer_id=peer_id, request_id=request_id, session_id=session_id,
+                workspace_id=workspace_id, request_id=request_id, session_id=session_id,
             )
         except Exception:
             logger.exception("MetricsRecorder.record_event(%s) failed — event lost", step)
@@ -63,14 +63,14 @@ class SafeMetricsRecorder:
         duration_ms: float,
         succeeded: bool,
         *,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
         try:
             self._wrapped.record_llm_call(
                 call_type, duration_ms, succeeded,
-                peer_id=peer_id, request_id=request_id, session_id=session_id,
+                workspace_id=workspace_id, request_id=request_id, session_id=session_id,
             )
         except Exception:
             logger.exception("MetricsRecorder.record_llm_call(%s) failed — event lost", call_type)
@@ -84,7 +84,7 @@ class SafeMetricsRecorder:
         *,
         entity_type: str | None = None,
         entity_id: str | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
@@ -92,7 +92,7 @@ class SafeMetricsRecorder:
             self._wrapped.record_embedding_call(
                 purpose, duration_ms, dimension, succeeded,
                 entity_type=entity_type, entity_id=entity_id,
-                peer_id=peer_id, request_id=request_id, session_id=session_id,
+                workspace_id=workspace_id, request_id=request_id, session_id=session_id,
             )
         except Exception:
             logger.exception("MetricsRecorder.record_embedding_call(%s) failed — event lost", purpose)

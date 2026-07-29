@@ -24,7 +24,7 @@ def trace_db(tmp_path):
         "context_retrieval",
         {
             "message": "was ist mein lieblingsprojekt?",
-            "peer_id": "user",
+            "workspace_id": "user",
             "topic_label": "Bello Features",
             "is_new_topic": False,
             "facts": [{"category": "work", "key": "role", "value": "engineer"}],
@@ -124,7 +124,7 @@ class TestSimulateEnvironmentAndAges:
             "context_retrieval",
             {
                 "message": "hi",
-                "peer_id": "user",
+                "workspace_id": "user",
                 "topic_label": None,
                 "is_new_topic": False,
                 "environment": {

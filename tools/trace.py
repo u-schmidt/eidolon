@@ -200,7 +200,7 @@ class TracePrinter:
         upserts = p.get("upserts", [])
         deletes = p.get("deletes", [])
         lines = [
-            f"    peer_id: {p.get('peer_id')}  new_items: {p.get('new_item_count')}  "
+            f"    workspace_id: {p.get('workspace_id')}  new_items: {p.get('new_item_count')}  "
             f"total_facts_after: {p.get('total_facts_after')}",
             f"    upserts ({len(upserts)}):",
         ]
@@ -213,7 +213,7 @@ class TracePrinter:
 
     def _format_fact_correction(self, p: dict) -> str:
         return (
-            f"    peer_id: {p.get('peer_id')}  action: {p.get('action')}\n"
+            f"    workspace_id: {p.get('workspace_id')}  action: {p.get('action')}\n"
             f"    {p.get('category')}.{p.get('key')} = {p.get('value')}"
         )
 

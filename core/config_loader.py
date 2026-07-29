@@ -128,11 +128,12 @@ class ConfigLoader:
             "maintenance_enabled": ("maintenance", "enabled"),
             "maintenance_interval_hours": ("maintenance", "interval_hours"),
             "maintenance_stale_after_hours": ("maintenance", "stale_after_hours"),
-            "maintenance_peer_id": ("maintenance", "peer_id"),
+            "maintenance_workspace_id": ("maintenance", "workspace_id"),
             "relabel_enabled": ("relabel", "enabled"),
             "relabel_message_threshold": ("relabel", "message_threshold"),
             "language": ("language",),
             "timezone": ("timezone",),
+            "workspace_id": ("workspace_id",),
         }
 
         for env_suffix, attr_path in _map.items():
@@ -206,11 +207,12 @@ class ConfigLoader:
             "maintenance_enabled": ("maintenance", "enabled"),
             "maintenance_interval_hours": ("maintenance", "interval_hours"),
             "maintenance_stale_after_hours": ("maintenance", "stale_after_hours"),
-            "maintenance_peer_id": ("maintenance", "peer_id"),
+            "maintenance_workspace_id": ("maintenance", "workspace_id"),
             "relabel_enabled": ("relabel", "enabled"),
             "relabel_message_threshold": ("relabel", "message_threshold"),
             "language": ("language",),
             "timezone": ("timezone",),
+            "workspace_id": ("workspace_id",),
         }
 
         for cli_attr, attr_path in cli_map.items():

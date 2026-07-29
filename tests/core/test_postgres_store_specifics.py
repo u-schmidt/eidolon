@@ -98,7 +98,7 @@ class TestTransactionHygiene:
         store = pg_backend.store
         pid = self._own_pid(store)
 
-        store.create_topic("Test topic", peer_id="user")
+        store.create_topic("Test topic", workspace_id="user")
 
         with psycopg.connect(
             host=postgres_container.get_container_host_ip(),
@@ -115,7 +115,7 @@ class TestTransactionHygiene:
         ``with conn.transaction()``. Confirms both UPDATEs actually took
         effect together, not just that no exception was raised."""
         store = pg_backend.store
-        tid = store.create_topic("Gym talk", peer_id="user")
+        tid = store.create_topic("Gym talk", workspace_id="user")
         cid = store.create_cluster("user", "Fitness", "summary")
 
         store.assign_topic_to_cluster(tid, cid)

@@ -62,15 +62,15 @@ class PostgresMetricsRecorder:
         step: str,
         message: str,
         *,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
         with self._conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO events (severity, step, message, peer_id, request_id, session_id) "
+                "INSERT INTO events (severity, step, message, workspace_id, request_id, session_id) "
                 "VALUES (%s, %s, %s, %s, %s, %s)",
-                (severity, step, message, peer_id, request_id, session_id),
+                (severity, step, message, workspace_id, request_id, session_id),
             )
 
     def record_llm_call(
@@ -79,15 +79,15 @@ class PostgresMetricsRecorder:
         duration_ms: float,
         succeeded: bool,
         *,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
         with self._conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO llm_calls (call_type, duration_ms, succeeded, peer_id, request_id, session_id) "
+                "INSERT INTO llm_calls (call_type, duration_ms, succeeded, workspace_id, request_id, session_id) "
                 "VALUES (%s, %s, %s, %s, %s, %s)",
-                (call_type, duration_ms, succeeded, peer_id, request_id, session_id),
+                (call_type, duration_ms, succeeded, workspace_id, request_id, session_id),
             )
 
     def record_embedding_call(
@@ -99,15 +99,15 @@ class PostgresMetricsRecorder:
         *,
         entity_type: str | None = None,
         entity_id: str | None = None,
-        peer_id: str | None = None,
+        workspace_id: str | None = None,
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
         with self._conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO embedding_calls "
-                "(purpose, duration_ms, dimension, succeeded, entity_type, entity_id, peer_id, request_id, session_id) "
+                "(purpose, duration_ms, dimension, succeeded, entity_type, entity_id, workspace_id, request_id, session_id) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (purpose, duration_ms, dimension, succeeded, entity_type, entity_id,
-                 peer_id, request_id, session_id),
+                 workspace_id, request_id, session_id),
             )

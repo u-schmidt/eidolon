@@ -71,7 +71,7 @@
       {% for t in recent_turns %}
       <a href="{{ url_for('dashboard_turn_detail', request_id=t.request_id) }}" class="turn-card">
         <div class="turn-card-header">
-          <span class="turn-card-peer">{{ t.peer_id or "—" }}</span>
+          <span class="turn-card-workspace">{{ t.workspace_id or "—" }}</span>
           <span class="turn-card-time timeago" title="{{ t.created_at }}">{{ t.created_at }}</span>
         </div>
         <div class="turn-card-message">{{ t.preview }}</div>
