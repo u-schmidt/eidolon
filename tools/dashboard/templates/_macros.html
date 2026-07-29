@@ -98,6 +98,41 @@
    x-axis scale (TurnDetail.timeline_total_ms) — the real max end time
    across every timed step, not derived from the two phase totals (see
    turn_reader.py's TurnDetail.timeline_total_ms docstring for why). #}
+{#- Compact 3-segment overview bar: prefetch / AI response (the gap
+   Eidolon has no visibility into — Hermes/the LLM generating the
+   reply) / sync, proportional to total_ms. --border is reused for the
+   gap segment rather than a new hue — it's already this dashboard's
+   neutral-fill convention (.badge.neutral/.card-neutral in base.html)
+   for "not one of our categories," which is exactly what this segment
+   represents, so it needs no CVD-pair validation the way a new
+   categorical hue would. #}
+{% macro phase_summary_bar(prefetch_ms, gap_ms, sync_ms, total_ms, width=640) %}
+{% if prefetch_ms is not none and gap_ms is not none and sync_ms is not none and total_ms and total_ms > 0 %}
+  {% set bar_h = 20 %}
+  {% set segments = [
+    ('Prefetch', prefetch_ms, 'var(--accent)'),
+    ('AI response', gap_ms, 'var(--border)'),
+    ('Sync', sync_ms, 'var(--accent2)'),
+  ] %}
+  <svg width="{{ width }}" height="{{ bar_h }}" viewBox="0 0 {{ width }} {{ bar_h }}" class="waterfall" role="img" aria-label="Prefetch vs. AI response vs. sync, proportional to total turn time">
+    {% set ns = namespace(x=0) %}
+    {% for label, ms, color in segments %}
+      {% set w = (ms / total_ms * width) | round(1) %}
+      {% set w = w if w >= 2 else 2 %}
+      <rect x="{{ ns.x }}" y="0" width="{{ w }}" height="{{ bar_h }}" rx="3" fill="{{ color }}">
+        <title>{{ label }} — {{ "%.0f"|format(ms) }}ms ({{ "%.0f"|format(ms / total_ms * 100) }}%)</title>
+      </rect>
+      {% set ns.x = ns.x + w %}
+    {% endfor %}
+  </svg>
+  <div class="row" style="gap: 1rem; margin-top: 0.4rem;">
+    <span class="muted"><span class="legend-swatch" style="background: var(--accent);"></span> Prefetch</span>
+    <span class="muted"><span class="legend-swatch" style="background: var(--border);"></span> AI response (Hermes/LLM — inferred, not directly measured)</span>
+    <span class="muted"><span class="legend-swatch" style="background: var(--accent2);"></span> Sync</span>
+  </div>
+{% endif %}
+{% endmacro %}
+
 {% macro waterfall_chart(steps, total_ms, width=640) %}
 {% if steps and total_ms and total_ms > 0 %}
   {% set row_h = 22 %}

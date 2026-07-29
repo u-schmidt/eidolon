@@ -164,6 +164,20 @@ class TurnDetail:
     # individual steps still carry real timing, so this is computed
     # straight from the steps themselves to never under-scale the chart.
     timeline_total_ms: float | None = None
+    # Wall-clock time Eidolon spent doing nothing between the two phases —
+    # the window Hermes/the LLM owns (sync_turn() is called only after the
+    # reply has already gone out, see adapters/hermes/memory_provider.py's
+    # "Sync Turn (called ASYNC after each LLM response)" section comment).
+    # Not a new measurement: algebraically equal to turn_complete's start
+    # minus prefetch_complete's end, since prefetch_complete's own start
+    # IS timeline_total_ms's anchor by construction (it wraps every
+    # prefetch sub-step, so nothing starts earlier). Computed as a
+    # subtraction of fields already above rather than re-deriving
+    # timestamps. Clamped to 0.0 — never negative — to absorb timestamp-
+    # rounding noise (DB column resolution vs. perf_counter() sub-ms
+    # precision). None unless all three of prefetch_duration_ms/
+    # sync_duration_ms/timeline_total_ms are present.
+    llm_gap_ms: float | None = None
 
 
 class TurnReader:
@@ -260,6 +274,9 @@ class TurnReader:
              if s.start_offset_ms is not None and s.duration_ms is not None),
             default=None,
         )
+        llm_gap_ms = None
+        if prefetch_duration_ms is not None and sync_duration_ms is not None and timeline_total_ms is not None:
+            llm_gap_ms = max(0.0, timeline_total_ms - prefetch_duration_ms - sync_duration_ms)
 
         events = self._metrics_reader.events_for_request(request_id)
         llm_calls = self._metrics_reader.llm_calls_for_request(request_id)
@@ -282,6 +299,7 @@ class TurnReader:
             prefetch_duration_ms=prefetch_duration_ms,
             sync_duration_ms=sync_duration_ms,
             timeline_total_ms=timeline_total_ms,
+            llm_gap_ms=llm_gap_ms,
         )
 
     def _annotate_candidate_labels(self, payload: dict) -> None:

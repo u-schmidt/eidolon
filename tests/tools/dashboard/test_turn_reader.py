@@ -192,6 +192,65 @@ class TestTimingWaterfall:
         assert detail.prefetch_duration_ms is None
         assert detail.sync_duration_ms is None
 
+    def test_llm_gap_computed_from_wrapping_events(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace.events["req1"] = [
+            {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 1000.0,
+             "session_id": None, "created_at": "2026-01-01T00:00:01.000000"},
+            {"event_type": "turn_complete", "payload": {}, "duration_ms": 500.0,
+             "session_id": None, "created_at": "2026-01-01T00:00:03.000000"},
+        ]
+
+        detail = reader.get("req1")
+        assert detail is not None
+        # prefetch: 0 -> 1000ms. turn_complete: starts +2500ms, ends +3000ms.
+        # Gap is the idle window between them: 2500 - 1000 = 1500ms.
+        assert detail.llm_gap_ms == 1500.0
+
+    def test_llm_gap_none_when_prefetch_duration_missing(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace.events["req1"] = [
+            {"event_type": "turn_complete", "payload": {}, "duration_ms": 80.0,
+             "session_id": None, "created_at": "t1"},
+        ]
+
+        detail = reader.get("req1")
+        assert detail is not None
+        assert detail.llm_gap_ms is None
+
+    def test_llm_gap_none_when_sync_duration_missing(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace.events["req1"] = [
+            {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
+             "session_id": None, "created_at": "t1"},
+        ]
+
+        detail = reader.get("req1")
+        assert detail is not None
+        assert detail.llm_gap_ms is None
+
+    def test_llm_gap_clamped_to_zero_for_overlapping_timestamps(self):
+        reader, storage, _metrics, trace = _build_turn_reader()
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        # Pathological: turn_complete's own start (00:00:00.000) precedes
+        # prefetch_complete's end (00:00:01.000) — plain subtraction would
+        # go negative; llm_gap_ms must clamp to 0.0 rather than show
+        # negative "AI response" time.
+        trace.events["req1"] = [
+            {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 1000.0,
+             "session_id": None, "created_at": "2026-01-01T00:00:01.000000"},
+            {"event_type": "turn_complete", "payload": {}, "duration_ms": 500.0,
+             "session_id": None, "created_at": "2026-01-01T00:00:00.500000"},
+        ]
+
+        detail = reader.get("req1")
+        assert detail is not None
+        assert detail.timeline_total_ms == 1000.0
+        assert detail.llm_gap_ms == 0.0
+
 
 class TestCandidateLabels:
     """Retrieval-scoring-summary candidates should resolve to a human

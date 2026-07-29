@@ -245,10 +245,30 @@ class TestTurnDetail:
 
         response = client.get("/turns/req1")
         assert response.status_code == 200
-        assert "120ms" in response.text
-        assert "80ms" in response.text
-        assert "200ms" in response.text  # total
+        # prefetch 0->120ms, turn_complete starts +2040ms and ends +2120ms
+        # (its own created_at/duration relative to the shared anchor) ->
+        # gap = 2040 - 120 = 1920ms, grand total = 2120ms.
+        assert "2120ms" in response.text  # grand total, prefetch + gap + sync
+        assert "1920ms" in response.text  # AI response (the inferred gap)
+        assert "200ms" in response.text  # Eidolon's own share (120 + 80)
         assert "<svg" in response.text
+        assert "Not available for this turn" not in response.text
+
+    def test_timing_headline_omits_gap_when_only_one_duration_present(self, storage: MockStorage):
+        storage.store_message(turn_id=1, role="user", content="hi", peer_id="u1", request_id="req1")
+        trace = _FakeTraceReader({
+            "req1": [
+                {"event_type": "prefetch_complete", "payload": {}, "duration_ms": 120.0,
+                 "session_id": None, "created_at": "t1"},
+            ],
+        })
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), trace)
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/turns/req1")
+        assert response.status_code == 200
+        assert "120ms" in response.text
+        assert "AI response time not available for this turn" in response.text
         assert "Not available for this turn" not in response.text
 
     def test_timing_degrades_gracefully_without_wrapping_events(self, storage: MockStorage):

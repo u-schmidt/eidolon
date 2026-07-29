@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import waterfall_chart with context %}
+{% from "_macros.html" import waterfall_chart, phase_summary_bar with context %}
 {% block title %}Turn {{ detail.header.request_id }}{% endblock %}
 {% block breadcrumbs %}
   <div class="breadcrumbs">
@@ -49,16 +49,28 @@
     {% if detail.prefetch_duration_ms is none and detail.sync_duration_ms is none %}
       <p class="muted">Not available for this turn — traced before per-phase timing was added, or neither wrapping step recorded a duration.</p>
     {% else %}
-      <p>
-        Eidolon:
-        {% if detail.prefetch_duration_ms is not none %}<strong>{{ "%.0f"|format(detail.prefetch_duration_ms) }}ms</strong> prefetch{% else %}<span class="muted">prefetch — n/a</span>{% endif %}
-        +
-        {% if detail.sync_duration_ms is not none %}<strong>{{ "%.0f"|format(detail.sync_duration_ms) }}ms</strong> sync{% else %}<span class="muted">sync — n/a</span>{% endif %}
-        {% if detail.prefetch_duration_ms is not none and detail.sync_duration_ms is not none %}
-          = <strong>{{ "%.0f"|format(detail.prefetch_duration_ms + detail.sync_duration_ms) }}ms</strong> total
-        {% endif %}
-      </p>
-      <p class="muted">Doesn't include the AI's own response time — Eidolon has no visibility into that, only its own steps.</p>
+      {% if detail.llm_gap_ms is not none %}
+        {% set total = detail.prefetch_duration_ms + detail.llm_gap_ms + detail.sync_duration_ms %}
+        {% set eidolon_ms = detail.prefetch_duration_ms + detail.sync_duration_ms %}
+        <p>
+          <strong>{{ "%.0f"|format(total) }}ms</strong> total —
+          Eidolon <strong>{{ "%.0f"|format(eidolon_ms) }}ms</strong> ({{ "%.0f"|format(eidolon_ms / total * 100) }}%),
+          AI response <strong>{{ "%.0f"|format(detail.llm_gap_ms) }}ms</strong> ({{ "%.0f"|format(detail.llm_gap_ms / total * 100) }}%)
+        </p>
+        <p class="muted">
+          Eidolon: {{ "%.0f"|format(detail.prefetch_duration_ms) }}ms prefetch + {{ "%.0f"|format(detail.sync_duration_ms) }}ms sync.
+          AI response time is inferred — the gap between Eidolon's prefetch ending and sync starting — not separately instrumented.
+        </p>
+        {{ phase_summary_bar(detail.prefetch_duration_ms, detail.llm_gap_ms, detail.sync_duration_ms, total) }}
+      {% else %}
+        <p>
+          Eidolon:
+          {% if detail.prefetch_duration_ms is not none %}<strong>{{ "%.0f"|format(detail.prefetch_duration_ms) }}ms</strong> prefetch{% else %}<span class="muted">prefetch — n/a</span>{% endif %}
+          +
+          {% if detail.sync_duration_ms is not none %}<strong>{{ "%.0f"|format(detail.sync_duration_ms) }}ms</strong> sync{% else %}<span class="muted">sync — n/a</span>{% endif %}
+        </p>
+        <p class="muted">AI response time not available for this turn — needs both prefetch and sync timing to infer.</p>
+      {% endif %}
       {{ waterfall_chart(detail.trace_steps | selectattr('start_offset_ms', 'ne', none) | sort(attribute='start_offset_ms') | list, detail.timeline_total_ms) }}
     {% endif %}
   {% endif %}
