@@ -6,6 +6,7 @@ Combines semantic similarity (embedding), tag overlap, person-bound, and tempora
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import UTC, datetime
 
@@ -153,6 +154,20 @@ class AssociativeRetriever:
         # 1. Load facts for the current workspace
         facts = self._storage.get_facts(workspace_id)
 
+        # 1b. Pull any materialized entity's profile card whose name is
+        # actually mentioned in this message — unlike facts (always
+        # injected), entity cards are pulled conditionally: a workspace
+        # could accumulate dozens of them, and dumping all of them into
+        # every prompt regardless of relevance defeats the purpose. A
+        # cheap regex match against the small candidate list is enough;
+        # no LLM call needed (see EntityProfileConsolidator's docstring
+        # for how a name gets onto this list in the first place).
+        entity_names = self._storage.get_materialized_entity_names(workspace_id)
+        mentioned_entities = self._match_entities(message, entity_names)
+        entity_facts = (
+            self._storage.get_entity_facts(workspace_id, mentioned_entities) if mentioned_entities else []
+        )
+
         # 2. Generate query embedding for semantic search
         embed_started = time.perf_counter()
         query_embedding = self._embedder.embed(message)
@@ -297,6 +312,13 @@ class AssociativeRetriever:
                     {"category": f.category, "key": f.key, "value": f.value, "created_at": f.created_at}
                     for f in facts
                 ],
+                "entity_facts": [
+                    {
+                        "entity_name": f.entity_name, "category": f.category, "key": f.key,
+                        "value": f.value, "created_at": f.created_at,
+                    }
+                    for f in entity_facts
+                ],
                 "related_topics": [
                     {"id": t.topic_id, "label": t.label, "summary": t.summary,
                      "tags": t.tags, "timestamp": t.timestamp}
@@ -335,7 +357,28 @@ class AssociativeRetriever:
             recent_topics=recent_topics,
             memory_items=memory_items,
             cluster_summaries=cluster_summaries,
+            entity_facts=entity_facts,
         )
+
+    @staticmethod
+    def _match_entities(message: str, entity_names: list[str]) -> list[str]:
+        """Return the subset of `entity_names` mentioned in `message`.
+
+        Case-insensitive, word-boundary matching via one compiled
+        alternation — cheap even at the expected scale (tens of
+        materialized names), no LLM call. `entity_names` are already
+        lowercase (see TopicSummarizer's entity parsing); the match is
+        compared lowercase too since `message` carries whatever casing
+        the user typed. Doesn't catch a nickname a card wasn't
+        materialized under (e.g. "xander" vs. a card materialized as
+        "alexander") — an accepted v1 limitation, same root cause as
+        name-collision being out of scope (see EntityProfilesConfig).
+        """
+        if not entity_names:
+            return []
+        pattern = "|".join(re.escape(name) for name in entity_names)
+        found = {m.lower() for m in re.findall(rf"\b(?:{pattern})\b", message, re.IGNORECASE)}
+        return [name for name in entity_names if name in found]
 
     @staticmethod
     def _extract_tags(message: str, stop_words: set[str] | None = None) -> list[str]:

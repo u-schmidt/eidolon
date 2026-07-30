@@ -115,6 +115,25 @@ class TestRetrieveContext:
         assert bundle.facts[0].importance == "medium"
         assert bundle.current_topic_label == "Test"
 
+    def test_entity_facts_round_trip(self, make_eidolon_client):
+        eidolon, storage = _make_eidolon()
+        storage.increment_entity_mentions("user", ["lisa"])
+        storage.materialize_entities("user", threshold=1)
+        storage.entity_facts.append(
+            Fact(workspace_id="user", entity_name="lisa", category="relationship",
+                 key="role", value="coworker", source="ai")
+        )
+        client = make_eidolon_client(eidolon)
+
+        bundle = client.retrieve_context(
+            message="I saw Lisa today", workspace_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+
+        assert len(bundle.entity_facts) == 1
+        assert bundle.entity_facts[0].entity_name == "lisa"
+        assert bundle.entity_facts[0].value == "coworker"
+
 
 class TestStoreTurnAndGetActiveTopic:
     def test_store_turn_creates_topic_visible_via_get_active_topic(self, make_eidolon_client):

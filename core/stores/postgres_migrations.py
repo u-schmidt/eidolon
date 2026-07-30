@@ -111,6 +111,37 @@ POSTGRES_MIGRATIONS: dict[int, str] = {
     6: """
     ALTER TABLE topics ADD COLUMN named_entities JSONB NOT NULL DEFAULT '[]'::jsonb;
     """,
+    # Per-entity profile cards — see core/stores/migrations.py's version
+    # 13 for the full rationale (mirrors it exactly).
+    7: """
+    CREATE TABLE IF NOT EXISTS entity_scan_state (
+        workspace_id TEXT PRIMARY KEY,
+        last_topic_id INTEGER NOT NULL DEFAULT 0,
+        last_run_at TIMESTAMPTZ
+    );
+
+    CREATE TABLE IF NOT EXISTS entity_profiles (
+        workspace_id TEXT NOT NULL,
+        entity_name TEXT NOT NULL,
+        mention_count INTEGER NOT NULL DEFAULT 0,
+        materialized_at TIMESTAMPTZ,
+        last_consolidated_topic_id INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (workspace_id, entity_name)
+    );
+
+    CREATE TABLE IF NOT EXISTS entity_facts (
+        id SERIAL PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        entity_name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        source TEXT NOT NULL,
+        importance TEXT NOT NULL DEFAULT 'medium',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE(workspace_id, entity_name, category, key)
+    );
+    """,
 }
 
 

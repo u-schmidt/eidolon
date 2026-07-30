@@ -66,6 +66,7 @@ def fact_from_dict(d: dict[str, Any]) -> Fact:
         source=d["source"],
         importance=d.get("importance", "medium"),
         created_at=_parse_datetime(d.get("created_at")),
+        entity_name=d.get("entity_name", ""),
     )
 
 
@@ -115,6 +116,7 @@ def context_bundle_from_dict(d: dict[str, Any]) -> ContextBundle:
         recent_topics=[related_topic_from_dict(t) for t in d.get("recent_topics", [])],
         cluster_summaries=[cluster_summary_from_dict(c) for c in d.get("cluster_summaries", [])],
         memory_items=[memory_item_from_dict(m) for m in d.get("memory_items", [])],
+        entity_facts=[fact_from_dict(f) for f in d.get("entity_facts", [])],
     )
 
 

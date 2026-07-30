@@ -96,6 +96,7 @@ class PostgresBackend:
             cur.execute(
                 "TRUNCATE topics, memory_items, messages, facts, "
                 "topic_clusters, fact_consolidation_state, "
+                "entity_scan_state, entity_profiles, entity_facts, "
                 "events, llm_calls, embedding_calls RESTART IDENTITY CASCADE"
             )
         self.store._conn.commit()

@@ -295,3 +295,62 @@ class TestContextFormatterRelativeAge:
             )
             result = ContextFormatter.format(bundle, now=self.NOW)
             assert result.endswith(f"[{expected}]"), f"{created_at} -> expected '{expected}', got: {result}"
+
+
+class TestContextFormatterEntityFacts:
+    def test_formats_single_entity(self):
+        bundle = ContextBundle(
+            entity_facts=[
+                Fact(workspace_id="user", entity_name="lisa", category="relationship",
+                     key="role", value="coworker", source="ai"),
+            ]
+        )
+        assert ContextFormatter.format(bundle) == (
+            f"{_PREAMBLE}\n\n[About Lisa]\n- relationship: role = coworker"
+        )
+
+    def test_groups_multiple_facts_under_one_entity(self):
+        bundle = ContextBundle(
+            entity_facts=[
+                Fact(workspace_id="user", entity_name="lisa", category="relationship",
+                     key="role", value="coworker", source="ai"),
+                Fact(workspace_id="user", entity_name="lisa", category="preference",
+                     key="coffee", value="oat milk latte", source="ai"),
+            ]
+        )
+        assert ContextFormatter.format(bundle) == (
+            f"{_PREAMBLE}\n\n[About Lisa]\n"
+            "- relationship: role = coworker\n"
+            "- preference: coffee = oat milk latte"
+        )
+
+    def test_renders_separate_sections_per_entity(self):
+        bundle = ContextBundle(
+            entity_facts=[
+                Fact(workspace_id="user", entity_name="lisa", category="relationship",
+                     key="role", value="coworker", source="ai"),
+                Fact(workspace_id="user", entity_name="solvares", category="identity",
+                     key="type", value="restaurant", source="ai"),
+            ]
+        )
+        assert ContextFormatter.format(bundle) == (
+            f"{_PREAMBLE}\n\n"
+            "[About Lisa]\n- relationship: role = coworker\n\n"
+            "[About Solvares]\n- identity: type = restaurant"
+        )
+
+    def test_entity_facts_appear_after_known_facts(self):
+        bundle = ContextBundle(
+            facts=[Fact(workspace_id="user", category="basic", key="name", value="Alex", source="user")],
+            entity_facts=[
+                Fact(workspace_id="user", entity_name="lisa", category="relationship",
+                     key="role", value="coworker", source="ai"),
+            ],
+        )
+        assert ContextFormatter.format(bundle) == (
+            f"{_PREAMBLE}\n\n[Known facts]\n- basic: name = Alex\n\n[About Lisa]\n- relationship: role = coworker"
+        )
+
+    def test_no_section_when_entity_facts_empty(self):
+        bundle = ContextBundle(current_topic_label="Test")
+        assert "[About" not in ContextFormatter.format(bundle)

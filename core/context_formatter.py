@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from core.models import ClusterSummary, ContextBundle, EnvironmentSnapshot, RelatedTopic
+from core.models import ClusterSummary, ContextBundle, EnvironmentSnapshot, Fact, RelatedTopic
 
 
 class ContextFormatter:
@@ -60,6 +60,9 @@ class ContextFormatter:
             ]
             parts.append("[Known facts]\n" + "\n".join(fact_lines))
 
+        if bundle.entity_facts:
+            parts.append(ContextFormatter._format_entity_facts_block(bundle.entity_facts, now))
+
         if bundle.recent_topics:
             lines = ContextFormatter._format_topic_lines(bundle.recent_topics, now)
             parts.append("[Recently discussed]\n" + "\n".join(lines))
@@ -84,6 +87,26 @@ class ContextFormatter:
             parts.insert(0, ContextFormatter._PREAMBLE)
 
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _format_entity_facts_block(entity_facts: list[Fact], now: datetime) -> str:
+        """Render one ``[About X]`` section per entity, grouped in the
+        order they arrive (``get_entity_facts`` already orders by
+        ``entity_name``). Separate from ``[Known facts]`` — these are
+        conditionally pulled per-turn (see AssociativeRetriever step
+        1b), not the workspace's always-on profile.
+        """
+        by_entity: dict[str, list[Fact]] = {}
+        for f in entity_facts:
+            by_entity.setdefault(f.entity_name, []).append(f)
+        sections = []
+        for entity_name, facts in by_entity.items():
+            lines = [
+                f"- {f.category}: {f.key} = {f.value}{ContextFormatter._age_suffix(f.created_at, now)}"
+                for f in facts
+            ]
+            sections.append(f"[About {entity_name.title()}]\n" + "\n".join(lines))
+        return "\n\n".join(sections)
 
     @staticmethod
     def _format_topic_lines(topics: list[RelatedTopic], now: datetime) -> list[str]:

@@ -165,6 +165,24 @@ facts:
     - possession     # owned items — one key per item
     - instruction    # standing directive on how to treat this person
 
+# ── Per-Entity Profile Cards ─────────────────────────────────
+# Off by default. Named people/places/organizations already get
+# extracted per-topic into topics.named_entities (always on, no config
+# — see TopicSummarizer). This is the next step: once a name recurs
+# across enough distinct topics, materialize it into its own small
+# fact profile ("card") — same idea as `facts` above, but per-entity
+# instead of per-workspace, and only pulled into a turn's prompt when
+# that entity is actually mentioned. Kept off by default because the
+# threshold below is an informed guess, not a measurement — turn it on
+# once there's enough named_entities history to judge it against.
+entity_profiles:
+  enabled: false
+  materialization_threshold: 2  # distinct topics mentioning a name
+                                 # before it gets a profile card
+  consolidation_interval: 20    # same cadence as facts by default
+  target_max_per_entity: 20     # soft guidance, smaller than facts'
+                                 # 100 since each card covers one entity
+
 # ── Operational Metrics ──────────────────────────────────────
 # No config here — always on, no flag to set. Every per-step LLM/
 # embedding call and error/warning writes a small typed row into the

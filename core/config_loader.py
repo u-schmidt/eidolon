@@ -117,6 +117,10 @@ class ConfigLoader:
             "retrieval_min_topic_messages": ("retrieval", "min_topic_messages"),
             "facts_consolidation_interval": ("facts", "consolidation_interval"),
             "facts_target_max": ("facts", "target_max"),
+            "entity_profiles_enabled": ("entity_profiles", "enabled"),
+            "entity_profiles_materialization_threshold": ("entity_profiles", "materialization_threshold"),
+            "entity_profiles_consolidation_interval": ("entity_profiles", "consolidation_interval"),
+            "entity_profiles_target_max_per_entity": ("entity_profiles", "target_max_per_entity"),
             "clustering_enabled": ("clustering", "enabled"),
             "clustering_shortlist_size": ("clustering", "shortlist_size"),
             "debug_enabled": ("debug", "enabled"),
@@ -196,6 +200,10 @@ class ConfigLoader:
             "retrieval_min_topic_messages": ("retrieval", "min_topic_messages"),
             "facts_consolidation_interval": ("facts", "consolidation_interval"),
             "facts_target_max": ("facts", "target_max"),
+            "entity_profiles_enabled": ("entity_profiles", "enabled"),
+            "entity_profiles_materialization_threshold": ("entity_profiles", "materialization_threshold"),
+            "entity_profiles_consolidation_interval": ("entity_profiles", "consolidation_interval"),
+            "entity_profiles_target_max_per_entity": ("entity_profiles", "target_max_per_entity"),
             "clustering_enabled": ("clustering", "enabled"),
             "clustering_shortlist_size": ("clustering", "shortlist_size"),
             "debug_enabled": ("debug", "enabled"),
@@ -282,6 +290,8 @@ class ConfigLoader:
                 self._merge_into(config.retrieval, value)
             elif key == "facts" and isinstance(value, dict):
                 self._merge_into(config.facts, value)
+            elif key == "entity_profiles" and isinstance(value, dict):
+                self._merge_into(config.entity_profiles, value)
             elif key == "clustering" and isinstance(value, dict):
                 self._merge_into(config.clustering, value)
             elif key == "debug" and isinstance(value, dict):

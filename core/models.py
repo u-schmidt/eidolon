@@ -107,7 +107,15 @@ class ClusterSummary:
 
 @dataclass
 class Fact:
-    """A structured, near-constant piece of information about a workspace."""
+    """A structured, near-constant piece of information about a workspace.
+
+    ``entity_name`` is blank for an ordinary workspace-level fact (the
+    ``facts`` table) and set to a lowercase named-entity string for a
+    per-entity profile card fact (the ``entity_facts`` table) — see
+    ``core/consolidation/entity_profile_consolidator.py``. One dataclass
+    for both rather than a parallel ``EntityFact`` type since the shape
+    is otherwise identical.
+    """
 
     workspace_id: str
     category: str
@@ -116,6 +124,7 @@ class Fact:
     source: str  # who contributed this fact
     importance: str = "medium"  # "low" | "medium" | "high"
     created_at: datetime | None = None
+    entity_name: str = ""
 
 
 @dataclass
@@ -132,6 +141,7 @@ class ContextBundle:
     recent_topics: list[RelatedTopic] = field(default_factory=list)
     cluster_summaries: list[ClusterSummary] = field(default_factory=list)
     memory_items: list[MemoryItem] = field(default_factory=list)
+    entity_facts: list[Fact] = field(default_factory=list)
 
 
 @dataclass

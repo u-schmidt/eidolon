@@ -228,6 +228,52 @@ MIGRATIONS: dict[int, str] = {
     -- capped, generic-word-mixed `tags` column can't answer reliably.
     ALTER TABLE topics ADD COLUMN named_entities TEXT DEFAULT '[]';
     """,
+    13: """
+    -- Per-entity profile cards ("fact-extraction hardening" Track 2) —
+    -- mirrors the facts/fact_consolidation_state pair (see Migration 1/3)
+    -- for a per-named-entity fact profile instead of a per-workspace one.
+    --
+    -- entity_scan_state: workspace-wide cursor over closed topics already
+    -- scanned for named_entities mentions. Independent of any one
+    -- entity's own consolidation progress below, since topics are
+    -- scanned in id order regardless of which entities they mention.
+    CREATE TABLE IF NOT EXISTS entity_scan_state (
+        workspace_id TEXT PRIMARY KEY,
+        last_topic_id INTEGER NOT NULL DEFAULT 0,
+        last_run_at TIMESTAMP
+    );
+
+    -- entity_profiles: one row per (workspace_id, entity_name), tracking
+    -- how many distinct topics have mentioned it and whether it has
+    -- crossed the materialization threshold into a real card yet.
+    -- last_consolidated_topic_id starts at 0 (not yet consolidated) so
+    -- an entity's first consolidation pass after materializing pulls its
+    -- entire mention history, not just the batch that crossed the
+    -- threshold — entities materialize at different times, so this
+    -- can't share entity_scan_state's cursor above.
+    CREATE TABLE IF NOT EXISTS entity_profiles (
+        workspace_id TEXT NOT NULL,
+        entity_name TEXT NOT NULL,
+        mention_count INTEGER NOT NULL DEFAULT 0,
+        materialized_at TIMESTAMP,
+        last_consolidated_topic_id INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (workspace_id, entity_name)
+    );
+
+    -- entity_facts: mirrors facts exactly, plus entity_name.
+    CREATE TABLE IF NOT EXISTS entity_facts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id TEXT NOT NULL,
+        entity_name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        source TEXT NOT NULL,
+        importance TEXT NOT NULL DEFAULT 'medium',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(workspace_id, entity_name, category, key)
+    );
+    """,
 }
 
 

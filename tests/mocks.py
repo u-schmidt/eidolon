@@ -190,6 +190,9 @@ class MockStorage:
         self._next_cluster_id = 1
         self.cluster_candidates: dict[int, list[dict]] = {}
         self.stale_topic_ids: set[int] = set()
+        self.entity_facts: list[Fact] = []
+        self.entity_profiles: dict[tuple[str, str], dict] = {}
+        self._entity_scan_checkpoints: dict[str, int] = {}
 
     def get_facts(self, workspace_id: str) -> list[Fact]:
         return [f for f in self.facts if f.workspace_id == workspace_id]
@@ -227,6 +230,104 @@ class MockStorage:
 
     def set_consolidation_checkpoint(self, workspace_id: str, last_item_id: int) -> None:
         self._checkpoints[workspace_id] = last_item_id
+
+    def get_topics_since(self, workspace_id: str, since_topic_id: int) -> list[dict]:
+        return sorted(
+            (
+                t for t in self.topics.values()
+                if t.get("workspace_id") == workspace_id
+                and t["status"] == "closed"
+                and t["id"] > since_topic_id
+            ),
+            key=lambda t: t["id"],
+        )
+
+    def increment_entity_mentions(self, workspace_id: str, entity_names: list[str]) -> None:
+        for name in entity_names:
+            profile = self.entity_profiles.setdefault(
+                (workspace_id, name),
+                {"mention_count": 0, "materialized_at": None, "last_consolidated_topic_id": 0},
+            )
+            profile["mention_count"] += 1
+
+    def materialize_entities(self, workspace_id: str, threshold: int) -> list[str]:
+        materialized = []
+        for (wid, name), profile in self.entity_profiles.items():
+            if wid == workspace_id and profile["materialized_at"] is None and profile["mention_count"] >= threshold:
+                profile["materialized_at"] = "materialized"
+                materialized.append(name)
+        return materialized
+
+    def get_materialized_entity_names(self, workspace_id: str) -> list[str]:
+        return [
+            name for (wid, name), profile in self.entity_profiles.items()
+            if wid == workspace_id and profile["materialized_at"] is not None
+        ]
+
+    def get_topics_mentioning_entity(
+        self, workspace_id: str, entity_name: str, since_topic_id: int
+    ) -> list[dict]:
+        return sorted(
+            (
+                t for t in self.topics.values()
+                if t.get("workspace_id") == workspace_id
+                and t["status"] == "closed"
+                and t["id"] > since_topic_id
+                and entity_name in t.get("named_entities", [])
+            ),
+            key=lambda t: t["id"],
+        )
+
+    def get_entity_facts(self, workspace_id: str, entity_names: list[str]) -> list[Fact]:
+        return [f for f in self.entity_facts if f.workspace_id == workspace_id and f.entity_name in entity_names]
+
+    def set_entity_fact(
+        self,
+        workspace_id: str,
+        entity_name: str,
+        category: str,
+        key: str,
+        value: str,
+        source: str,
+        importance: str = "medium",
+    ) -> None:
+        self.entity_facts = [
+            f for f in self.entity_facts
+            if not (
+                f.workspace_id == workspace_id and f.entity_name == entity_name
+                and f.category == category and f.key == key
+            )
+        ]
+        self.entity_facts.append(
+            Fact(
+                workspace_id=workspace_id, category=category, key=key, value=value, source=source,
+                importance=importance, entity_name=entity_name,
+            )
+        )
+
+    def delete_entity_fact(self, workspace_id: str, entity_name: str, category: str, key: str) -> None:
+        self.entity_facts = [
+            f for f in self.entity_facts
+            if not (
+                f.workspace_id == workspace_id and f.entity_name == entity_name
+                and f.category == category and f.key == key
+            )
+        ]
+
+    def get_entity_scan_checkpoint(self, workspace_id: str) -> int:
+        return self._entity_scan_checkpoints.get(workspace_id, 0)
+
+    def set_entity_scan_checkpoint(self, workspace_id: str, last_topic_id: int) -> None:
+        self._entity_scan_checkpoints[workspace_id] = last_topic_id
+
+    def get_entity_consolidation_checkpoint(self, workspace_id: str, entity_name: str) -> int:
+        profile = self.entity_profiles.get((workspace_id, entity_name))
+        return profile["last_consolidated_topic_id"] if profile else 0
+
+    def set_entity_consolidation_checkpoint(self, workspace_id: str, entity_name: str, last_topic_id: int) -> None:
+        key = (workspace_id, entity_name)
+        if key in self.entity_profiles:
+            self.entity_profiles[key]["last_consolidated_topic_id"] = last_topic_id
 
     def create_topic(self, label: str, summary: str = "", tags: list[str] | None = None,
                      embedding: list[float] | None = None, workspace_id: str | None = None,

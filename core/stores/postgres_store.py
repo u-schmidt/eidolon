@@ -223,6 +223,142 @@ class PostgresStore:
             (workspace_id, last_item_id),
         )
 
+    # ── Entity Profiles ────────────────────────────────────
+
+    def get_topics_since(self, workspace_id: str, since_topic_id: int) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, label, summary, named_entities FROM topics "
+            "WHERE workspace_id = %s AND status = 'closed' AND id > %s "
+            "ORDER BY id ASC",
+            (workspace_id, since_topic_id),
+        ).fetchall()
+        return [
+            {"id": r[0], "label": r[1], "summary": r[2], "named_entities": r[3]}
+            for r in rows
+        ]
+
+    def increment_entity_mentions(self, workspace_id: str, entity_names: list[str]) -> None:
+        if not entity_names:
+            return
+        with self._conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO entity_profiles (workspace_id, entity_name, mention_count) "
+                "VALUES (%s, %s, 1) "
+                "ON CONFLICT (workspace_id, entity_name) DO UPDATE SET mention_count = entity_profiles.mention_count + 1",
+                [(workspace_id, name) for name in entity_names],
+            )
+
+    def materialize_entities(self, workspace_id: str, threshold: int) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT entity_name FROM entity_profiles "
+            "WHERE workspace_id = %s AND materialized_at IS NULL AND mention_count >= %s",
+            (workspace_id, threshold),
+        ).fetchall()
+        names = [r[0] for r in rows]
+        if names:
+            self._conn.execute(
+                "UPDATE entity_profiles SET materialized_at = now() "
+                "WHERE workspace_id = %s AND entity_name = ANY(%s)",
+                (workspace_id, names),
+            )
+        return names
+
+    def get_materialized_entity_names(self, workspace_id: str) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT entity_name FROM entity_profiles WHERE workspace_id = %s AND materialized_at IS NOT NULL",
+            (workspace_id,),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def get_topics_mentioning_entity(
+        self, workspace_id: str, entity_name: str, since_topic_id: int
+    ) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, label, summary, named_entities FROM topics "
+            "WHERE workspace_id = %s AND status = 'closed' AND id > %s "
+            "ORDER BY id ASC",
+            (workspace_id, since_topic_id),
+        ).fetchall()
+        result = []
+        for r in rows:
+            named_entities = r[3]
+            if entity_name in named_entities:
+                result.append({"id": r[0], "label": r[1], "summary": r[2], "named_entities": named_entities})
+        return result
+
+    def get_entity_facts(self, workspace_id: str, entity_names: list[str]) -> list[Fact]:
+        if not entity_names:
+            return []
+        rows = self._conn.execute(
+            "SELECT workspace_id, category, key, value, source, importance, created_at, entity_name "
+            "FROM entity_facts WHERE workspace_id = %s AND entity_name = ANY(%s) "
+            "ORDER BY entity_name, CASE importance WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, category, key",
+            (workspace_id, entity_names),
+        ).fetchall()
+        return [
+            Fact(
+                workspace_id=r[0], category=r[1], key=r[2], value=r[3], source=r[4],
+                importance=r[5], created_at=r[6], entity_name=r[7],
+            )
+            for r in rows
+        ]
+
+    def set_entity_fact(
+        self,
+        workspace_id: str,
+        entity_name: str,
+        category: str,
+        key: str,
+        value: str,
+        source: str,
+        importance: str = "medium",
+    ) -> None:
+        self._conn.execute(
+            "INSERT INTO entity_facts (workspace_id, entity_name, category, key, value, source, importance) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (workspace_id, entity_name, category, key) DO UPDATE SET "
+            "value=excluded.value, source=excluded.source, importance=excluded.importance",
+            (workspace_id, entity_name, category, key, value, source, importance),
+        )
+
+    def delete_entity_fact(self, workspace_id: str, entity_name: str, category: str, key: str) -> None:
+        self._conn.execute(
+            "DELETE FROM entity_facts WHERE workspace_id = %s AND entity_name = %s AND category = %s AND key = %s",
+            (workspace_id, entity_name, category, key),
+        )
+
+    def get_entity_scan_checkpoint(self, workspace_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT last_topic_id FROM entity_scan_state WHERE workspace_id = %s",
+            (workspace_id,),
+        ).fetchone()
+        return row[0] if row else 0
+
+    def set_entity_scan_checkpoint(self, workspace_id: str, last_topic_id: int) -> None:
+        self._conn.execute(
+            "INSERT INTO entity_scan_state (workspace_id, last_topic_id, last_run_at) "
+            "VALUES (%s, %s, now()) "
+            "ON CONFLICT (workspace_id) DO UPDATE SET "
+            "last_topic_id=excluded.last_topic_id, last_run_at=excluded.last_run_at",
+            (workspace_id, last_topic_id),
+        )
+
+    def get_entity_consolidation_checkpoint(self, workspace_id: str, entity_name: str) -> int:
+        row = self._conn.execute(
+            "SELECT last_consolidated_topic_id FROM entity_profiles WHERE workspace_id = %s AND entity_name = %s",
+            (workspace_id, entity_name),
+        ).fetchone()
+        return row[0] if row else 0
+
+    def set_entity_consolidation_checkpoint(
+        self, workspace_id: str, entity_name: str, last_topic_id: int
+    ) -> None:
+        self._conn.execute(
+            "UPDATE entity_profiles SET last_consolidated_topic_id = %s "
+            "WHERE workspace_id = %s AND entity_name = %s",
+            (last_topic_id, workspace_id, entity_name),
+        )
+
     # ── Topics ─────────────────────────────────────────────
 
     def create_topic(

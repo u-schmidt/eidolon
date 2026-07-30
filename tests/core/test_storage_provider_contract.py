@@ -142,6 +142,119 @@ class TestFactsConsolidation:
         assert store.get_consolidation_checkpoint("other_workspace") == 0
 
 
+class TestEntityProfiles:
+    def test_get_topics_since_only_returns_closed_topics_for_the_workspace(self, store: StorageProvider):
+        active = store.create_topic("Active", workspace_id="user")
+        closed_a = store.create_topic("Closed A", workspace_id="user")
+        store.close_topic(closed_a, "summary a")
+        store.update_topic_entities(closed_a, ["lisa"])
+        other_workspace_closed = store.create_topic("Other", workspace_id="someone_else")
+        store.close_topic(other_workspace_closed, "summary other")
+
+        results = store.get_topics_since("user", 0)
+        assert [r["id"] for r in results] == [closed_a]
+        assert results[0]["named_entities"] == ["lisa"]
+        assert active not in [r["id"] for r in results]
+        assert other_workspace_closed not in [r["id"] for r in results]
+
+    def test_get_topics_since_respects_id_cursor(self, store: StorageProvider):
+        first = store.create_topic("First", workspace_id="user")
+        store.close_topic(first, "s1")
+        second = store.create_topic("Second", workspace_id="user")
+        store.close_topic(second, "s2")
+
+        assert [r["id"] for r in store.get_topics_since("user", 0)] == [first, second]
+        assert [r["id"] for r in store.get_topics_since("user", first)] == [second]
+        assert store.get_topics_since("user", second) == []
+
+    def test_increment_entity_mentions_accumulates(self, store: StorageProvider):
+        store.increment_entity_mentions("user", ["lisa", "bob"])
+        store.increment_entity_mentions("user", ["lisa"])
+
+        # Not materialized yet (default threshold semantics live in
+        # EntityProfileConsolidator, not storage) — verify indirectly via
+        # materialize_entities' own threshold parameter.
+        assert store.materialize_entities("user", 2) == ["lisa"]
+        assert store.materialize_entities("user", 2) == []  # already materialized, not re-returned
+
+    def test_increment_entity_mentions_empty_list_is_a_noop(self, store: StorageProvider):
+        store.increment_entity_mentions("user", [])  # must not raise
+        assert store.get_materialized_entity_names("user") == []
+
+    def test_materialize_entities_is_per_workspace(self, store: StorageProvider):
+        store.increment_entity_mentions("user", ["lisa"])
+        store.increment_entity_mentions("other_workspace", ["lisa"])
+
+        assert store.materialize_entities("user", 1) == ["lisa"]
+        assert store.get_materialized_entity_names("other_workspace") == []
+
+    def test_get_materialized_entity_names_excludes_unmaterialized(self, store: StorageProvider):
+        store.increment_entity_mentions("user", ["lisa", "bob"])
+        store.materialize_entities("user", 1)  # both cross threshold=1
+        store.increment_entity_mentions("user", ["solvares"])  # only 1 mention, never materialized here
+
+        assert set(store.get_materialized_entity_names("user")) == {"lisa", "bob"}
+
+    def test_get_topics_mentioning_entity_filters_by_name_and_cursor(self, store: StorageProvider):
+        t1 = store.create_topic("T1", workspace_id="user")
+        store.close_topic(t1, "s1")
+        store.update_topic_entities(t1, ["lisa"])
+        t2 = store.create_topic("T2", workspace_id="user")
+        store.close_topic(t2, "s2")
+        store.update_topic_entities(t2, ["bob"])
+        t3 = store.create_topic("T3", workspace_id="user")
+        store.close_topic(t3, "s3")
+        store.update_topic_entities(t3, ["lisa", "bob"])
+
+        assert [r["id"] for r in store.get_topics_mentioning_entity("user", "lisa", 0)] == [t1, t3]
+        assert [r["id"] for r in store.get_topics_mentioning_entity("user", "lisa", t1)] == [t3]
+        assert store.get_topics_mentioning_entity("user", "nobody", 0) == []
+
+    def test_get_entity_facts_filters_by_name_and_sets_entity_name(self, store: StorageProvider):
+        store.set_entity_fact("user", "lisa", "relationship", "role", "coworker", "ai")
+        store.set_entity_fact("user", "bob", "identity", "role", "manager", "ai")
+
+        facts = store.get_entity_facts("user", ["lisa"])
+        assert len(facts) == 1
+        assert facts[0].entity_name == "lisa"
+        assert facts[0].value == "coworker"
+
+        assert store.get_entity_facts("user", []) == []
+
+    def test_set_entity_fact_overwrites_existing_key(self, store: StorageProvider):
+        store.set_entity_fact("user", "lisa", "relationship", "role", "coworker", "ai")
+        store.set_entity_fact("user", "lisa", "relationship", "role", "friend", "ai")
+
+        facts = store.get_entity_facts("user", ["lisa"])
+        assert len(facts) == 1
+        assert facts[0].value == "friend"
+
+    def test_delete_entity_fact(self, store: StorageProvider):
+        store.set_entity_fact("user", "lisa", "relationship", "role", "coworker", "ai")
+        store.delete_entity_fact("user", "lisa", "relationship", "role")
+        assert store.get_entity_facts("user", ["lisa"]) == []
+
+    def test_delete_entity_fact_missing_is_a_noop(self, store: StorageProvider):
+        store.delete_entity_fact("user", "lisa", "relationship", "role")  # must not raise
+
+    def test_entity_scan_checkpoint_defaults_to_zero_and_upserts(self, store: StorageProvider):
+        assert store.get_entity_scan_checkpoint("user") == 0
+        store.set_entity_scan_checkpoint("user", 5)
+        assert store.get_entity_scan_checkpoint("user") == 5
+        store.set_entity_scan_checkpoint("user", 9)
+        assert store.get_entity_scan_checkpoint("user") == 9
+        assert store.get_entity_scan_checkpoint("other_workspace") == 0
+
+    def test_entity_consolidation_checkpoint_defaults_to_zero_and_updates(self, store: StorageProvider):
+        store.increment_entity_mentions("user", ["lisa"])
+        store.materialize_entities("user", 1)
+
+        assert store.get_entity_consolidation_checkpoint("user", "lisa") == 0
+        store.set_entity_consolidation_checkpoint("user", "lisa", 7)
+        assert store.get_entity_consolidation_checkpoint("user", "lisa") == 7
+        assert store.get_entity_consolidation_checkpoint("user", "bob") == 0
+
+
 class TestTopics:
     def test_create_and_get_topic(self, store: StorageProvider):
         tid = store.create_topic("Bello Features", summary="Discussion about Bello", tags=["bello", "fitness"])

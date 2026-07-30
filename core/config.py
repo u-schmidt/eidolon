@@ -154,6 +154,30 @@ class FactsConfig:
 
 
 @dataclass
+class EntityProfilesConfig:
+    """Per-named-entity profile-card consolidation configuration.
+
+    See ``core/consolidation/entity_profile_consolidator.py`` — Track 2
+    of "fact-extraction hardening" (Track 1 is the named-entity
+    extraction ``TopicSummarizer`` already does at topic-close).
+
+    Off by default, unlike ``FactsConfig``/``ClusteringConfig``: the
+    materialization threshold and collision-tolerance assumptions this
+    was designed around are informed guesses, not measurements — meant
+    to stay disabled until there's a real backlog of topics with
+    ``named_entities`` populated to validate them against.
+    """
+
+    enabled: bool = False
+    materialization_threshold: int = 2  # distinct topics mentioning a
+    # name before it gets a profile card
+    consolidation_interval: int = 20  # same cadence as facts by
+    # default — independently configurable if that turns out wrong
+    target_max_per_entity: int = 20  # soft guidance, smaller than
+    # facts' 100 since each card covers one narrow entity
+
+
+@dataclass
 class ClusteringConfig:
     """Recurring-topic clustering configuration.
 
@@ -261,6 +285,7 @@ class EidolonConfig:
     models: dict[str, ModelConfig] = field(default_factory=default_models)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
     facts: FactsConfig = field(default_factory=FactsConfig)
+    entity_profiles: EntityProfilesConfig = field(default_factory=EntityProfilesConfig)
     clustering: ClusteringConfig = field(default_factory=ClusteringConfig)
     relabel: RelabelConfig = field(default_factory=RelabelConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
@@ -337,6 +362,12 @@ class EidolonConfig:
             "facts": {
                 "consolidation_interval": self.facts.consolidation_interval,
                 "target_max": self.facts.target_max,
+            },
+            "entity_profiles": {
+                "enabled": self.entity_profiles.enabled,
+                "materialization_threshold": self.entity_profiles.materialization_threshold,
+                "consolidation_interval": self.entity_profiles.consolidation_interval,
+                "target_max_per_entity": self.entity_profiles.target_max_per_entity,
             },
             "clustering": {
                 "enabled": self.clustering.enabled,

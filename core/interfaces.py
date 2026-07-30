@@ -101,6 +101,100 @@ class StorageProvider(Protocol):
         ``workspace_id``'s facts profile as of the most recent consolidation."""
         ...
 
+    # ── Entity Profiles (per-named-entity fact cards) ───────
+    # See core/consolidation/entity_profile_consolidator.py. Mirrors the
+    # Facts/Facts Consolidation sections above, keyed by an extra
+    # entity_name dimension instead of (or alongside) workspace_id.
+
+    def get_topics_since(self, workspace_id: str, since_topic_id: int) -> list[dict]:
+        """Return ``workspace_id``'s closed topics with id > ``since_topic_id``,
+        oldest first — id/label/summary/named_entities.
+
+        Workspace-scoped, id-cursored counterpart to
+        ``get_fact_items_since``, feeding
+        ``EntityProfileConsolidator``'s mention-scanning pass. Not
+        ``get_closed_topics_since`` (time-windowed, cross-workspace, and
+        doesn't return named_entities — built for the dashboard, not
+        this).
+        """
+        ...
+
+    def increment_entity_mentions(self, workspace_id: str, entity_names: list[str]) -> None:
+        """Upsert an ``entity_profiles`` row for each name, incrementing
+        ``mention_count`` by 1. No-op for an empty list."""
+        ...
+
+    def materialize_entities(self, workspace_id: str, threshold: int) -> list[str]:
+        """Mark every not-yet-materialized entity at/above ``threshold``
+        mentions as materialized (sets ``materialized_at``), returning
+        the names just materialized."""
+        ...
+
+    def get_materialized_entity_names(self, workspace_id: str) -> list[str]:
+        """Return every materialized entity name for ``workspace_id`` —
+        the small candidate list retrieval regex-matches a turn's
+        message against before pulling any cards."""
+        ...
+
+    def get_topics_mentioning_entity(
+        self, workspace_id: str, entity_name: str, since_topic_id: int
+    ) -> list[dict]:
+        """Return closed topics for ``workspace_id`` whose
+        ``named_entities`` includes ``entity_name``, with id >
+        ``since_topic_id``, oldest first — id/label/summary.
+        ``since_topic_id=0`` (an entity's default checkpoint) returns its
+        entire mention history, which matters the first time an entity
+        materializes — its card shouldn't only reflect the batch of
+        topics that happened to cross the threshold."""
+        ...
+
+    def get_entity_facts(self, workspace_id: str, entity_names: list[str]) -> list[Fact]:
+        """Return every stored entity-profile fact for the given entity
+        names, with ``Fact.entity_name`` set on each. Empty list in,
+        empty list out — no query issued."""
+        ...
+
+    def set_entity_fact(
+        self,
+        workspace_id: str,
+        entity_name: str,
+        category: str,
+        key: str,
+        value: str,
+        source: str,
+        importance: str = "medium",
+    ) -> None:
+        """Store or update a single entity-profile fact."""
+        ...
+
+    def delete_entity_fact(self, workspace_id: str, entity_name: str, category: str, key: str) -> None:
+        """Remove a single entity-profile fact, if present. No-op if it doesn't exist."""
+        ...
+
+    def get_entity_scan_checkpoint(self, workspace_id: str) -> int:
+        """Return the highest topic id already scanned for named-entity
+        mentions in ``workspace_id``. 0 if never scanned."""
+        ...
+
+    def set_entity_scan_checkpoint(self, workspace_id: str, last_topic_id: int) -> None:
+        """Record the highest topic id already scanned for named-entity
+        mentions as of the most recent entity-profile pass."""
+        ...
+
+    def get_entity_consolidation_checkpoint(self, workspace_id: str, entity_name: str) -> int:
+        """Return the highest topic id already incorporated into this
+        entity's profile. 0 if never consolidated — which, for a just-
+        materialized entity, means its next pass pulls its whole
+        history via ``get_topics_mentioning_entity``."""
+        ...
+
+    def set_entity_consolidation_checkpoint(
+        self, workspace_id: str, entity_name: str, last_topic_id: int
+    ) -> None:
+        """Record the highest topic id incorporated into this entity's
+        profile as of the most recent consolidation pass."""
+        ...
+
     # ── Topics ─────────────────────────────────────────────
 
     def create_topic(

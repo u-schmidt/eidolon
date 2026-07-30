@@ -36,6 +36,7 @@ import uuid
 from datetime import datetime
 
 from core.consolidation.cluster_consolidator import ClusterConsolidator
+from core.consolidation.entity_profile_consolidator import EntityProfileConsolidator
 from core.consolidation.fact_consolidator import FactConsolidator
 from core.detection.topic_detector import TopicDetector
 from core.extraction.fragmentary_extractor import FragmentaryExtractor
@@ -95,6 +96,22 @@ class Eidolon:
     facts_categories : list[str] | None
         Closed category list passed to ``FactConsolidator``. ``None``
         uses its own default list.
+    entity_profiles_enabled : bool
+        Whether a newly closed topic's named entities are scanned for
+        materialization into per-entity profile cards (see
+        ``store_turn``'s step 7 and ``EntityProfileConsolidator``). Off
+        by default — see ``core/config.py``'s ``EntityProfilesConfig``.
+    entity_materialization_threshold : int
+        Distinct topics that must mention a name before it materializes
+        into a real profile card.
+    entity_consolidation_interval : int
+        Scan for named-entity mentions and reconcile touched, materialized
+        cards every N user turns — independent of ``facts_consolidation_interval``,
+        though both fire from the same ``store_turn`` trigger tick.
+    entity_target_max : int
+        Soft guidance passed to ``EntityProfileConsolidator`` for one
+        entity's target profile size — not enforced in code, only
+        steered via its prompt.
     clustering_enabled : bool
         Whether a closed topic is evaluated for recurring-thread
         clustering (see ``store_turn``'s step 1b and
@@ -136,6 +153,10 @@ class Eidolon:
         facts_consolidation_interval: int = 20,
         facts_target_max: int = 100,
         facts_categories: list[str] | None = None,
+        entity_profiles_enabled: bool = False,
+        entity_materialization_threshold: int = 2,
+        entity_consolidation_interval: int = 20,
+        entity_target_max: int = 20,
         clustering_enabled: bool = True,
         clustering_shortlist_size: int = 5,
         relabel_enabled: bool = True,
@@ -162,7 +183,13 @@ class Eidolon:
             storage, llm, embedder, shortlist_size=clustering_shortlist_size,
             tracer=self._tracer, metrics=self._metrics,
         )
+        self._entity_consolidator = EntityProfileConsolidator(
+            storage, llm, threshold=entity_materialization_threshold, target_max=entity_target_max,
+            tracer=self._tracer, metrics=self._metrics,
+        )
         self._consolidation_interval = facts_consolidation_interval
+        self._entity_profiles_enabled = entity_profiles_enabled
+        self._entity_consolidation_interval = entity_consolidation_interval
         self._clustering_enabled = clustering_enabled
         self._relabel_enabled = relabel_enabled
         self._relabel_message_threshold = relabel_message_threshold
@@ -487,6 +514,17 @@ class Eidolon:
         if self._storage.count_user_turns(workspace_id) % self._consolidation_interval == 0:
             self.consolidate_facts(workspace_id, request_id=request_id, session_id=session_id)
 
+        # 7. Periodically scan newly closed topics for named-entity
+        # mentions and reconcile any materialized entity's profile card
+        # — same trigger tick as facts consolidation above, gated
+        # separately since it's off by default. See
+        # EntityProfileConsolidator.
+        if (
+            self._entity_profiles_enabled
+            and self._storage.count_user_turns(workspace_id) % self._entity_consolidation_interval == 0
+        ):
+            self.consolidate_entities(workspace_id, request_id=request_id, session_id=session_id)
+
         turn_duration_ms = (time.perf_counter() - turn_started) * 1000
         self._tracer.record(
             "turn_complete",
@@ -521,6 +559,26 @@ class Eidolon:
         since the last successful pass — see `FactConsolidator`.
         """
         self._fact_consolidator.consolidate(
+            workspace_id, request_id=request_id or _new_request_id(), session_id=session_id
+        )
+
+    def consolidate_entities(
+        self,
+        workspace_id: str,
+        *,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Scan `workspace_id`'s newly closed topics for named-entity
+        mentions and reconcile any materialized entity's profile card now.
+
+        Normally triggered automatically from `store_turn` every N turns
+        when `EntityProfilesConfig.enabled` (see step 7); exposed
+        publicly so adapters/tools can also trigger it manually without
+        waiting for the interval. No-ops if no topic has closed since
+        the last scan — see `EntityProfileConsolidator`.
+        """
+        self._entity_consolidator.consolidate(
             workspace_id, request_id=request_id or _new_request_id(), session_id=session_id
         )
 

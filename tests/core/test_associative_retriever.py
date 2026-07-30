@@ -34,10 +34,20 @@ class MockStorage:
         self.last_request_id: str | None = None
         self.last_min_message_count: int | None = None
         self.last_recent_topics_min_message_count: int | None = None
+        self.materialized_entity_names: list[str] = []
+        self.entity_facts: list[Fact] = []
+        self.last_entity_facts_names: list[str] | None = None
 
     def get_facts(self, workspace_id: str) -> list[Fact]:
         self.last_workspace_id = workspace_id
         return self.facts
+
+    def get_materialized_entity_names(self, workspace_id: str) -> list[str]:
+        return self.materialized_entity_names
+
+    def get_entity_facts(self, workspace_id: str, entity_names: list[str]) -> list[Fact]:
+        self.last_entity_facts_names = entity_names
+        return [f for f in self.entity_facts if f.entity_name in entity_names]
 
     def set_fact(
         self, workspace_id: str, category: str, key: str, value: str, source: str, importance: str = "medium"
@@ -862,3 +872,80 @@ class TestAssociativeRetrieverClusters:
         assert payload["cluster_summaries"] == [
             {"id": 17, "label": "Bike purchase", "summary": "User bought a new bike.", "topic_count": 3}
         ]
+
+
+class TestMatchEntities:
+    def test_matches_case_insensitively(self):
+        assert AssociativeRetriever._match_entities("I saw Lisa today", ["lisa"]) == ["lisa"]
+
+    def test_no_match_returns_empty_list(self):
+        assert AssociativeRetriever._match_entities("nothing relevant here", ["lisa"]) == []
+
+    def test_word_boundary_excludes_partial_substring_matches(self):
+        # "lisa" must not match inside "melisa" — word-boundary, not substring.
+        assert AssociativeRetriever._match_entities("melisa called", ["lisa"]) == []
+
+    def test_multi_word_entity_name_matches_as_a_phrase(self):
+        assert AssociativeRetriever._match_entities("we went to new york", ["new york"]) == ["new york"]
+
+    def test_empty_entity_names_returns_empty_list_without_matching_anything(self):
+        assert AssociativeRetriever._match_entities("Lisa and Bob", []) == []
+
+    def test_returns_only_the_subset_actually_mentioned(self):
+        result = AssociativeRetriever._match_entities("just Lisa here", ["lisa", "bob", "solvares"])
+        assert result == ["lisa"]
+
+    def test_matches_multiple_mentioned_entities(self):
+        result = AssociativeRetriever._match_entities("Lisa and Bob went out", ["lisa", "bob", "solvares"])
+        assert set(result) == {"lisa", "bob"}
+
+
+class TestRetrieveEntityFacts:
+    def test_pulls_entity_facts_for_a_mentioned_materialized_entity(self):
+        storage = MockStorage()
+        storage.materialized_entity_names = ["lisa", "bob"]
+        storage.entity_facts = [
+            Fact(workspace_id="user", entity_name="lisa", category="relationship", key="role",
+                 value="coworker", source="ai"),
+        ]
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="I met Lisa for lunch", workspace_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Lunch", is_new_topic=True,
+        )
+
+        assert len(bundle.entity_facts) == 1
+        assert bundle.entity_facts[0].entity_name == "lisa"
+        assert storage.last_entity_facts_names == ["lisa"]
+
+    def test_no_entity_facts_pulled_when_no_materialized_name_is_mentioned(self):
+        storage = MockStorage()
+        storage.materialized_entity_names = ["lisa"]
+        storage.entity_facts = [
+            Fact(workspace_id="user", entity_name="lisa", category="relationship", key="role",
+                 value="coworker", source="ai"),
+        ]
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="just chatting about the weather", workspace_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Weather", is_new_topic=True,
+        )
+
+        assert bundle.entity_facts == []
+        assert storage.last_entity_facts_names is None  # get_entity_facts not even called
+
+    def test_no_materialized_entities_skips_regex_match_entirely(self):
+        storage = MockStorage()  # materialized_entity_names defaults to []
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="I met Lisa for lunch", workspace_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Lunch", is_new_topic=True,
+        )
+
+        assert bundle.entity_facts == []
