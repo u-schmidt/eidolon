@@ -232,8 +232,13 @@ def create_dashboard_router(
             {"page": result, "workspace_id": workspace_id or ""},
         )
 
+    # entity_name uses the :path converter, not the default string one —
+    # named-entity extraction sometimes pulls in path-like fragments
+    # ("frontend/", "data/") verbatim, and the default converter refuses
+    # to even build a URL containing "/" (AssertionError at url_for()
+    # time), not just to route incoming requests.
     @router.get(
-        "/entity-profiles/{workspace_id}/{entity_name}",
+        "/entity-profiles/{workspace_id}/{entity_name:path}",
         response_class=HTMLResponse, name="dashboard_entity_profile_detail",
     )
     def entity_profile_detail(request: Request, workspace_id: str, entity_name: str) -> HTMLResponse:

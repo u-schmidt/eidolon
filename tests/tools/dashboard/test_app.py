@@ -843,6 +843,21 @@ class TestBrowseEntityProfiles:
         assert response.status_code == 200
         assert 'href="http://testserver/entity-profiles/u1/lisa"' in response.text
 
+    def test_entity_name_containing_a_slash_does_not_break_the_link(self, storage: MockStorage):
+        """Regression: named-entity extraction sometimes pulls in path-like
+        fragments ("frontend/") verbatim — the default string path
+        converter refuses to even build a url_for() containing "/",
+        not just to route incoming requests (see the :path converter on
+        the route in tools/dashboard/app.py)."""
+        storage.increment_entity_mentions("u1", ["frontend/"])
+        storage.materialize_entities("u1", threshold=1)
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/entity-profiles")
+        assert response.status_code == 200
+        assert 'href="http://testserver/entity-profiles/u1/frontend/"' in response.text
+
 
 class TestEntityProfileDetail:
     def test_404_for_unknown_entity(self, client: TestClient):
@@ -864,6 +879,15 @@ class TestEntityProfileDetail:
         assert "Lisa" in response.text
         assert "coworker" in response.text
         assert "Coffee chat" in response.text
+
+    def test_renders_for_entity_name_containing_a_slash(self, storage: MockStorage):
+        storage.increment_entity_mentions("u1", ["frontend/"])
+        storage.materialize_entities("u1", threshold=1)
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/entity-profiles/u1/frontend/")
+        assert response.status_code == 200
 
     def test_back_link_to_entity_profiles_list(self, storage: MockStorage):
         storage.increment_entity_mentions("u1", ["lisa"])
