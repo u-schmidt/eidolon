@@ -314,6 +314,21 @@ class MockStorage:
             )
         ]
 
+    def list_entity_profiles(self, workspace_id: str | None = None) -> list[dict]:
+        rows = []
+        for (wid, name), profile in self.entity_profiles.items():
+            if workspace_id is not None and wid != workspace_id:
+                continue
+            fact_count = sum(1 for f in self.entity_facts if f.workspace_id == wid and f.entity_name == name)
+            rows.append({
+                "workspace_id": wid, "entity_name": name, "mention_count": profile["mention_count"],
+                "materialized_at": profile["materialized_at"],
+                "last_consolidated_topic_id": profile["last_consolidated_topic_id"],
+                "fact_count": fact_count,
+            })
+        rows.sort(key=lambda r: (-r["mention_count"], r["entity_name"]))
+        return rows
+
     def get_entity_scan_checkpoint(self, workspace_id: str) -> int:
         return self._entity_scan_checkpoints.get(workspace_id, 0)
 

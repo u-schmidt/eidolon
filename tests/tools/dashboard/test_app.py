@@ -806,6 +806,76 @@ class TestClusterDetail:
         assert 'href="http://testserver/clusters"' in response.text
 
 
+class TestBrowseEntityProfiles:
+    def test_renders_empty_state(self, client: TestClient):
+        response = client.get("/entity-profiles")
+        assert response.status_code == 200
+        assert "No entity profiles found" in response.text
+
+    def test_renders_and_filters(self, storage: MockStorage):
+        storage.increment_entity_mentions("u1", ["lisa"])
+        storage.increment_entity_mentions("u2", ["bob"])
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/entity-profiles", params={"workspace_id": "u1"})
+        assert response.status_code == 200
+        assert "Lisa" in response.text
+        assert "Bob" not in response.text
+
+    def test_pending_entity_shows_pending_badge_not_a_link(self, storage: MockStorage):
+        storage.increment_entity_mentions("u1", ["lisa"])
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/entity-profiles")
+        assert response.status_code == 200
+        assert "pending" in response.text
+        assert "/entity-profiles/u1/lisa" not in response.text
+
+    def test_materialized_entity_links_to_detail(self, storage: MockStorage):
+        storage.increment_entity_mentions("u1", ["lisa"])
+        storage.materialize_entities("u1", threshold=1)
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/entity-profiles")
+        assert response.status_code == 200
+        assert 'href="http://testserver/entity-profiles/u1/lisa"' in response.text
+
+
+class TestEntityProfileDetail:
+    def test_404_for_unknown_entity(self, client: TestClient):
+        response = client.get("/entity-profiles/u1/lisa")
+        assert response.status_code == 404
+
+    def test_renders_facts_and_source_topics(self, storage: MockStorage):
+        tid = storage.create_topic("Coffee chat", workspace_id="u1")
+        storage.close_topic(tid, "met lisa for coffee")
+        storage.update_topic_entities(tid, ["lisa"])
+        storage.increment_entity_mentions("u1", ["lisa"])
+        storage.materialize_entities("u1", threshold=1)
+        storage.set_entity_fact("u1", "lisa", "relationship", "role", "coworker", "ai")
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/entity-profiles/u1/lisa")
+        assert response.status_code == 200
+        assert "Lisa" in response.text
+        assert "coworker" in response.text
+        assert "Coffee chat" in response.text
+
+    def test_back_link_to_entity_profiles_list(self, storage: MockStorage):
+        storage.increment_entity_mentions("u1", ["lisa"])
+        storage.materialize_entities("u1", threshold=1)
+        turn_reader = TurnReader(storage, _FakeMetricsReader(), _FakeTraceReader())
+        client = TestClient(_wrap(turn_reader, storage))
+
+        response = client.get("/entity-profiles/u1/lisa")
+        assert response.status_code == 200
+        assert 'href="http://testserver/entity-profiles"' in response.text
+
+
 class TestNav:
     def test_nav_shows_browse_and_insights_groups(self, client: TestClient):
         response = client.get("/")
@@ -816,6 +886,7 @@ class TestNav:
         assert '/facts"' in response.text
         assert '/memory-items"' in response.text
         assert '/clusters"' in response.text
+        assert '/entity-profiles"' in response.text
 
     def test_current_page_link_marked_active(self, client: TestClient):
         response = client.get("/topics")

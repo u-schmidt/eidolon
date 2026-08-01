@@ -254,6 +254,44 @@ class TestEntityProfiles:
         assert store.get_entity_consolidation_checkpoint("user", "lisa") == 7
         assert store.get_entity_consolidation_checkpoint("user", "bob") == 0
 
+    def test_list_entity_profiles_across_and_within_workspace(self, store: StorageProvider):
+        store.increment_entity_mentions("user", ["lisa", "lisa", "bob"])
+        store.increment_entity_mentions("other_workspace", ["solvares"])
+
+        all_rows = store.list_entity_profiles()
+        assert {(r["workspace_id"], r["entity_name"]) for r in all_rows} == {
+            ("user", "lisa"), ("user", "bob"), ("other_workspace", "solvares"),
+        }
+
+        scoped = store.list_entity_profiles("user")
+        assert {r["entity_name"] for r in scoped} == {"lisa", "bob"}
+        lisa_row = next(r for r in scoped if r["entity_name"] == "lisa")
+        assert lisa_row["mention_count"] == 2
+        assert lisa_row["materialized_at"] is None
+        assert lisa_row["fact_count"] == 0
+
+    def test_list_entity_profiles_orders_by_mention_count_then_name(self, store: StorageProvider):
+        store.increment_entity_mentions("user", ["bob"])
+        store.increment_entity_mentions("user", ["lisa", "lisa"])
+        store.increment_entity_mentions("user", ["alex", "alex"])
+
+        rows = store.list_entity_profiles("user")
+        assert [r["entity_name"] for r in rows] == ["alex", "lisa", "bob"]
+
+    def test_list_entity_profiles_includes_fact_count_and_materialized_at(self, store: StorageProvider):
+        store.increment_entity_mentions("user", ["lisa"])
+        store.materialize_entities("user", 1)
+        store.set_entity_fact("user", "lisa", "relationship", "role", "coworker", "ai")
+        store.set_entity_fact("user", "lisa", "preference", "coffee", "oat milk", "ai")
+
+        row = store.list_entity_profiles("user")[0]
+        assert row["materialized_at"] is not None
+        assert row["fact_count"] == 2
+
+    def test_list_entity_profiles_empty(self, store: StorageProvider):
+        assert store.list_entity_profiles("user") == []
+        assert store.list_entity_profiles() == []
+
 
 class TestTopics:
     def test_create_and_get_topic(self, store: StorageProvider):

@@ -44,6 +44,8 @@ _STEP_LABELS: dict[str, str] = {
     "context_retrieval": "Assemble injected context",
     "fact_consolidation": "Consolidate facts",
     "fact_correction": "Manual fact correction",
+    "entity_profile_scan": "Scan for entity mentions",
+    "entity_profile_consolidation": "Consolidate entity profile",
     "cluster_consolidation": "Consolidate into cluster",
     "cluster_summary_embedding": "Embed cluster summary",
     "stale_topic_cleanup": "Stale-topic sweep",

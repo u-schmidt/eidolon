@@ -102,6 +102,33 @@ class ClusterDetail:
 
 
 @dataclass
+class EntityProfileRow:
+    workspace_id: str
+    entity_name: str
+    mention_count: int
+    materialized_at: object | None
+    fact_count: int
+
+
+@dataclass
+class EntityProfileTopicRow:
+    id: int
+    label: str | None
+    summary_preview: str | None
+
+
+@dataclass
+class EntityProfileDetail:
+    workspace_id: str
+    entity_name: str
+    mention_count: int
+    materialized_at: object | None
+    last_consolidated_topic_id: int
+    facts: list[Fact]
+    topics: list[EntityProfileTopicRow]
+
+
+@dataclass
 class OverviewCounts:
     """Aggregate counts for the landing page's at-a-glance cards."""
 
@@ -111,6 +138,7 @@ class OverviewCounts:
     total_facts: int
     total_memory_items: int
     total_clusters: int
+    total_entity_profiles: int
 
 
 class BrowseReader:
@@ -137,6 +165,7 @@ class BrowseReader:
             total_facts=len(self._storage.get_all_facts()),
             total_memory_items=len(self._storage.list_memory_items()),
             total_clusters=len(self._storage.list_clusters()),
+            total_entity_profiles=len(self._storage.list_entity_profiles()),
         )
 
     def topics(self, page: int, status: str | None = None, workspace_id: str | None = None) -> Page[TopicRow]:
@@ -205,6 +234,47 @@ class BrowseReader:
             id=cluster["id"], workspace_id=cluster["workspace_id"], label=cluster["label"],
             summary=cluster["summary"], tags=cluster["tags"], topic_count=cluster["topic_count"],
             created_at=cluster["created_at"], updated_at=cluster["updated_at"], topics=topics,
+        )
+
+    def entity_profiles(self, page: int, workspace_id: str | None = None) -> Page[EntityProfileRow]:
+        rows = self._storage.list_entity_profiles(workspace_id=workspace_id)
+        items = [
+            EntityProfileRow(
+                workspace_id=r["workspace_id"], entity_name=r["entity_name"],
+                mention_count=r["mention_count"], materialized_at=r["materialized_at"],
+                fact_count=r["fact_count"],
+            )
+            for r in rows
+        ]
+        return self._paginate(items, page)
+
+    def entity_profile_detail(self, workspace_id: str, entity_name: str) -> EntityProfileDetail | None:
+        """One entity's full card — its stored facts plus every topic that
+        ever mentioned it, not just what's still pending consolidation
+        (``since_topic_id=0``), so a fact can be traced back to the
+        conversation that produced it. None if this workspace has no
+        ``entity_profiles`` row for this name at all (never mentioned).
+
+        Looks the single row up via ``list_entity_profiles(workspace_id)``
+        rather than adding a dedicated single-row storage method — cheap
+        at this scale (dozens of entities per workspace), same tradeoff
+        this module's docstring already makes for pagination.
+        """
+        profiles = self._storage.list_entity_profiles(workspace_id=workspace_id)
+        profile = next((p for p in profiles if p["entity_name"] == entity_name), None)
+        if profile is None:
+            return None
+        facts = self._storage.get_entity_facts(workspace_id, [entity_name])
+        topic_rows = self._storage.get_topics_mentioning_entity(workspace_id, entity_name, 0)
+        topics = [
+            EntityProfileTopicRow(id=t["id"], label=t["label"], summary_preview=self._preview(t["summary"]))
+            for t in topic_rows
+        ]
+        return EntityProfileDetail(
+            workspace_id=workspace_id, entity_name=entity_name,
+            mention_count=profile["mention_count"], materialized_at=profile["materialized_at"],
+            last_consolidated_topic_id=profile["last_consolidated_topic_id"],
+            facts=facts, topics=topics,
         )
 
     @staticmethod

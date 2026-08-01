@@ -30,6 +30,10 @@
       <span class="stat-value">{{ counts.total_clusters }}</span>
       <span class="stat-label">Clusters</span>
     </div>
+    <a href="{{ url_for('dashboard_entity_profiles') }}" class="stat-card" style="text-decoration: none; color: inherit;">
+      <span class="stat-value">{{ counts.total_entity_profiles }}</span>
+      <span class="stat-label">Entity Profiles</span>
+    </a>
     <a href="{{ url_for('dashboard_prompt_quality') }}" class="stat-card" style="text-decoration: none; color: inherit;">
       {% if has_quality_debug_data %}
         <span class="stat-value"{% if fallback_continue_count %} style="color: var(--err);"{% endif %}>{{ fallback_continue_count }}</span>

@@ -171,6 +171,21 @@ class StorageProvider(Protocol):
         """Remove a single entity-profile fact, if present. No-op if it doesn't exist."""
         ...
 
+    def list_entity_profiles(self, workspace_id: str | None = None) -> list[dict]:
+        """Return every ``entity_profiles`` row, across every workspace or
+        one workspace's if given, most-mentioned first — workspace_id/
+        entity_name/mention_count/materialized_at/
+        last_consolidated_topic_id/fact_count (a count against
+        ``entity_facts``, not a stored column).
+
+        Bulk, optionally-scoped read mirroring ``list_clusters``'s
+        relationship to ``get_clusters`` — powers the dashboard's entity-
+        profiles browse page. Includes not-yet-materialized entities
+        (``materialized_at`` is ``None``) deliberately, so "why hasn't
+        this name gotten a card yet" is visible, not just finished cards.
+        """
+        ...
+
     def get_entity_scan_checkpoint(self, workspace_id: str) -> int:
         """Return the highest topic id already scanned for named-entity
         mentions in ``workspace_id``. 0 if never scanned."""

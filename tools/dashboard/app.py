@@ -223,4 +223,28 @@ def create_dashboard_router(
             request, "cluster_detail.html", {"detail": detail},
         )
 
+    @router.get("/entity-profiles", response_class=HTMLResponse, name="dashboard_entity_profiles")
+    def entity_profiles(request: Request, page: int = 1, workspace_id: str | None = None) -> HTMLResponse:
+        workspace_id = workspace_id or None
+        result = browse_reader.entity_profiles(page, workspace_id=workspace_id)
+        return _templates.TemplateResponse(
+            request, "browse_entity_profiles.html",
+            {"page": result, "workspace_id": workspace_id or ""},
+        )
+
+    @router.get(
+        "/entity-profiles/{workspace_id}/{entity_name}",
+        response_class=HTMLResponse, name="dashboard_entity_profile_detail",
+    )
+    def entity_profile_detail(request: Request, workspace_id: str, entity_name: str) -> HTMLResponse:
+        detail = browse_reader.entity_profile_detail(workspace_id, entity_name)
+        if detail is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No entity profile found for workspace_id={workspace_id!r}, entity_name={entity_name!r}",
+            )
+        return _templates.TemplateResponse(
+            request, "entity_profile_detail.html", {"detail": detail},
+        )
+
     return router

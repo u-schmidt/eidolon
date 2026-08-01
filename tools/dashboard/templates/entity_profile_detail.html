@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Eidolon — {{ detail.entity_name|title }}{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <a href="{{ url_for('dashboard_entity_profiles') }}">Entity Profiles</a>
+    <span class="sep">›</span>
+    <span>{{ detail.entity_name|title }}</span>
+  </div>
+{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('dashboard_entity_profiles') }}">&larr; back to entity profiles</a></p>
+
+  <div class="detail-header">
+    <div class="card">
+      <div class="row">
+        <div class="field"><span class="label">Entity</span>{{ detail.entity_name|title }}</div>
+        <div class="field"><span class="label">Workspace</span>{{ detail.workspace_id }}</div>
+        <div class="field"><span class="label">Mentions</span>{{ detail.mention_count }}</div>
+        <div class="field">
+          <span class="label">Status</span>
+          {% if detail.materialized_at %}
+            <span class="badge ok">card</span> since <span class="timeago" title="{{ detail.materialized_at }}">{{ detail.materialized_at }}</span>
+          {% else %}
+            <span class="badge neutral">pending</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Profile facts</h2>
+  {% if not detail.facts %}
+    <p class="muted">No facts consolidated yet{% if not detail.materialized_at %} — this entity hasn't materialized into a card{% endif %}.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>Category</th><th>Key</th><th>Value</th><th>Importance</th><th>Created</th></tr>
+      </thead>
+      <tbody>
+        {% for f in detail.facts %}
+        <tr>
+          <td class="muted">{{ f.category }}</td>
+          <td>{{ f.key }}</td>
+          <td>{{ f.value }}</td>
+          <td><span class="badge neutral">{{ f.importance }}</span></td>
+          <td><span class="timeago" title="{{ f.created_at }}">{{ f.created_at }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <h2>Source topics</h2>
+  <p class="muted">Every topic that mentioned {{ detail.entity_name|title }} — where each fact above came from.</p>
+  {% if not detail.topics %}
+    <p class="muted">No source topics found.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Label</th><th>Summary</th></tr>
+      </thead>
+      <tbody>
+        {% for t in detail.topics %}
+        <tr>
+          <td class="muted">#{{ t.id }}</td>
+          <td>{{ t.label or "—" }}</td>
+          <td>{{ t.summary_preview or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}

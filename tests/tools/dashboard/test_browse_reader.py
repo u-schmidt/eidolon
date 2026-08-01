@@ -25,6 +25,7 @@ class TestOverviewCounts:
         ))
         storage.create_cluster("u1", "Bike", "summary")
         storage.store_message(turn_id=1, role="user", content="hi", workspace_id="u1", request_id="req1")
+        storage.increment_entity_mentions("u1", ["lisa"])
         reader = BrowseReader(storage)
 
         counts = reader.overview_counts()
@@ -35,6 +36,7 @@ class TestOverviewCounts:
         assert counts.total_facts == 1
         assert counts.total_memory_items == 1
         assert counts.total_clusters == 1
+        assert counts.total_entity_profiles == 1
 
 
 class TestTopics:
@@ -234,6 +236,82 @@ class TestClusterDetail:
         assert detail.tags == ["fitness"]
         assert detail.topic_count == 2
         assert [t.label for t in detail.topics] == ["Second ride", "First ride"]
+
+
+class TestEntityProfiles:
+    def test_lists_all_entity_profiles_including_unmaterialized(self):
+        storage = MockStorage()
+        storage.increment_entity_mentions("u1", ["lisa"])
+        reader = BrowseReader(storage)
+
+        page = reader.entity_profiles(page=1)
+
+        assert page.total == 1
+        assert page.items[0].entity_name == "lisa"
+        assert page.items[0].materialized_at is None
+        assert page.items[0].fact_count == 0
+
+    def test_filters_by_workspace_id(self):
+        storage = MockStorage()
+        storage.increment_entity_mentions("u1", ["lisa"])
+        storage.increment_entity_mentions("u2", ["bob"])
+        reader = BrowseReader(storage)
+
+        page = reader.entity_profiles(page=1, workspace_id="u1")
+
+        assert [p.entity_name for p in page.items] == ["lisa"]
+
+    def test_includes_fact_count_once_materialized(self):
+        storage = MockStorage()
+        storage.increment_entity_mentions("u1", ["lisa"])
+        storage.materialize_entities("u1", threshold=1)
+        storage.set_entity_fact("u1", "lisa", "relationship", "role", "coworker", "ai")
+        reader = BrowseReader(storage)
+
+        row = reader.entity_profiles(page=1).items[0]
+        assert row.materialized_at is not None
+        assert row.fact_count == 1
+
+
+class TestEntityProfileDetail:
+    def test_returns_none_for_unknown_entity(self):
+        storage = MockStorage()
+        reader = BrowseReader(storage)
+
+        assert reader.entity_profile_detail("u1", "lisa") is None
+
+    def test_returns_facts_and_source_topics(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Coffee chat", workspace_id="u1")
+        storage.close_topic(tid, "met lisa for coffee")
+        storage.update_topic_entities(tid, ["lisa"])
+        storage.increment_entity_mentions("u1", ["lisa"])
+        storage.materialize_entities("u1", threshold=1)
+        storage.set_entity_fact("u1", "lisa", "relationship", "role", "coworker", "ai")
+        reader = BrowseReader(storage)
+
+        detail = reader.entity_profile_detail("u1", "lisa")
+
+        assert detail is not None
+        assert detail.workspace_id == "u1"
+        assert detail.entity_name == "lisa"
+        assert detail.mention_count == 1
+        assert detail.materialized_at is not None
+        assert len(detail.facts) == 1
+        assert detail.facts[0].value == "coworker"
+        assert [t.id for t in detail.topics] == [tid]
+        assert detail.topics[0].label == "Coffee chat"
+
+    def test_returns_row_with_no_facts_when_not_yet_materialized(self):
+        storage = MockStorage()
+        storage.increment_entity_mentions("u1", ["lisa"])
+        reader = BrowseReader(storage)
+
+        detail = reader.entity_profile_detail("u1", "lisa")
+
+        assert detail is not None
+        assert detail.materialized_at is None
+        assert detail.facts == []
 
 
 class TestPagination:

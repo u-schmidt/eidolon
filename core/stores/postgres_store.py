@@ -327,6 +327,31 @@ class PostgresStore:
             (workspace_id, entity_name, category, key),
         )
 
+    def list_entity_profiles(self, workspace_id: str | None = None) -> list[dict]:
+        query = (
+            "SELECT ep.workspace_id, ep.entity_name, ep.mention_count, ep.materialized_at, "
+            "ep.last_consolidated_topic_id, COUNT(ef.id) AS fact_count "
+            "FROM entity_profiles ep LEFT JOIN entity_facts ef "
+            "ON ef.workspace_id = ep.workspace_id AND ef.entity_name = ep.entity_name"
+        )
+        params: list[str] = []
+        if workspace_id is not None:
+            query += " WHERE ep.workspace_id = %s"
+            params.append(workspace_id)
+        query += (
+            " GROUP BY ep.workspace_id, ep.entity_name, ep.mention_count, ep.materialized_at, "
+            "ep.last_consolidated_topic_id "
+            "ORDER BY ep.mention_count DESC, ep.entity_name ASC"
+        )
+        rows = self._conn.execute(query, params).fetchall()
+        return [
+            {
+                "workspace_id": r[0], "entity_name": r[1], "mention_count": r[2],
+                "materialized_at": r[3], "last_consolidated_topic_id": r[4], "fact_count": r[5],
+            }
+            for r in rows
+        ]
+
     def get_entity_scan_checkpoint(self, workspace_id: str) -> int:
         row = self._conn.execute(
             "SELECT last_topic_id FROM entity_scan_state WHERE workspace_id = %s",

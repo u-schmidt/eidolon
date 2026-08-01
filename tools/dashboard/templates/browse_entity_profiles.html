@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pagination with context %}
+{% block title %}Eidolon — Entity Profiles{% endblock %}
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{{ url_for('dashboard_index') }}">Dashboard</a>
+    <span class="sep">›</span>
+    <span>Entity Profiles</span>
+  </div>
+{% endblock %}
+{% block content %}
+  <h1>Entity Profiles</h1>
+  <p class="muted">Named people/places/organizations tracked per workspace — a card materializes once a name recurs across enough distinct topics. Always-on, straight from the <code>entity_profiles</code> table (includes names still accumulating mentions, not just finished cards).</p>
+
+  <form method="get" action="{{ url_for('dashboard_entity_profiles') }}" class="row" style="margin-bottom: 1rem; align-items: center;"
+        hx-get="{{ url_for('dashboard_entity_profiles') }}" hx-target="#results" hx-select="#results" hx-swap="outerHTML" hx-push-url="true">
+    <input type="text" name="workspace_id" value="{{ workspace_id }}" placeholder="filter by workspace_id">
+    <button type="submit">Filter</button>
+  </form>
+
+  <div id="results">
+  {% if not page.items %}
+    <p class="muted">No entity profiles found{% if workspace_id %} matching this filter{% endif %}.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>Entity</th><th>Workspace</th><th>Mentions</th><th>Status</th><th>Facts</th></tr>
+      </thead>
+      <tbody>
+        {% for p in page.items %}
+        <tr>
+          <td>
+            {% if p.materialized_at %}
+              <a href="{{ url_for('dashboard_entity_profile_detail', workspace_id=p.workspace_id, entity_name=p.entity_name) }}">{{ p.entity_name|title }}</a>
+            {% else %}
+              {{ p.entity_name|title }}
+            {% endif %}
+          </td>
+          <td class="muted">{{ p.workspace_id }}</td>
+          <td>{{ p.mention_count }}</td>
+          <td>
+            {% if p.materialized_at %}
+              <span class="badge ok">card</span>
+            {% else %}
+              <span class="badge neutral">pending</span>
+            {% endif %}
+          </td>
+          <td>{{ p.fact_count if p.materialized_at else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {{ pagination('dashboard_entity_profiles', page, {'workspace_id': workspace_id}) }}
+  {% endif %}
+  </div>
+{% endblock %}
