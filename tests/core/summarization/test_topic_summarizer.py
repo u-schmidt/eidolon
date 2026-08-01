@@ -381,3 +381,38 @@ class TestSummaryPromptSources:
         assert "extracted fragment text" in prompt
         assert "raw message text" in prompt
         assert prompt.index("extracted fragment text") < prompt.index("raw message text")
+
+
+class TestSummaryPromptEntityGuidance:
+    """Regression coverage for the noise found in real extracted data —
+    see core/summarization/topic_summarizer.py's _build_summary_prompt
+    docstring: coding-conversation topics produced entities like
+    "backend/" and "agents.md", and fragmented one real project across
+    several path-variant names instead of consolidating into one."""
+
+    def test_prompt_instructs_against_file_paths_and_filenames(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Story", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
+        llm = MockLLM(summary_response="Summary: x\nTags: y")
+        embedder = MockEmbedder()
+
+        _summarizer(storage, llm, embedder).summarize(tid)
+
+        prompt = llm.last_prompt
+        assert "file" in prompt.lower() and "path" in prompt.lower()
+        assert "agents.md" in prompt
+        assert ".gitignore" in prompt
+
+    def test_prompt_instructs_against_generic_technology_names(self):
+        storage = MockStorage()
+        tid = storage.create_topic("Story", workspace_id="user")
+        storage.store_message(turn_id=1, role="user", content="hi", workspace_id="user", topic_id=tid)
+        llm = MockLLM(summary_response="Summary: x\nTags: y")
+        embedder = MockEmbedder()
+
+        _summarizer(storage, llm, embedder).summarize(tid)
+
+        prompt = llm.last_prompt
+        assert "fastapi" in prompt
+        assert "pytorch" in prompt

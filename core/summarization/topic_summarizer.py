@@ -65,6 +65,15 @@ def _build_summary_prompt(messages: list[dict], memory_items: list[MemoryItem]) 
     happens to mention several people/places in passing doesn't crowd
     real topic tags out of the cap, or get its own names truncated to
     fit it (see core/stores/migrations.py's version 12).
+
+    The entities instruction explicitly excludes file paths/filenames
+    and generic technology/library names — added after inspecting real
+    extracted data (see EntityProfileConsolidator's live rollout):
+    without this, coding-conversation topics produced noise entities
+    like "backend/", "agents.md", ".gitignore", and fragmented one real
+    project across several path-variant "entities" ("cull", ".cull/",
+    "cull/data/", "projekte/cull/plan.md", ...) that each got their own
+    duplicate profile card instead of consolidating into one.
     """
     items_block = "\n".join(
         f"- [{mi.item_type}] ({mi.source_peer} about {mi.subject_peer}): {mi.content}"
@@ -79,8 +88,15 @@ def _build_summary_prompt(messages: list[dict], memory_items: list[MemoryItem]) 
         f"give it a short 2-5 word label, "
         f"extract 3-5 key tags (comma-separated, lowercase), "
         f"and separately list every named person, place, or organization "
-        f"mentioned, however briefly (comma-separated, lowercase, no "
-        f"limit on how many — leave blank if none).\n\n"
+        f"mentioned, however briefly — a specific person's name, a "
+        f"company, a place, or a named product/app/project with its own "
+        f"identity (e.g. \"drawthings\", \"mampfi\"). Do NOT include file "
+        f"paths, filenames, or config/doc files (e.g. \"backend/\", "
+        f"\"agents.md\", \".gitignore\"), and do NOT include generic "
+        f"technology, library, or framework names (e.g. \"fastapi\", "
+        f"\"pytorch\", \"sqlite\") — those belong in tags, not here "
+        f"(comma-separated, lowercase, no limit on how many — leave "
+        f"blank if none).\n\n"
         f"Extracted memory fragments (primary source):\n"
         f"{items_block}\n\n"
         f"Raw transcript (secondary — some content above may already be "
