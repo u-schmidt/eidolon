@@ -27,12 +27,22 @@ services:
       dockerfile: deploy/server/Dockerfile
     ports:
       - "127.0.0.1:8420:8420"
+    labels:
+      # Picked up by the autoheal sidecar below — Docker Compose's own
+      # `restart:` policy only reacts to the container *exiting*, never
+      # to a healthcheck reporting "unhealthy" while the process stays
+      # alive (a real incident: the process kept running and answering
+      # HTTP fine while every real endpoint 500'd on a wedged DB
+      # connection, for over a day, with nothing to notice or act on it).
+      - "autoheal=true"
     healthcheck:
       # python, not curl/wget: the base image (python:3.12-slim) has
       # neither installed, and adding one just for this would be an
-      # unnecessary extra package (see server/app.py's /healthz for the
-      # unauthenticated liveness endpoint this hits).
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8420/healthz', timeout=3)"]
+      # unnecessary extra package. Hits /readyz, not /healthz — /readyz
+      # does a real (harmless, read-only) storage round-trip, so a
+      # wedged DB connection pool actually fails this check instead of
+      # /healthz's plain process-alive ping reporting healthy regardless.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8420/readyz', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -54,6 +64,27 @@ services:
     depends_on:
       eidolon-db:
         condition: service_healthy
+
+  # Watches containers labeled autoheal=true and `docker restart`s any
+  # that Docker reports as "unhealthy" — plain Compose (not Swarm) never
+  # does this on its own; `restart:` above only covers the container
+  # actually exiting. Needs the Docker socket to issue that restart,
+  # which is a real privilege grant (equivalent to host Docker control)
+  # — the trade-off for this pattern; `:ro` on the mount doesn't
+  # meaningfully restrict socket API calls, only replacing the socket
+  # file itself. Each triggered restart is logged with a timestamp to
+  # this container's own stdout — `docker logs autoheal` (or `docker
+  # logs autoheal --since 48h`) is a durable log of every incident,
+  # kept for as long as this container itself runs.
+  autoheal:
+    image: willfarrell/autoheal:latest
+    restart: unless-stopped
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=autoheal
+      - AUTOHEAL_INTERVAL=10
+      - AUTOHEAL_START_PERIOD=10
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   eidolon-db:
     image: pgvector/pgvector:pg15

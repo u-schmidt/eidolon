@@ -158,6 +158,27 @@ class TestHealthz:
         assert client.get("/healthz").status_code == 200
 
 
+class TestReadyz:
+    """/readyz is a deeper probe than /healthz — it does a real storage
+    round-trip, so a wedged DB connection (process alive, HTTP layer
+    fine, but internal calls failing) shows up here even though
+    /healthz would report healthy the whole time."""
+
+    def test_readyz_requires_no_token(self):
+        client = TestClient(create_app(_FakeEidolonClient()))
+        response = client.get("/readyz")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+    def test_readyz_fails_when_storage_round_trip_raises(self):
+        class _BrokenEidolonClient(_FakeEidolonClient):
+            def get_active_topic(self, workspace_id: str, session_id: str | None = None) -> int | None:
+                raise RuntimeError("connection pool exhausted")
+
+        client = TestClient(create_app(_BrokenEidolonClient()), raise_server_exceptions=False)
+        assert client.get("/readyz").status_code == 500
+
+
 class TestRpcAuthUnaffectedByDashboard:
     def test_rpc_requires_token_with_no_dashboard_mounted(self):
         client = TestClient(create_app(_FakeEidolonClient()))

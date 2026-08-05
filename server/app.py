@@ -88,6 +88,20 @@ def create_app(
         the probe already fails by timing out/refusing the connection."""
         return {"status": "ok"}
 
+    @app.get("/readyz")
+    def readyz() -> dict[str, str]:
+        """Unauthenticated readiness probe — like ``/healthz`` but does a
+        real, harmless storage round-trip (a read-only lookup against a
+        throwaway workspace_id, no rows ever match), so a wedged DB
+        connection pool or similar internal failure shows up here even
+        though the process itself is still alive and answering HTTP
+        requests fine. Point container-orchestration health checks at
+        this, not ``/healthz`` — an unhandled exception here surfaces as
+        a 500 via FastAPI's default handler, which is exactly what a
+        healthcheck needs to detect and act on."""
+        eidolon.get_active_topic("__readyz_healthcheck__")
+        return {"status": "ok"}
+
     rpc = APIRouter(dependencies=[Depends(require_token)])
 
     @rpc.post("/active-topic", response_model=int | None)
