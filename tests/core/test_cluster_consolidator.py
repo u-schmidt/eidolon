@@ -58,25 +58,39 @@ class TestConsolidateTopicMatchesCluster:
         cid = store.create_cluster("user", "Bike", "old summary", embedding=_MATCH_EMBEDDING)
         new_topic = _closed_topic(store, "New bike development")
 
-        llm = MockLLM('{"match_index": 1, "label": "Bike saga", "summary": "consolidated bike story"}')
+        llm = MockLLM(
+            '{"match_index": 1, "label": "Bike saga", "current_state": "consolidated bike story", '
+            '"milestones": ["started looking", "bought one"], "tags": ["bike"]}'
+        )
         ClusterConsolidator(store, llm, MockEmbedder()).consolidate_topic(new_topic, "user")
 
         cluster = store.get_cluster(cid)
         assert cluster["summary"] == "consolidated bike story"
         assert cluster["label"] == "Bike saga"
+        assert cluster["milestones"] == ["started looking", "bought one"]
+        assert cluster["tags"] == ["bike"]
         assert cluster["topic_count"] == 1
         assert [t["id"] for t in store.get_topics_by_cluster(cid)] == [new_topic]
 
-    def test_merges_tags_from_matched_cluster_and_new_topic(self, store: SqliteStore):
-        cid = store.create_cluster("user", "Bike", "summary", tags=["bike"], embedding=_MATCH_EMBEDDING)
+    def test_tags_and_milestones_are_the_llm_s_curated_list_not_a_union(self, store: SqliteStore):
+        """Tags/milestones used to be a raw set-union across every merge,
+        growing unboundedly (the bug this whole redesign fixes) — now
+        the LLM's own returned list replaces the cluster's, in full,
+        each pass."""
+        cid = store.create_cluster("user", "Bike", "summary", tags=["bike", "old-noise"], embedding=_MATCH_EMBEDDING)
         new_topic = store.create_topic(
             "New development", summary="", workspace_id="user", tags=["shopping"], embedding=_MATCH_EMBEDDING
         )
         store.close_topic(new_topic, "summary")
 
-        llm = MockLLM('{"match_index": 1, "label": "Bike", "summary": "updated"}')
+        llm = MockLLM(
+            '{"match_index": 1, "label": "Bike", "current_state": "updated", "milestones": [], '
+            '"tags": ["bike", "shopping"]}'
+        )
         ClusterConsolidator(store, llm, MockEmbedder()).consolidate_topic(new_topic, "user")
 
+        # "old-noise" is gone — the LLM's list replaced the cluster's, it
+        # wasn't unioned with the new topic's own tags.
         assert store.get_cluster(cid)["tags"] == ["bike", "shopping"]
 
 
@@ -85,7 +99,10 @@ class TestConsolidateTopicMatchesRawTopic:
         older = _closed_topic(store, "Considering a bike")
         new_topic = _closed_topic(store, "Bought the bike")
 
-        llm = MockLLM('{"match_index": 1, "label": "Bike saga", "summary": "from considering to buying"}')
+        llm = MockLLM(
+            '{"match_index": 1, "label": "Bike saga", "current_state": "from considering to buying", '
+            '"milestones": ["considered a bike", "bought a bike"]}'
+        )
         ClusterConsolidator(store, llm, MockEmbedder()).consolidate_topic(new_topic, "user")
 
         # Exactly one cluster now exists, holding both topics.
@@ -94,6 +111,7 @@ class TestConsolidateTopicMatchesRawTopic:
         cluster = clusters[0]
         assert cluster["label"] == "Bike saga"
         assert cluster["summary"] == "from considering to buying"
+        assert cluster["milestones"] == ["considered a bike", "bought a bike"]
         assert cluster["topic_count"] == 2
         member_ids = {t["id"] for t in store.get_topics_by_cluster(cluster["id"])}
         assert member_ids == {older, new_topic}
@@ -104,7 +122,7 @@ class TestConsolidateTopicNoMatch:
         other = _closed_topic(store, "Unrelated topic")
         new_topic = _closed_topic(store, "New topic")
 
-        llm = MockLLM('{"match_index": null, "label": "", "summary": ""}')
+        llm = MockLLM('{"match_index": null, "label": "", "current_state": ""}')
         ClusterConsolidator(store, llm, MockEmbedder()).consolidate_topic(new_topic, "user")
 
         assert store.search_clusters(query_embedding=_MATCH_EMBEDDING, workspace_id="user") == []
@@ -147,7 +165,7 @@ class TestConsolidateTopicFailure:
     def test_embedding_failure_records_error_event(self, store: SqliteStore, caplog):
         cid = store.create_cluster("user", "Bike", "old summary", embedding=_MATCH_EMBEDDING)
         new_topic = _closed_topic(store, "New bike development")
-        llm = MockLLM('{"match_index": 1, "label": "Bike saga", "summary": "consolidated bike story"}')
+        llm = MockLLM('{"match_index": 1, "label": "Bike saga", "current_state": "consolidated bike story"}')
         tracer = SpyTracer()
         metrics = SpyMetricsRecorder()
 
@@ -169,7 +187,7 @@ class TestConsolidateTopicTracing:
     def test_records_cluster_consolidation_event_on_match(self, store: SqliteStore):
         cid = store.create_cluster("user", "Bike", "old summary", embedding=_MATCH_EMBEDDING)
         new_topic = _closed_topic(store, "New development")
-        llm = MockLLM('{"match_index": 1, "label": "Bike saga", "summary": "consolidated"}')
+        llm = MockLLM('{"match_index": 1, "label": "Bike saga", "current_state": "consolidated"}')
         tracer = SpyTracer()
 
         ClusterConsolidator(store, llm, MockEmbedder(), tracer=tracer).consolidate_topic(
@@ -190,7 +208,7 @@ class TestConsolidateTopicTracing:
     def test_records_llm_call_and_embedding_call_metrics_on_match(self, store: SqliteStore):
         store.create_cluster("user", "Bike", "old summary", embedding=_MATCH_EMBEDDING)
         new_topic = _closed_topic(store, "New development")
-        llm = MockLLM('{"match_index": 1, "label": "Bike saga", "summary": "consolidated"}')
+        llm = MockLLM('{"match_index": 1, "label": "Bike saga", "current_state": "consolidated"}')
         metrics = SpyMetricsRecorder()
 
         ClusterConsolidator(store, llm, MockEmbedder(), metrics=metrics).consolidate_topic(
@@ -214,10 +232,65 @@ class TestConsolidateTopicShortlistSize:
             _closed_topic(store, f"Candidate topic {i}")
         new_topic = _closed_topic(store, "New topic")
 
-        llm = MockLLM('{"match_index": null, "label": "", "summary": ""}')
+        llm = MockLLM('{"match_index": null, "label": "", "current_state": ""}')
         ClusterConsolidator(store, llm, MockEmbedder(), shortlist_size=2).consolidate_topic(new_topic, "user")
 
         # Only 2 candidates should have made it into the prompt.
         assert llm.last_prompt.count("past topic, not yet grouped") + llm.last_prompt.count(
             "existing recurring thread"
         ) == 2
+
+
+class TestConsolidateTopicSystemPrompt:
+    def test_system_prompt_mentions_target_max_milestones_and_tags(self, store: SqliteStore):
+        _closed_topic(store, "Other topic")
+        new_topic = _closed_topic(store, "New topic")
+        llm = MockLLM('{"match_index": null, "label": "", "current_state": ""}')
+
+        ClusterConsolidator(
+            store, llm, MockEmbedder(), target_max_milestones=6, target_max_tags=12,
+        ).consolidate_topic(new_topic, "user")
+
+        assert "6" in llm.last_system
+        assert "12" in llm.last_system
+
+
+class TestConsolidateTopicMalformedFields:
+    def test_milestones_and_tags_default_to_empty_list_when_not_a_list(self, store: SqliteStore):
+        store.create_cluster("user", "Bike", "old summary", embedding=_MATCH_EMBEDDING)
+        new_topic = _closed_topic(store, "New development")
+        # A response where milestones/tags came back as the wrong JSON
+        # type (a string, not a list) — should degrade to [], not crash.
+        llm = MockLLM(
+            '{"match_index": 1, "label": "Bike saga", "current_state": "consolidated", '
+            '"milestones": "not-a-list", "tags": null}'
+        )
+
+        ClusterConsolidator(store, llm, MockEmbedder()).consolidate_topic(new_topic, "user")
+
+        cluster = store.search_clusters(query_embedding=_MATCH_EMBEDDING, workspace_id="user")[0]
+        assert cluster["milestones"] == []
+        assert cluster["tags"] == []
+
+
+class TestConsolidateTopicCandidateBlock:
+    def test_candidate_block_includes_existing_cluster_milestones(self, store: SqliteStore):
+        store.create_cluster(
+            "user", "Bike", "old summary", milestones=["started looking", "test drove one"],
+            embedding=_MATCH_EMBEDDING,
+        )
+        new_topic = _closed_topic(store, "New development")
+        llm = MockLLM('{"match_index": null, "label": "", "current_state": ""}')
+
+        ClusterConsolidator(store, llm, MockEmbedder()).consolidate_topic(new_topic, "user")
+
+        assert "started looking | test drove one" in llm.last_prompt
+
+    def test_candidate_block_shows_none_yet_for_a_cluster_with_no_milestones(self, store: SqliteStore):
+        store.create_cluster("user", "Bike", "old summary", embedding=_MATCH_EMBEDDING)
+        new_topic = _closed_topic(store, "New development")
+        llm = MockLLM('{"match_index": null, "label": "", "current_state": ""}')
+
+        ClusterConsolidator(store, llm, MockEmbedder()).consolidate_topic(new_topic, "user")
+
+        assert "Milestones so far: (none yet)" in llm.last_prompt

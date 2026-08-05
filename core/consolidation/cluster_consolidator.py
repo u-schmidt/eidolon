@@ -21,30 +21,51 @@ from core.trace.null_tracer import NullTracer
 
 logger = logging.getLogger(__name__)
 
-_CLUSTER_SYSTEM_PROMPT = """You track recurring conversation threads over time — the same underlying
+
+def _cluster_system_prompt(target_max_milestones: int, target_max_tags: int) -> str:
+    return f"""You track recurring conversation threads over time — the same underlying
 subject (e.g. "buying a bike") that resurfaces across separate, closed conversation topics on
 different days. Your job is to decide whether a newly closed topic is a continuation of one of the
 candidate threads shown below, or something new and unrelated to all of them.
 
-Each candidate is either an existing recurring thread ("cluster") with its current consolidated
-summary, or a single past topic that hasn't been grouped with anything yet.
+Each candidate is either an existing recurring thread ("cluster") with its current state and
+milestone history, or a single past topic that hasn't been grouped with anything yet.
 
-If the new topic continues one of the candidates, produce a REWRITTEN summary that reads as one
-coherent, up-to-date narrative incorporating both the candidate's existing content and the new
-topic — not a bullet list, not an appendix. It can run longer than a single-topic summary if the
-story warrants it.
+If the new topic continues one of the candidates, produce:
+
+- current_state: a short (2-4 sentence), present-tense description of where this thread stands
+  now. Rewritten fresh every time — do not try to preserve old phrasing or accumulate a
+  chronological log of every session. Someone reading only this should understand what the thread
+  is about and where it stands today, not its full history.
+- milestones: a small list of genuine shifts in direction or scope for this thread (e.g. "started
+  as an image viewer", "pivoted to a generation helper") — not bug fixes, session recaps, or minor
+  decisions. Try to keep this near {target_max_milestones} entries — if you're at or over that,
+  merge adjacent/redundant entries or drop ones superseded by a later one (e.g. "got engaged"
+  folding into "got married") rather than just appending.
+- tags: up to {target_max_tags}, most relevant first. Exclude file paths, filenames, and
+  config/doc files (e.g. "frontend/", "agents.md", ".gitignore") and generic technology, library,
+  or framework names (e.g. "fastapi", "pytorch", "sqlite") — keep the words that would actually
+  help find this thread again.
+- label: a short label for the thread.
 
 If the new topic isn't related to any candidate, say so — don't force a match.
 
 Respond with JSON only:
-{"match_index": <1-based index of the matching candidate, or null>, "label": "<short label for the thread>", "summary": "<rewritten consolidated summary, or empty string if match_index is null>"}"""
+{{"match_index": <1-based index of the matching candidate, or null>, "label": "<short label for the thread>", "current_state": "<rewritten current-state description, or empty string if match_index is null>", "milestones": ["<short milestone>", ...], "tags": ["<tag>", ...]}}"""
 
 
 def _build_cluster_prompt(candidates: list[dict], topic: dict) -> str:
     lines = []
     for i, c in enumerate(candidates, start=1):
-        kind = "existing recurring thread" if c["candidate_kind"] == "cluster" else "single past topic, not yet grouped"
-        lines.append(f"{i}. [{kind}, {c['topic_count']} topic(s) so far] {c['label']}: {c['summary']}")
+        if c["candidate_kind"] == "cluster":
+            milestones_block = " | ".join(c.get("milestones") or []) or "(none yet)"
+            lines.append(
+                f"{i}. [existing recurring thread, {c['topic_count']} topic(s) so far] {c['label']}\n"
+                f"   Current state: {c['summary']}\n"
+                f"   Milestones so far: {milestones_block}"
+            )
+        else:
+            lines.append(f"{i}. [single past topic, not yet grouped] {c['label']}: {c['summary']}")
     candidates_block = "\n".join(lines)
     tags = ", ".join(topic.get("tags", [])) or "none"
     return (
@@ -94,6 +115,15 @@ class ClusterConsolidator:
         Max candidates (existing clusters + still-unclustered topics)
         shown to the LLM per topic close — keeps the prompt bounded
         regardless of how much history a workspace has accumulated.
+    target_max_milestones : int
+        Soft guidance communicated to the LLM for how many milestones a
+        cluster's evolution list should hold — not enforced in code,
+        only steered via the prompt (same stance as
+        ``FactConsolidator.target_max``).
+    target_max_tags : int
+        Soft guidance communicated to the LLM for how many tags a
+        cluster should carry — same not-enforced-in-code stance as
+        ``target_max_milestones``.
     tracer : Tracer | None
         Debug tracer recording the prompt/response/duration of each
         pass and otherwise-silent failures. Defaults to a no-op tracer.
@@ -108,6 +138,8 @@ class ClusterConsolidator:
         llm: LLMProvider,
         embedder: EmbedderProvider,
         shortlist_size: int = 5,
+        target_max_milestones: int = 8,
+        target_max_tags: int = 15,
         tracer: Tracer | None = None,
         metrics: MetricsRecorder | None = None,
     ) -> None:
@@ -115,6 +147,8 @@ class ClusterConsolidator:
         self._llm = llm
         self._embedder = embedder
         self._shortlist_size = shortlist_size
+        self._target_max_milestones = target_max_milestones
+        self._target_max_tags = target_max_tags
         self._tracer = tracer or NullTracer()
         self._metrics = metrics or NullMetricsRecorder()
 
@@ -160,30 +194,36 @@ class ClusterConsolidator:
                 return
 
             prompt = _build_cluster_prompt(candidates, topic)
-            response = self._llm.complete(prompt=prompt, system_prompt=_CLUSTER_SYSTEM_PROMPT)
+            system_prompt = _cluster_system_prompt(self._target_max_milestones, self._target_max_tags)
+            response = self._llm.complete(prompt=prompt, system_prompt=system_prompt)
             decision = _parse_cluster_response(response)
 
             match_index = decision.get("match_index")
             label = str(decision.get("label", "")).strip()
-            summary = str(decision.get("summary", "")).strip()
+            current_state = str(decision.get("current_state", "")).strip()
+            raw_milestones = decision.get("milestones", [])
+            raw_milestones = raw_milestones if isinstance(raw_milestones, list) else []
+            milestones = [str(m).strip() for m in raw_milestones if str(m).strip()]
+            raw_tags = decision.get("tags", [])
+            raw_tags = raw_tags if isinstance(raw_tags, list) else []
+            tags = [str(t).strip().lower() for t in raw_tags if str(t).strip()]
             resulting_cluster_id: int | None = None
 
-            if isinstance(match_index, int) and 1 <= match_index <= len(candidates) and summary:
+            if isinstance(match_index, int) and 1 <= match_index <= len(candidates) and current_state:
                 matched = candidates[match_index - 1]
-                merged_tags = sorted(set(matched.get("tags", [])) | set(topic.get("tags", [])))
-                embedding = self._embed_summary(summary, request_id=request_id, session_id=session_id)
+                embedding = self._embed_summary(current_state, request_id=request_id, session_id=session_id)
 
                 if matched["candidate_kind"] == "cluster":
                     resulting_cluster_id = matched["id"]
                     self._storage.update_cluster(
-                        resulting_cluster_id, summary=summary, label=label or matched["label"],
-                        tags=merged_tags, embedding=embedding,
+                        resulting_cluster_id, summary=current_state, label=label or matched["label"],
+                        tags=tags, milestones=milestones, embedding=embedding,
                     )
                     self._storage.assign_topic_to_cluster(topic_id, resulting_cluster_id)
                 else:  # "topic" — a raw, previously unclustered topic. Promote both into a new cluster.
                     resulting_cluster_id = self._storage.create_cluster(
-                        workspace_id, label=label or matched["label"], summary=summary,
-                        tags=merged_tags, embedding=embedding,
+                        workspace_id, label=label or matched["label"], summary=current_state,
+                        tags=tags, milestones=milestones, embedding=embedding,
                     )
                     self._storage.assign_topic_to_cluster(matched["id"], resulting_cluster_id)
                     self._storage.assign_topic_to_cluster(topic_id, resulting_cluster_id)

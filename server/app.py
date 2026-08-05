@@ -187,8 +187,8 @@ def create_app(
             workspace_id, category, key, value, request_id=request_id, session_id=session_id,
         )
 
-    @rpc.post("/inspect-cluster", response_model=list[dict])
-    def inspect_cluster(cluster_id: int = Body(..., embed=True)) -> list[dict]:
+    @rpc.post("/inspect-cluster", response_model=dict)
+    def inspect_cluster(cluster_id: int = Body(..., embed=True)) -> dict:
         return eidolon.inspect_cluster(cluster_id)
 
     @rpc.post("/inspect-topic", response_model=list[dict])

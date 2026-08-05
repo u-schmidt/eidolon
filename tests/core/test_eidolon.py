@@ -315,7 +315,7 @@ class TestEidolon:
         llm = MockLLM(
             extraction_response="[]",
             summary_response="Summary: Crowded gym frustration\nTags: fitness",
-            cluster_response='{"match_index": 1, "label": "Gym saga", "summary": "consolidated"}',
+            cluster_response='{"match_index": 1, "label": "Gym saga", "current_state": "consolidated"}',
         )
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder)
@@ -365,7 +365,7 @@ class TestEidolon:
         llm = MockLLM(
             extraction_response="[]",
             summary_response="Summary: Real summary\nTags: x",
-            cluster_response='{"match_index": 1, "label": "X", "summary": "Y"}',
+            cluster_response='{"match_index": 1, "label": "X", "current_state": "Y"}',
         )
         embedder = MockEmbedder()
         eidolon = Eidolon(storage, llm, embedder, clustering_enabled=False)
@@ -990,15 +990,27 @@ class TestInspectCluster:
         storage.assign_topic_to_cluster(tid, cid)
         eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
 
-        topics = eidolon.inspect_cluster(cid)
+        result = eidolon.inspect_cluster(cid)
 
-        assert [t["id"] for t in topics] == [tid]
+        assert [t["id"] for t in result["topics"]] == [tid]
+
+    def test_includes_the_cluster_s_own_fields(self):
+        storage = MockStorage()
+        cid = storage.create_cluster("user", "Bike", "summary", milestones=["started looking"])
+        eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
+
+        result = eidolon.inspect_cluster(cid)
+
+        assert result["cluster"]["label"] == "Bike"
+        assert result["cluster"]["milestones"] == ["started looking"]
 
     def test_empty_for_unknown_cluster(self):
         storage = MockStorage()
         eidolon = Eidolon(storage, MockLLM(), MockEmbedder())
 
-        assert eidolon.inspect_cluster(999) == []
+        result = eidolon.inspect_cluster(999)
+
+        assert result == {"cluster": None, "topics": []}
 
     def test_blank_value_deletes(self):
         storage = MockStorage()

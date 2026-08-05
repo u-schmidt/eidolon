@@ -186,6 +186,10 @@ class ClusteringConfig:
 
     enabled: bool = True
     shortlist_size: int = 5  # candidates shown to the LLM per topic close
+    target_max_milestones: int = 8  # soft guidance to the LLM, not hard-enforced
+    target_max_tags: int = 15  # soft guidance; well above a single topic's
+    # own 3-5 cap (a cluster aggregates many topics) but far below the
+    # unbounded growth a raw tag-union used to produce
 
 
 @dataclass
@@ -372,6 +376,8 @@ class EidolonConfig:
             "clustering": {
                 "enabled": self.clustering.enabled,
                 "shortlist_size": self.clustering.shortlist_size,
+                "target_max_milestones": self.clustering.target_max_milestones,
+                "target_max_tags": self.clustering.target_max_tags,
             },
             "relabel": {
                 "enabled": self.relabel.enabled,

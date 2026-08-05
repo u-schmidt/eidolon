@@ -681,7 +681,7 @@ class PostgresStore:
 
     def get_clusters(self, workspace_id: str) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
+            "SELECT id, workspace_id, label, summary, tags, milestones, topic_count, created_at, updated_at "
             "FROM topic_clusters WHERE workspace_id = %s ORDER BY id",
             (workspace_id,),
         ).fetchall()
@@ -692,16 +692,17 @@ class PostgresStore:
                 "label": row[2],
                 "summary": row[3],
                 "tags": row[4],
-                "topic_count": row[5],
-                "created_at": row[6],
-                "updated_at": row[7],
+                "milestones": row[5],
+                "topic_count": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
             }
             for row in rows
         ]
 
     def list_clusters(self, workspace_id: str | None = None) -> list[dict]:
         query = (
-            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
+            "SELECT id, workspace_id, label, summary, tags, milestones, topic_count, created_at, updated_at "
             "FROM topic_clusters"
         )
         params: list = []
@@ -717,9 +718,10 @@ class PostgresStore:
                 "label": row[2],
                 "summary": row[3],
                 "tags": row[4],
-                "topic_count": row[5],
-                "created_at": row[6],
-                "updated_at": row[7],
+                "milestones": row[5],
+                "topic_count": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
             }
             for row in rows
         ]
@@ -730,19 +732,20 @@ class PostgresStore:
         label: str,
         summary: str,
         tags: list[str] | None = None,
+        milestones: list[str] | None = None,
         embedding: list[float] | None = None,
     ) -> int:
         row = self._conn.execute(
-            "INSERT INTO topic_clusters (workspace_id, label, summary, tags, embedding) "
-            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
-            (workspace_id, label, summary, Jsonb(tags or []), embedding),
+            "INSERT INTO topic_clusters (workspace_id, label, summary, tags, milestones, embedding) "
+            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            (workspace_id, label, summary, Jsonb(tags or []), Jsonb(milestones or []), embedding),
         ).fetchone()
         assert row is not None  # RETURNING id always yields a row on successful INSERT
         return row[0]
 
     def get_cluster(self, cluster_id: int) -> dict | None:
         row = self._conn.execute(
-            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
+            "SELECT id, workspace_id, label, summary, tags, milestones, topic_count, created_at, updated_at "
             "FROM topic_clusters WHERE id = %s",
             (cluster_id,),
         ).fetchone()
@@ -754,9 +757,10 @@ class PostgresStore:
             "label": row[2],
             "summary": row[3],
             "tags": row[4],
-            "topic_count": row[5],
-            "created_at": row[6],
-            "updated_at": row[7],
+            "milestones": row[5],
+            "topic_count": row[6],
+            "created_at": row[7],
+            "updated_at": row[8],
         }
 
     def update_cluster(
@@ -765,6 +769,7 @@ class PostgresStore:
         summary: str,
         label: str | None = None,
         tags: list[str] | None = None,
+        milestones: list[str] | None = None,
         embedding: list[float] | None = None,
     ) -> None:
         sets = ["summary = %s", "updated_at = now()"]
@@ -775,6 +780,9 @@ class PostgresStore:
         if tags is not None:
             sets.append("tags = %s")
             params.append(Jsonb(tags))
+        if milestones is not None:
+            sets.append("milestones = %s")
+            params.append(Jsonb(milestones))
         if embedding is not None:
             sets.append("embedding = %s")
             params.append(embedding)
@@ -843,7 +851,7 @@ class PostgresStore:
 
         if query_embedding is not None:
             rows = self._conn.execute(
-                "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at, "
+                "SELECT id, workspace_id, label, summary, tags, milestones, topic_count, created_at, updated_at, "
                 "1 - (embedding <=> %(q)s::vector) AS similarity "
                 "FROM topic_clusters WHERE workspace_id = %(workspace_id)s AND embedding IS NOT NULL "
                 "ORDER BY embedding <=> %(q)s::vector LIMIT %(k)s",
@@ -853,7 +861,7 @@ class PostgresStore:
             rows = [
                 (*r, 0.0)
                 for r in self._conn.execute(
-                    "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
+                    "SELECT id, workspace_id, label, summary, tags, milestones, topic_count, created_at, updated_at "
                     "FROM topic_clusters WHERE workspace_id = %s",
                     (workspace_id,),
                 ).fetchall()
@@ -863,12 +871,13 @@ class PostgresStore:
         for row in rows:
             cluster = {
                 "id": row[0], "workspace_id": row[1], "label": row[2], "summary": row[3],
-                "tags": row[4], "topic_count": row[5], "created_at": row[6], "updated_at": row[7],
+                "tags": row[4], "milestones": row[5], "topic_count": row[6],
+                "created_at": row[7], "updated_at": row[8],
             }
             score, breakdown = scorer.score(
                 candidate_type="cluster",
                 candidate_id=cluster["id"],
-                semantic_raw=row[8],
+                semantic_raw=row[9],
                 recency_timestamp=cluster["updated_at"],
                 include_tag_overlap=True,
                 query_tags=tags,
@@ -931,7 +940,7 @@ class PostgresStore:
             scored.append((score, candidate, breakdown))
 
         cluster_rows = self._conn.execute(
-            "SELECT id, label, summary, tags, updated_at, topic_count, "
+            "SELECT id, label, summary, tags, milestones, updated_at, topic_count, "
             "1 - (embedding <=> %(q)s::vector) AS similarity "
             "FROM topic_clusters WHERE workspace_id = %(workspace_id)s AND embedding IS NOT NULL "
             "ORDER BY embedding <=> %(q)s::vector LIMIT %(k)s",
@@ -940,13 +949,13 @@ class PostgresStore:
         for row in cluster_rows:
             candidate = {
                 "candidate_kind": "cluster", "id": row[0], "label": row[1],
-                "summary": row[2], "tags": row[3], "topic_count": row[5],
+                "summary": row[2], "tags": row[3], "milestones": row[4], "topic_count": row[6],
             }
             score, breakdown = scorer.score(
                 candidate_type="cluster_candidate",
                 candidate_id=candidate["id"],
-                semantic_raw=row[6],
-                recency_timestamp=row[4],
+                semantic_raw=row[7],
+                recency_timestamp=row[5],
                 include_tag_overlap=True,
                 query_tags=query_tags,
                 candidate_tags=candidate["tags"],

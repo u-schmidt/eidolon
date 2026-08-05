@@ -95,6 +95,7 @@ class ClusterDetail:
     label: str | None
     summary: str | None
     tags: list[str]
+    milestones: list[str]
     topic_count: int
     created_at: object
     updated_at: object
@@ -232,7 +233,8 @@ class BrowseReader:
         ]
         return ClusterDetail(
             id=cluster["id"], workspace_id=cluster["workspace_id"], label=cluster["label"],
-            summary=cluster["summary"], tags=cluster["tags"], topic_count=cluster["topic_count"],
+            summary=cluster["summary"], tags=cluster["tags"], milestones=cluster["milestones"],
+            topic_count=cluster["topic_count"],
             created_at=cluster["created_at"], updated_at=cluster["updated_at"], topics=topics,
         )
 

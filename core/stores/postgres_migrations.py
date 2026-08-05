@@ -142,6 +142,11 @@ POSTGRES_MIGRATIONS: dict[int, str] = {
         UNIQUE(workspace_id, entity_name, category, key)
     );
     """,
+    # Cluster consolidation rework — see core/stores/migrations.py's
+    # version 14 for the full rationale (mirrors it exactly).
+    8: """
+    ALTER TABLE topic_clusters ADD COLUMN milestones JSONB NOT NULL DEFAULT '[]'::jsonb;
+    """,
 }
 
 

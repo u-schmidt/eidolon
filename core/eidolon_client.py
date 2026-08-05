@@ -118,8 +118,10 @@ class EidolonClient(Protocol):
         """Directly upsert or delete one fact, bypassing consolidation."""
         ...
 
-    def inspect_cluster(self, cluster_id: int) -> list[dict]:
-        """Return every topic assigned to `cluster_id`, oldest first."""
+    def inspect_cluster(self, cluster_id: int) -> dict:
+        """Return `cluster_id`'s own label/current-state summary/
+        milestones/tags alongside every topic assigned to it, oldest
+        first: `{"cluster": {...} | None, "topics": [...]}`."""
         ...
 
     def inspect_topic(self, topic_id: int) -> list[dict]:

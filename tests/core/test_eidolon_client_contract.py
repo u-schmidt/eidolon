@@ -208,15 +208,27 @@ class TestInspectCluster:
         tid = storage.create_topic("Considering a bike", workspace_id="user")
         storage.assign_topic_to_cluster(tid, cid)
 
-        topics = client.inspect_cluster(cid)
+        result = client.inspect_cluster(cid)
 
-        assert len(topics) == 1
-        assert topics[0]["label"] == "Considering a bike"
+        assert len(result["topics"]) == 1
+        assert result["topics"][0]["label"] == "Considering a bike"
+
+    def test_returns_the_cluster_s_own_fields(self, make_eidolon_client):
+        eidolon, storage = _make_eidolon()
+        client = make_eidolon_client(eidolon)
+        cid = storage.create_cluster(
+            "user", "Bike shopping", "Recurring bike talk", milestones=["started looking"],
+        )
+
+        result = client.inspect_cluster(cid)
+
+        assert result["cluster"]["label"] == "Bike shopping"
+        assert result["cluster"]["milestones"] == ["started looking"]
 
     def test_empty_for_unknown_cluster(self, make_eidolon_client):
         eidolon, _ = _make_eidolon()
         client = make_eidolon_client(eidolon)
-        assert client.inspect_cluster(999) == []
+        assert client.inspect_cluster(999) == {"cluster": None, "topics": []}
 
 
 class TestInspectTopic:

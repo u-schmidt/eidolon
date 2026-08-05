@@ -274,6 +274,16 @@ MIGRATIONS: dict[int, str] = {
         UNIQUE(workspace_id, entity_name, category, key)
     );
     """,
+    14: """
+    -- Cluster consolidation rework: split a cluster's stored narrative
+    -- into a freshly-rewritten `summary` (short, present-tense "current
+    -- state", regenerated each pass — never accumulates) and a small,
+    -- curated `milestones` list (genuine directional shifts, actively
+    -- merged/pruned toward a soft target by the LLM, not appended to
+    -- forever). Same TEXT + json.dumps/loads convention `tags` already
+    -- uses on this table.
+    ALTER TABLE topic_clusters ADD COLUMN milestones TEXT NOT NULL DEFAULT '[]';
+    """,
 }
 
 

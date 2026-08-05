@@ -103,6 +103,8 @@ class EidolonClientBuilder:
             entity_target_max=config.entity_profiles.target_max_per_entity,
             clustering_enabled=config.clustering.enabled,
             clustering_shortlist_size=config.clustering.shortlist_size,
+            clustering_target_max_milestones=config.clustering.target_max_milestones,
+            clustering_target_max_tags=config.clustering.target_max_tags,
             relabel_enabled=config.relabel.enabled,
             relabel_message_threshold=config.relabel.message_threshold,
             tracer=tracer,

@@ -280,6 +280,8 @@ class AssociativeRetriever:
                 label=c["label"],
                 summary=c["summary"],
                 topic_count=c["topic_count"],
+                milestones=c.get("milestones", []),
+                tags=c.get("tags", []),
                 recent_topics=[
                     RelatedTopic(
                         topic_id=t["id"],

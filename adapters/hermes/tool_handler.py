@@ -197,10 +197,16 @@ class EidolonToolHandler:
             return json.dumps({"error": "cluster_id (integer) is required"})
 
         try:
-            topics = self._eidolon.inspect_cluster(cluster_id)
+            result = self._eidolon.inspect_cluster(cluster_id)
+            cluster = result.get("cluster")
+            topics = result.get("topics", [])
             return json.dumps(
                 {
                     "cluster_id": cluster_id,
+                    "label": cluster.get("label") if cluster else None,
+                    "current_state": cluster.get("summary") if cluster else None,
+                    "milestones": cluster.get("milestones", []) if cluster else [],
+                    "tags": cluster.get("tags", []) if cluster else [],
                     "topics": [
                         {
                             "label": t.get("label"),

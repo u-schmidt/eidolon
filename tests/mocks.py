@@ -426,12 +426,13 @@ class MockStorage:
         ]
 
     def create_cluster(self, workspace_id: str, label: str, summary: str,
-                       tags: list[str] | None = None, embedding: list[float] | None = None) -> int:
+                       tags: list[str] | None = None, milestones: list[str] | None = None,
+                       embedding: list[float] | None = None) -> int:
         cid = self._next_cluster_id
         self._next_cluster_id += 1
         self.clusters[cid] = {
             "id": cid, "workspace_id": workspace_id, "label": label, "summary": summary,
-            "tags": tags or [], "topic_count": 0, "embedding": embedding,
+            "tags": tags or [], "milestones": milestones or [], "topic_count": 0, "embedding": embedding,
             "created_at": None, "updated_at": None,
         }
         return cid
@@ -440,7 +441,8 @@ class MockStorage:
         return self.clusters.get(cluster_id)
 
     def update_cluster(self, cluster_id: int, summary: str, label: str | None = None,
-                       tags: list[str] | None = None, embedding: list[float] | None = None) -> None:
+                       tags: list[str] | None = None, milestones: list[str] | None = None,
+                       embedding: list[float] | None = None) -> None:
         if cluster_id not in self.clusters:
             return
         self.clusters[cluster_id]["summary"] = summary
@@ -448,6 +450,8 @@ class MockStorage:
             self.clusters[cluster_id]["label"] = label
         if tags is not None:
             self.clusters[cluster_id]["tags"] = tags
+        if milestones is not None:
+            self.clusters[cluster_id]["milestones"] = milestones
         if embedding is not None:
             self.clusters[cluster_id]["embedding"] = embedding
 
@@ -588,7 +592,7 @@ class EidolonMockLLM:
         summary_response: str = "",
         relabel_response: str = "",
         consolidation_response: str = '{"upserts": [], "deletes": []}',
-        cluster_response: str = '{"match_index": null, "label": "", "summary": ""}',
+        cluster_response: str = '{"match_index": null, "label": "", "current_state": ""}',
     ):
         self.detection_response = detection_response
         self.extraction_response = extraction_response

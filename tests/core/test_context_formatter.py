@@ -85,7 +85,7 @@ class TestContextFormatter:
         )
         assert ContextFormatter.format(bundle) == (
             f"{_PREAMBLE}\n\n[Recurring topics]\n"
-            "- Cluster #17 Bike purchase: User bought a new bike. — holding 2 topics"
+            "- Cluster #17 Bike purchase (2 topics): User bought a new bike."
         )
 
     def test_formats_cluster_summary_with_recent_topics(self):
@@ -102,8 +102,8 @@ class TestContextFormatter:
         )
         assert ContextFormatter.format(bundle) == (
             f"{_PREAMBLE}\n\n[Recurring topics]\n"
-            "- Cluster #17 Bike purchase: User bought a new bike. — holding 2 topics, "
-            "newest: Bought the bike, First ride"
+            "- Cluster #17 Bike purchase (2 topics): User bought a new bike. "
+            "Newest: Bought the bike, First ride."
         )
 
     def test_cluster_recent_topic_falls_back_to_summary_when_no_label(self):
@@ -115,7 +115,30 @@ class TestContextFormatter:
                 )
             ]
         )
-        assert "newest: Bought a bike near Fischmarkt" in ContextFormatter.format(bundle)
+        assert "Newest: Bought a bike near Fischmarkt" in ContextFormatter.format(bundle)
+
+    def test_formats_cluster_milestones_as_an_evolution_trail(self):
+        bundle = ContextBundle(
+            cluster_summaries=[
+                ClusterSummary(
+                    cluster_id=17, label="Bike purchase", summary="User owns a bike now.", topic_count=3,
+                    milestones=["started looking", "test drove one", "bought one"],
+                )
+            ]
+        )
+        assert ContextFormatter.format(bundle) == (
+            f"{_PREAMBLE}\n\n[Recurring topics]\n"
+            "- Cluster #17 Bike purchase (3 topics): User owns a bike now. "
+            "Evolution: started looking → test drove one → bought one."
+        )
+
+    def test_formats_cluster_tags_in_the_header(self):
+        bundle = ContextBundle(
+            cluster_summaries=[
+                ClusterSummary(cluster_id=17, label="Bike purchase", summary="summary", topic_count=1, tags=["bike"])
+            ]
+        )
+        assert "Cluster #17 Bike purchase (1 topics, tags: bike): summary" in ContextFormatter.format(bundle)
 
     def test_related_topics_come_before_recurring_topics(self):
         bundle = ContextBundle(
@@ -124,7 +147,7 @@ class TestContextFormatter:
         )
         assert ContextFormatter.format(bundle) == (
             f"{_PREAMBLE}\n\n[Related topics]\n- Related one\n\n"
-            "[Recurring topics]\n- Cluster #1 X: Y — holding 1 topics"
+            "[Recurring topics]\n- Cluster #1 X (1 topics): Y"
         )
 
     def test_joins_sections_with_blank_line(self):
@@ -269,7 +292,7 @@ class TestContextFormatterRelativeAge:
         )
         assert ContextFormatter.format(bundle, now=self.NOW) == (
             f"{_PREAMBLE}\n\n[Recurring topics]\n"
-            "- Cluster #17 Bike purchase: summary — holding 1 topics, newest: Bought the bike [yesterday]"
+            "- Cluster #17 Bike purchase (1 topics): summary Newest: Bought the bike [yesterday]."
         )
 
     def test_no_age_suffix_when_timestamp_missing(self):

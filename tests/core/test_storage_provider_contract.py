@@ -806,7 +806,9 @@ class TestListTopics:
 
 class TestClusters:
     def test_create_and_get_cluster(self, store: StorageProvider):
-        cid = store.create_cluster("user", "Bike purchase", "User wants a new bike", tags=["bike"])
+        cid = store.create_cluster(
+            "user", "Bike purchase", "User wants a new bike", tags=["bike"], milestones=["started looking"],
+        )
         assert isinstance(cid, int)
 
         cluster = store.get_cluster(cid)
@@ -815,7 +817,12 @@ class TestClusters:
         assert cluster["label"] == "Bike purchase"
         assert cluster["summary"] == "User wants a new bike"
         assert cluster["tags"] == ["bike"]
+        assert cluster["milestones"] == ["started looking"]
         assert cluster["topic_count"] == 0
+
+    def test_create_cluster_milestones_default_to_empty_list(self, store: StorageProvider):
+        cid = store.create_cluster("user", "Bike", "summary")
+        assert store.get_cluster(cid)["milestones"] == []
 
     def test_get_cluster_not_found(self, store: StorageProvider):
         assert store.get_cluster(999) is None
@@ -829,12 +836,22 @@ class TestClusters:
         assert cluster["label"] == "Bike"  # unchanged when not given
 
     def test_update_cluster_optional_fields_only_set_when_given(self, store: StorageProvider):
-        cid = store.create_cluster("user", "Bike", "summary", tags=["bike"])
-        store.update_cluster(cid, summary="new summary", label="Bike saga", tags=["bike", "shopping"])
+        cid = store.create_cluster("user", "Bike", "summary", tags=["bike"], milestones=["started looking"])
+        store.update_cluster(
+            cid, summary="new summary", label="Bike saga", tags=["bike", "shopping"],
+            milestones=["started looking", "bought one"],
+        )
 
         cluster = store.get_cluster(cid)
         assert cluster["label"] == "Bike saga"
         assert cluster["tags"] == ["bike", "shopping"]
+        assert cluster["milestones"] == ["started looking", "bought one"]
+
+    def test_update_cluster_milestones_unchanged_when_not_given(self, store: StorageProvider):
+        cid = store.create_cluster("user", "Bike", "summary", milestones=["started looking"])
+        store.update_cluster(cid, summary="new summary")
+
+        assert store.get_cluster(cid)["milestones"] == ["started looking"]
 
     def test_assign_topic_to_cluster_sets_id_and_increments_count(self, store: StorageProvider):
         tid = store.create_topic("Considering a bike", summary="", workspace_id="user")
@@ -925,7 +942,9 @@ class TestSearchClusterCandidates:
         assert candidates[0]["id"] == other
 
     def test_finds_existing_cluster_with_matching_embedding(self, store: StorageProvider):
-        cid = store.create_cluster("user", "Bike", "summary", embedding=[1.0, 0.0, 0.0])
+        cid = store.create_cluster(
+            "user", "Bike", "summary", milestones=["started looking"], embedding=[1.0, 0.0, 0.0],
+        )
         new = store.create_topic("New bike topic", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])
         store.close_topic(new, "new summary")
 
@@ -933,6 +952,7 @@ class TestSearchClusterCandidates:
         assert len(candidates) == 1
         assert candidates[0]["candidate_kind"] == "cluster"
         assert candidates[0]["id"] == cid
+        assert candidates[0]["milestones"] == ["started looking"]
 
     def test_excludes_the_topic_itself(self, store: StorageProvider):
         new = store.create_topic("Solo topic", summary="", workspace_id="user", embedding=[1.0, 0.0, 0.0])

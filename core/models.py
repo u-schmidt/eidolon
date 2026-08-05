@@ -95,13 +95,21 @@ class ClusterSummary:
 
     Built by ``ClusterConsolidator`` from two or more related topics
     that would otherwise compete individually in retrieval — see
-    ``core/consolidation/cluster_consolidator.py``.
+    ``core/consolidation/cluster_consolidator.py``. ``summary`` is a
+    short, present-tense "current state" snapshot, rewritten fresh each
+    consolidation pass rather than accumulated; ``milestones`` is a
+    small, curated list of the thread's genuine directional shifts over
+    time (e.g. "started as an image viewer", "pivoted to a generation
+    helper") — kept separate so the current state never has to compress
+    away the thread's history to stay short.
     """
 
     cluster_id: int
     label: str
     summary: str
     topic_count: int
+    milestones: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     recent_topics: list[RelatedTopic] = field(default_factory=list)
 
 

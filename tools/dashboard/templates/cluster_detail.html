@@ -29,8 +29,16 @@
       {% endif %}
       {% if detail.summary %}
       <div class="field">
-        <span class="label">Summary</span>
+        <span class="label">Current state</span>
         <div class="muted">{{ detail.summary }}</div>
+      </div>
+      {% endif %}
+      {% if detail.milestones %}
+      <div class="field">
+        <span class="label">Evolution</span>
+        <ol class="muted">
+          {% for milestone in detail.milestones %}<li>{{ milestone }}</li>{% endfor %}
+        </ol>
       </div>
       {% endif %}
     </div>

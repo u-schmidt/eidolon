@@ -56,7 +56,7 @@ class _FakeEidolonClient:
     def correct_fact(self, *args, **kwargs) -> None:
         raise NotImplementedError
 
-    def inspect_cluster(self, *args, **kwargs) -> list[dict]:
+    def inspect_cluster(self, *args, **kwargs) -> dict:
         raise NotImplementedError
 
 

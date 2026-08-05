@@ -121,9 +121,11 @@ class ContextFormatter:
 
     @staticmethod
     def _format_cluster_lines(clusters: list[ClusterSummary], now: datetime) -> list[str]:
-        """Render each cluster as its consolidated summary plus a short
-        "newest: ..." tail of its most recently closed member topics —
-        the summary carries the narrative, the tail shows what's fresh.
+        """Render each cluster as its current-state summary, an optional
+        evolution trail of milestones, and a short "newest: ..." tail of
+        its most recently closed member topics — the summary carries
+        where things stand now, milestones carry how it got there, the
+        tail shows what's fresh.
         """
         lines = []
         for c in clusters:
@@ -131,9 +133,12 @@ class ContextFormatter:
                 f"{rt.label or rt.summary}{ContextFormatter._age_suffix(rt.timestamp, now)}"
                 for rt in c.recent_topics
             ]
-            newest = f", newest: {', '.join(newest_bits)}" if newest_bits else ""
+            newest = f" Newest: {', '.join(newest_bits)}." if newest_bits else ""
+            tag_str = f", tags: {', '.join(c.tags)}" if c.tags else ""
+            evolution = f" Evolution: {' → '.join(c.milestones)}." if c.milestones else ""
             lines.append(
-                f"- Cluster #{c.cluster_id} {c.label}: {c.summary} — holding {c.topic_count} topics{newest}"
+                f"- Cluster #{c.cluster_id} {c.label} ({c.topic_count} topics{tag_str}): "
+                f"{c.summary}{evolution}{newest}"
             )
         return lines
 

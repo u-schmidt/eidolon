@@ -52,6 +52,7 @@ class MockEidolon:
         self.inspect_cluster_calls = 0
         self.last_inspect_cluster_id: int | None = None
         self.cluster_topics: list[dict] = []
+        self.cluster_fields: dict | None = None
         self.inspect_topic_calls = 0
         self.last_inspect_topic_id: int | None = None
         self.topic_items: list[dict] = []
@@ -196,10 +197,10 @@ class MockEidolon:
         self.correct_fact_calls += 1
         self.last_correct_fact_args = (workspace_id, category, key, value)
 
-    def inspect_cluster(self, cluster_id: int) -> list[dict]:
+    def inspect_cluster(self, cluster_id: int) -> dict:
         self.inspect_cluster_calls += 1
         self.last_inspect_cluster_id = cluster_id
-        return self.cluster_topics
+        return {"cluster": self.cluster_fields, "topics": self.cluster_topics}
 
     def inspect_topic(self, topic_id: int) -> list[dict]:
         self.inspect_topic_calls += 1
@@ -542,13 +543,30 @@ class TestEidolonMemoryProvider:
             {"label": "Considering a bike", "summary": "User is thinking about a new bike", "closed_at": "2025-09-21"},
             {"label": "Bought a bike", "summary": "User bought a bike near Fischmarkt", "closed_at": "2025-10-02"},
         ]
+        provider._eidolon.cluster_fields = {
+            "label": "Bike shopping", "summary": "Looking for a new bike.",
+            "milestones": ["started looking"], "tags": ["bike"],
+        }
         result = provider.handle_tool_call("eidolon_inspect_cluster", {"cluster_id": 17})
         assert provider._eidolon.inspect_cluster_calls == 1
         assert provider._eidolon.last_inspect_cluster_id == 17
         payload = json.loads(result)
         assert payload["cluster_id"] == 17
+        assert payload["label"] == "Bike shopping"
+        assert payload["current_state"] == "Looking for a new bike."
+        assert payload["milestones"] == ["started looking"]
+        assert payload["tags"] == ["bike"]
         assert len(payload["topics"]) == 2
         assert payload["topics"][0]["label"] == "Considering a bike"
+
+    def test_handle_inspect_cluster_with_no_cluster_fields(self, provider):
+        provider._eidolon.cluster_topics = []
+        provider._eidolon.cluster_fields = None
+        result = provider.handle_tool_call("eidolon_inspect_cluster", {"cluster_id": 999})
+        payload = json.loads(result)
+        assert payload["label"] is None
+        assert payload["milestones"] == []
+        assert payload["tags"] == []
 
     def test_handle_inspect_cluster_missing_id_returns_error(self, provider):
         result = provider.handle_tool_call("eidolon_inspect_cluster", {})

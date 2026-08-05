@@ -803,6 +803,41 @@ class TestAssociativeRetrieverClusters:
         assert cluster.recent_topics[0].topic_id == 1
         assert cluster.recent_topics[0].label == "Bought the bike"
 
+    def test_cluster_milestones_and_tags_populated_from_storage(self):
+        storage = MockStorage()
+        storage.clusters = [
+            {
+                "id": 17, "label": "Bike purchase", "summary": "User bought a new bike.", "topic_count": 3,
+                "milestones": ["started looking", "bought one"], "tags": ["bike"],
+            },
+        ]
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        cluster = bundle.cluster_summaries[0]
+        assert cluster.milestones == ["started looking", "bought one"]
+        assert cluster.tags == ["bike"]
+
+    def test_cluster_milestones_and_tags_default_to_empty_list_when_absent(self):
+        storage = MockStorage()
+        storage.clusters = [
+            {"id": 17, "label": "Bike purchase", "summary": "User bought a new bike.", "topic_count": 3},
+        ]
+        embedder = MockEmbedder()
+        retriever = AssociativeRetriever(storage, embedder)
+
+        bundle = retriever.retrieve(
+            message="hi", workspace_id="user", environment=EnvironmentSnapshot(),
+            topic_label="Test", is_new_topic=True,
+        )
+        cluster = bundle.cluster_summaries[0]
+        assert cluster.milestones == []
+        assert cluster.tags == []
+
     def test_cluster_query_scoped_to_workspace(self):
         storage = MockStorage()
         embedder = MockEmbedder()

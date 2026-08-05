@@ -119,6 +119,14 @@ class Eidolon:
     clustering_shortlist_size : int
         Max candidates shown to the LLM per topic close — see
         ``ClusterConsolidator``.
+    clustering_target_max_milestones : int
+        Soft guidance passed to ``ClusterConsolidator`` for how many
+        milestones a cluster's evolution list should hold — not
+        enforced in code, only steered via its prompt.
+    clustering_target_max_tags : int
+        Soft guidance passed to ``ClusterConsolidator`` for how many
+        tags a cluster should carry — same not-enforced-in-code stance
+        as ``clustering_target_max_milestones``.
     relabel_enabled : bool
         Whether a still-pending topic (label == "") gets a mid-conversation
         relabel once it accumulates ``relabel_message_threshold`` messages
@@ -159,6 +167,8 @@ class Eidolon:
         entity_target_max: int = 20,
         clustering_enabled: bool = True,
         clustering_shortlist_size: int = 5,
+        clustering_target_max_milestones: int = 8,
+        clustering_target_max_tags: int = 15,
         relabel_enabled: bool = True,
         relabel_message_threshold: int = 4,
         tracer: Tracer | None = None,
@@ -181,6 +191,8 @@ class Eidolon:
         )
         self._cluster_consolidator = ClusterConsolidator(
             storage, llm, embedder, shortlist_size=clustering_shortlist_size,
+            target_max_milestones=clustering_target_max_milestones,
+            target_max_tags=clustering_target_max_tags,
             tracer=self._tracer, metrics=self._metrics,
         )
         self._entity_consolidator = EntityProfileConsolidator(
@@ -662,15 +674,20 @@ class Eidolon:
             request_id=request_id or _new_request_id(), session_id=session_id,
         )
 
-    def inspect_cluster(self, cluster_id: int) -> list[dict]:
-        """Return every topic assigned to `cluster_id`, oldest first.
+    def inspect_cluster(self, cluster_id: int) -> dict:
+        """Return `cluster_id`'s own fields plus every topic assigned to
+        it, oldest first: `{"cluster": {...} | None, "topics": [...]}`.
 
         For explicit user-driven inspection (the `eidolon_inspect_cluster`
-        tool) — a cluster's injected summary is deliberately compact, this
-        gives the full member-topic breakdown (label, summary, closed
-        date) behind it on demand.
+        tool) — a cluster's injected summary is deliberately compact,
+        this gives the full breakdown (the cluster's own label/current-
+        state summary/milestones/tags, plus per-member-topic label/
+        summary/closed date) behind it on demand.
         """
-        return self._storage.get_topics_by_cluster(cluster_id)
+        return {
+            "cluster": self._storage.get_cluster(cluster_id),
+            "topics": self._storage.get_topics_by_cluster(cluster_id),
+        }
 
     def inspect_topic(self, topic_id: int) -> list[dict]:
         """Return every memory item extracted for `topic_id`, oldest first.

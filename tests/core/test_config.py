@@ -66,6 +66,8 @@ class TestEidolonConfig:
         ]
         assert config.clustering.enabled is True
         assert config.clustering.shortlist_size == 5
+        assert config.clustering.target_max_milestones == 8
+        assert config.clustering.target_max_tags == 15
         assert config.language == "en"
         assert config.timezone == "UTC"
         assert config.debug.enabled is False
@@ -540,6 +542,8 @@ facts:
 clustering:
   enabled: false
   shortlist_size: 8
+  target_max_milestones: 6
+  target_max_tags: 12
 """
         tmp = tempfile.mkdtemp()
         yaml_path = str(Path(tmp) / "config.yaml")
@@ -549,27 +553,38 @@ clustering:
         config = ConfigLoader(config_path=yaml_path).load()
         assert config.clustering.enabled is False
         assert config.clustering.shortlist_size == 8
+        assert config.clustering.target_max_milestones == 6
+        assert config.clustering.target_max_tags == 12
 
     def test_env_clustering_vars(self):
         os.environ["EIDOLON_CLUSTERING_ENABLED"] = "false"
         os.environ["EIDOLON_CLUSTERING_SHORTLIST_SIZE"] = "7"
+        os.environ["EIDOLON_CLUSTERING_TARGET_MAX_MILESTONES"] = "6"
+        os.environ["EIDOLON_CLUSTERING_TARGET_MAX_TAGS"] = "12"
 
         config = ConfigLoader().load()
 
         assert config.clustering.enabled is False
         assert config.clustering.shortlist_size == 7
+        assert config.clustering.target_max_milestones == 6
+        assert config.clustering.target_max_tags == 12
 
         del os.environ["EIDOLON_CLUSTERING_ENABLED"]
         del os.environ["EIDOLON_CLUSTERING_SHORTLIST_SIZE"]
+        del os.environ["EIDOLON_CLUSTERING_TARGET_MAX_MILESTONES"]
+        del os.environ["EIDOLON_CLUSTERING_TARGET_MAX_TAGS"]
 
     def test_cli_clustering_args(self):
         args = Namespace(
             clustering_enabled=False, clustering_shortlist_size=3,
+            clustering_target_max_milestones=6, clustering_target_max_tags=12,
             storage_provider=None, storage_path=None,
         )
         config = ConfigLoader(cli_args=args).load()
         assert config.clustering.enabled is False
         assert config.clustering.shortlist_size == 3
+        assert config.clustering.target_max_milestones == 6
+        assert config.clustering.target_max_tags == 12
 
     def test_env_timezone(self):
         os.environ["EIDOLON_TIMEZONE"] = "Europe/Berlin"

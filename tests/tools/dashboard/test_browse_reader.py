@@ -219,7 +219,9 @@ class TestClusterDetail:
 
     def test_returns_cluster_fields_and_member_topics_newest_first(self):
         storage = MockStorage()
-        cluster_id = storage.create_cluster("u1", "Bike", "long summary", tags=["fitness"])
+        cluster_id = storage.create_cluster(
+            "u1", "Bike", "long summary", tags=["fitness"], milestones=["started riding"],
+        )
         t1 = storage.create_topic("First ride", workspace_id="u1")
         t2 = storage.create_topic("Second ride", workspace_id="u1")
         storage.assign_topic_to_cluster(t1, cluster_id)
@@ -234,6 +236,7 @@ class TestClusterDetail:
         assert detail.label == "Bike"
         assert detail.summary == "long summary"
         assert detail.tags == ["fitness"]
+        assert detail.milestones == ["started riding"]
         assert detail.topic_count == 2
         assert [t.label for t in detail.topics] == ["Second ride", "First ride"]
 

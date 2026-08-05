@@ -409,11 +409,16 @@ class StorageProvider(Protocol):
         label: str,
         summary: str,
         tags: list[str] | None = None,
+        milestones: list[str] | None = None,
         embedding: list[float] | None = None,
     ) -> int:
         """Create a new topic cluster and return its id. ``topic_count``
         starts at 0 — the caller assigns member topics separately via
-        ``assign_topic_to_cluster``."""
+        ``assign_topic_to_cluster``. ``summary`` is a short, present-tense
+        "current state" snapshot (rewritten fresh each consolidation pass,
+        not appended to); ``milestones`` is a small, curated list of the
+        thread's genuine directional shifts over time — see
+        ``ClusterConsolidator`` for how both are maintained."""
         ...
 
     def get_cluster(self, cluster_id: int) -> dict | None:
@@ -426,12 +431,13 @@ class StorageProvider(Protocol):
         summary: str,
         label: str | None = None,
         tags: list[str] | None = None,
+        milestones: list[str] | None = None,
         embedding: list[float] | None = None,
     ) -> None:
         """Rewrite a cluster's summary in place (and optionally its label/
-        tags/embedding). Bumps ``updated_at``. Mirrors
+        tags/milestones/embedding). Bumps ``updated_at``. Mirrors
         ``FactConsolidator``'s update-in-place promise — the summary is
-        replaced, not appended to."""
+        replaced, not appended to; same for ``milestones`` when given."""
         ...
 
     def assign_topic_to_cluster(self, topic_id: int, cluster_id: int) -> None:

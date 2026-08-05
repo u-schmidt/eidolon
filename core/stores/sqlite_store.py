@@ -813,7 +813,7 @@ class SqliteStore:
 
     def get_clusters(self, workspace_id: str) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
+            "SELECT id, workspace_id, label, summary, tags, milestones, topic_count, created_at, updated_at "
             "FROM topic_clusters WHERE workspace_id = ? ORDER BY id",
             (workspace_id,),
         ).fetchall()
@@ -824,16 +824,17 @@ class SqliteStore:
                 "label": row[2],
                 "summary": row[3],
                 "tags": json.loads(row[4]),
-                "topic_count": row[5],
-                "created_at": row[6],
-                "updated_at": row[7],
+                "milestones": json.loads(row[5]),
+                "topic_count": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
             }
             for row in rows
         ]
 
     def list_clusters(self, workspace_id: str | None = None) -> list[dict]:
         query = (
-            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
+            "SELECT id, workspace_id, label, summary, tags, milestones, topic_count, created_at, updated_at "
             "FROM topic_clusters"
         )
         params: list[str] = []
@@ -849,9 +850,10 @@ class SqliteStore:
                 "label": row[2],
                 "summary": row[3],
                 "tags": json.loads(row[4]),
-                "topic_count": row[5],
-                "created_at": row[6],
-                "updated_at": row[7],
+                "milestones": json.loads(row[5]),
+                "topic_count": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
             }
             for row in rows
         ]
@@ -862,13 +864,16 @@ class SqliteStore:
         label: str,
         summary: str,
         tags: list[str] | None = None,
+        milestones: list[str] | None = None,
         embedding: list[float] | None = None,
     ) -> int:
         tags_json = json.dumps(tags or [])
+        milestones_json = json.dumps(milestones or [])
         embed_blob = _serialize_embedding(embedding) if embedding else None
         cur = self._conn.execute(
-            "INSERT INTO topic_clusters (workspace_id, label, summary, tags, embedding) VALUES (?, ?, ?, ?, ?)",
-            (workspace_id, label, summary, tags_json, embed_blob),
+            "INSERT INTO topic_clusters (workspace_id, label, summary, tags, milestones, embedding) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (workspace_id, label, summary, tags_json, milestones_json, embed_blob),
         )
         self._conn.commit()
         cluster_id: int = cur.lastrowid  # type: ignore[assignment]
@@ -878,7 +883,7 @@ class SqliteStore:
 
     def get_cluster(self, cluster_id: int) -> dict | None:
         row = self._conn.execute(
-            "SELECT id, workspace_id, label, summary, tags, topic_count, created_at, updated_at "
+            "SELECT id, workspace_id, label, summary, tags, milestones, topic_count, created_at, updated_at "
             "FROM topic_clusters WHERE id = ?",
             (cluster_id,),
         ).fetchone()
@@ -890,9 +895,10 @@ class SqliteStore:
             "label": row[2],
             "summary": row[3],
             "tags": json.loads(row[4]),
-            "topic_count": row[5],
-            "created_at": row[6],
-            "updated_at": row[7],
+            "milestones": json.loads(row[5]),
+            "topic_count": row[6],
+            "created_at": row[7],
+            "updated_at": row[8],
         }
 
     def update_cluster(
@@ -901,6 +907,7 @@ class SqliteStore:
         summary: str,
         label: str | None = None,
         tags: list[str] | None = None,
+        milestones: list[str] | None = None,
         embedding: list[float] | None = None,
     ) -> None:
         sets = ["summary = ?", "updated_at = CURRENT_TIMESTAMP"]
@@ -911,6 +918,9 @@ class SqliteStore:
         if tags is not None:
             sets.append("tags = ?")
             params.append(json.dumps(tags))
+        if milestones is not None:
+            sets.append("milestones = ?")
+            params.append(json.dumps(milestones))
         if embedding is not None:
             sets.append("embedding = ?")
             params.append(_serialize_embedding(embedding))
@@ -1003,13 +1013,15 @@ class SqliteStore:
             else:
                 placeholders = ",".join("?" * len(semantic_lookup))
                 rows = self._conn.execute(
-                    f"SELECT id, workspace_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
+                    f"SELECT id, workspace_id, label, summary, tags, milestones, embedding, "
+                    f"topic_count, created_at, updated_at "
                     f"FROM topic_clusters WHERE id IN ({placeholders})",
                     tuple(semantic_lookup.keys()),
                 ).fetchall()
         else:
             rows = self._conn.execute(
-                "SELECT id, workspace_id, label, summary, tags, embedding, topic_count, created_at, updated_at "
+                "SELECT id, workspace_id, label, summary, tags, milestones, embedding, "
+                "topic_count, created_at, updated_at "
                 "FROM topic_clusters WHERE workspace_id = ?",
                 (workspace_id,),
             ).fetchall()
@@ -1022,15 +1034,16 @@ class SqliteStore:
                 "label": row[2],
                 "summary": row[3],
                 "tags": json.loads(row[4]),
-                "topic_count": row[6],
-                "created_at": row[7],
-                "updated_at": row[8],
+                "milestones": json.loads(row[5]),
+                "topic_count": row[7],
+                "created_at": row[8],
+                "updated_at": row[9],
             }
             # No "person" term — workspace_id is already a hard SQL filter above.
             score, breakdown = scorer.score(
                 candidate_type="cluster",
                 candidate_id=cluster["id"],
-                semantic_raw=self._semantic_similarity(semantic_lookup, cluster["id"], query_embedding, row[5]),
+                semantic_raw=self._semantic_similarity(semantic_lookup, cluster["id"], query_embedding, row[6]),
                 recency_timestamp=cluster["updated_at"],
                 include_tag_overlap=True,
                 query_tags=tags,
@@ -1144,6 +1157,7 @@ class SqliteStore:
                 "label": row[1],
                 "summary": row[2],
                 "tags": json.loads(row[3]),
+                "milestones": cluster_full["milestones"] if cluster_full else [],
                 "topic_count": cluster_full["topic_count"] if cluster_full else 0,
             }
             score, breakdown = scorer.score(
