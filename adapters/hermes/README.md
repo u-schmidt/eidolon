@@ -54,7 +54,7 @@ If you'd rather not use the script, or want to understand what it does:
      llm:
        provider: ollama                # openai_compatible | ollama | lm_studio | openai | openrouter | simulated
        base_url: http://192.168.1.100:11434
-       model: deepseek-v4-flash:cloud
+       model: deepseek-v4.1-flash:cloud
 
      embedder:
        provider: lm_studio             # a local preset of openai_compatible
@@ -256,7 +256,7 @@ python tools/cli.py
 # an incomplete role fails fast with a clear error instead of guessing
 # an endpoint (see Configuration above):
 python tools/cli.py \
-  --llm-provider ollama --llm-base-url http://localhost:11434 --llm-model deepseek-v4-flash:cloud \
+  --llm-provider ollama --llm-base-url http://localhost:11434 --llm-model deepseek-v4.1-flash:cloud \
   --embedder-provider lm_studio --embedder-base-url http://localhost:1234 --embedder-model text-embedding-bge-m3
 
 # With a YAML config file:

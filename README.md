@@ -186,7 +186,7 @@ python tools/cli.py
 # an incomplete role fails fast with a clear error instead of guessing
 # an endpoint (see Configuration below):
 python tools/cli.py \
-  --llm-provider ollama --llm-base-url http://localhost:11434 --llm-model deepseek-v4-flash:cloud \
+  --llm-provider ollama --llm-base-url http://localhost:11434 --llm-model deepseek-v4.1-flash:cloud \
   --embedder-provider lm_studio --embedder-base-url http://localhost:1234 --embedder-model text-embedding-bge-m3
 
 # With a YAML config file:

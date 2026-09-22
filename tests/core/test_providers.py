@@ -233,7 +233,7 @@ class TestPresetDefaults:
         provider = Ollama()
         assert isinstance(provider, OpenAICompatible)
         assert provider._base_url == "http://localhost:11434"
-        assert provider._llm_model == "deepseek-v4-flash:cloud"
+        assert provider._llm_model == "deepseek-v4.1-flash:cloud"
         assert provider._embedder_model == "nomic-embed-text"
         assert provider._timeout == 60
 

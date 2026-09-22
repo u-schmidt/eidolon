@@ -20,7 +20,7 @@ class Ollama(OpenAICompatible):
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
-        llm_model: str = "deepseek-v4-flash:cloud",
+        llm_model: str = "deepseek-v4.1-flash:cloud",
         embedder_model: str = "nomic-embed-text",
         api_key: str = "",
         timeout: int = 60,

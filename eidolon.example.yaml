@@ -68,7 +68,7 @@ models:
   llm:
     provider: ollama            # openai_compatible | ollama | lm_studio | openai | openrouter | simulated
     base_url: http://192.168.1.100:11434
-    model: deepseek-v4-flash:cloud
+    model: deepseek-v4.1-flash:cloud
     max_tokens: 4096             # Response cap for all LLM calls (detection,
                                  # summarization, consolidation, chat). Give a
                                  # reasoning/"thinking" model generous headroom —
