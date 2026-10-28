@@ -187,27 +187,23 @@ consolidation. 400+ tests.
 - **OpenClaw adapter** — a second platform adapter alongside
   `adapters/hermes/`, following the same `core`-never-imports-`adapters`
   boundary and provider-injection pattern. Not implemented yet, but a
-  real reconnaissance pass was done (2026-07-24) to size the effort —
-  findings below so a future session doesn't have to rediscover them.
+  reconnaissance pass was done (2026-07-24) to size the effort —
+  findings below.
 
   **Runtime mismatch, and why it doesn't block this**: OpenClaw is a
-  Node.js/TypeScript gateway (its global npm install's real source —
-  `dist/`, `docs/plugins/`, etc. — is what this reconnaissance pass
-  actually read); native plugins run in-process, in JS — there is
+  Node.js/TypeScript gateway (its npm package's source — `dist/`,
+  `docs/plugins/`, etc. — is what the reconnaissance pass read);
+  native plugins run in-process, in JS — there is
   no way to embed `core.Eidolon` directly the way Hermes does. That
-  turns out not to matter: **`eidolon-server`** (this session's
-  "Core-as-a-service" work) already exposes exactly the HTTP contract
+  turns out not to matter: **`eidolon-server`** (the
+  "Core-as-a-service" work above) already exposes exactly the HTTP contract
   a JS plugin would need (`/prepare-context`, `/store-turn`, etc.,
   the same surface `EidolonHttpClient` speaks) — an OpenClaw adapter
   would be a thin TypeScript HTTP client, no changes to `core/` at all.
 
   **Real precedent found and inspected**: `@honcho-ai/openclaw-honcho`
-  — the OpenClaw plugin for Honcho, the same memory provider already
-  running in this user's live Hermes deployment — is cached locally at
-  `~/.openclaw/npm/projects/honcho-ai-openclaw-honcho-*/node_modules/
-  @honcho-ai/openclaw-honcho/` (path will shift on reinstall/update;
-  re-find via `find ~/.openclaw/npm -iname "*openclaw-honcho*"` if
-  gone). Its `dist/` source was read in full — the single best
+  — the OpenClaw plugin for Honcho, a memory provider Hermes also
+  supports — is published on npm. Its `dist/` source was read in full — the single best
   reference for what this port actually needs, since it solves the
   identical problem (an external AI-native memory service plugged into
   OpenClaw's memory slot) that an Eidolon plugin would solve.

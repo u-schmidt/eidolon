@@ -11,11 +11,13 @@ hooks:
   - pre_llm_call
 
 # Configuration
-# Eidolon loads its configuration from ~/.eidolon/config.yaml
-# See eidolon.example.yaml in the project root for all available options.
+# Eidolon loads its configuration from eidolon.yaml in the Hermes
+# profile directory ($HERMES_HOME/eidolon.yaml). tools/install-plugin.sh
+# scaffolds it from eidolon.example.yaml (project root), which documents
+# all available options.
 #
 # Key settings to customize:
-# - providers: define your LLM and embedder services (LM Studio, Ollama, etc.)
-# - llm.provider: which provider to use for topic detection + extraction
-# - embedder.provider: which provider to use for embeddings
-# - storage.path: where to store the SQLite database
+# - models.llm: LLM for topic detection + extraction (provider/base_url/model)
+# - models.embedder: embedding model (provider/base_url/model/dimension)
+# - storage: sqlite (path) or postgres (host/port/dbname/user/password)
+# - deployment.mode: embedded (default) or server (talk to eidolon-server)
